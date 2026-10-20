@@ -4,6 +4,7 @@
 //
 // Corre con: /usr/bin/osascript -l JavaScript media/macos.js
 // Para controlar el reproductor: ... media/macos.js command next   (previous | playpause | next)
+// Para buscar una canción y ponerla: ... media/macos.js search "canción o artista"
 // Para probar la búsqueda de carátulas: ... media/macos.js artwork "Canción" "Artista"
 // Para probar el modo video con lo que suena: ... media/macos.js video
 //
@@ -182,6 +183,123 @@ function sendCommand(action) {
   }
   emit({ ok: true, via: 'teclas de música', ...(hint ? { hint } : {}) });
   return 0;
+}
+
+// ---- Buscar una canción (el buscador del dock) -----------------------------------
+// Ningún reproductor deja buscar y reproducir sin una cuenta de desarrollador, así que
+// depende de cuál suena:
+//   - YouTube Music en el navegador: se abre la búsqueda en su pestaña y se pone el
+//     primer resultado (mismo permiso que los botones: JavaScript desde Apple Events).
+//   - Spotify: se abre la búsqueda en la app y ahí se elige la canción.
+//   - Apple Music: se busca en la biblioteca y se pone la primera que coincida.
+//   - Nada de eso: se abre la búsqueda de YouTube Music en el navegador.
+const YTM_PAGE = /^https:\/\/music\.youtube\.com\//;
+
+function openUrl(url) {
+  return $.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(url));
+}
+
+// Pone el primer resultado de la búsqueda (la canción del "Mejor resultado" o la
+// primera de la lista). 'esperando' mientras la página aún no cargó los resultados.
+function firstResultScript(query) {
+  return `(() => {
+    if (location.pathname !== '/search' || new URLSearchParams(location.search).get('q') !== ${JSON.stringify(query)}) return 'esperando';
+    const link = document.querySelector('ytmusic-section-list-renderer a[href*="watch?v="]');
+    if (!link) return document.querySelector('ytmusic-message-renderer') ? 'sin-resultados' : 'esperando';
+    link.click();
+    return 'ok';
+  })()`;
+}
+
+function runIn(browser, b, tab, code) {
+  return String(browser[0] === 'com.apple.Safari' ? b.doJavaScript(code, { in: tab }) : tab.execute({ javascript: code }));
+}
+
+function youtubeMusicTab(app) {
+  // Primero el navegador que suena; si no, cualquiera con YouTube Music abierto.
+  const first = BROWSERS.find(([id]) => app === id || app.startsWith(`${id}.`));
+  const order = first ? [first, ...BROWSERS.filter((b) => b !== first)] : BROWSERS;
+  for (const browser of order) {
+    try {
+      const b = Application(browser[0]);
+      if (!b.running()) continue;
+      for (const w of b.windows()) {
+        for (const t of w.tabs()) {
+          if (YTM_PAGE.test(String(t.url() || ''))) return { browser, b, tab: t };
+        }
+      }
+    } catch (e) {
+      // sin permiso de Automatización para ese navegador: se sigue con el siguiente
+    }
+  }
+  return null;
+}
+
+function searchYouTubeMusic(query, app) {
+  const url = `https://music.youtube.com/search?q=${encodeURIComponent(query)}`;
+  const found = youtubeMusicTab(app);
+  if (!found) {
+    openUrl(url);
+    return { ok: true, via: 'navegador', info: 'Abrí la búsqueda en YouTube Music: elige la canción ahí.' };
+  }
+  const { browser, b, tab } = found;
+  try {
+    runIn(browser, b, tab, `location.href = ${JSON.stringify(url)}; 'ok'`);
+  } catch (e) {
+    if (/javascript/i.test(String(e))) {
+      tab.url = url; // sin JavaScript se puede abrir la búsqueda, pero no elegir la canción
+      return {
+        ok: true,
+        via: 'navegador',
+        info: 'Abrí la búsqueda en YouTube Music. Para que ponga la canción sola, activa en el navegador: Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events.',
+      };
+    }
+    // La página empezó a navegar antes de responder: se sigue esperando los resultados.
+  }
+  for (let i = 0; i < 30; i++) {
+    delay(0.5);
+    let result = 'esperando';
+    try {
+      result = runIn(browser, b, tab, firstResultScript(query));
+    } catch (e) {
+      // la página se está recargando
+    }
+    if (result === 'ok') return { ok: true, via: 'YouTube Music' };
+    if (result === 'sin-resultados') return { error: `YouTube Music no encontró "${query}".` };
+  }
+  return { ok: true, via: 'navegador', info: 'Abrí la búsqueda en YouTube Music: elige la canción ahí.' };
+}
+
+function searchAppleMusic(query) {
+  const music = Application('com.apple.Music');
+  const tracks = music.search(music.libraryPlaylists[0], { for: query });
+  if (!tracks || !tracks.length) return null;
+  tracks[0].play();
+  return { ok: true, via: 'Apple Music' };
+}
+
+function searchSong(query) {
+  query = String(query || '').trim().slice(0, 200);
+  if (!query) {
+    emit({ error: 'Escribe el nombre de una canción o un artista.' });
+    return 2;
+  }
+  const app = nowPlayingApp();
+  let result;
+  try {
+    if (app === 'com.spotify.client') {
+      openUrl(`spotify:search:${encodeURIComponent(query)}`);
+      result = { ok: true, via: 'Spotify', info: 'Abrí la búsqueda en Spotify: elige la canción ahí.' };
+    } else if (app === 'com.apple.Music') {
+      result = searchAppleMusic(query) || searchYouTubeMusic(query, app);
+    } else {
+      result = searchYouTubeMusic(query, app);
+    }
+  } catch (e) {
+    result = { error: `No se pudo buscar: ${String(e).slice(0, 200)}` };
+  }
+  emit(result);
+  return result.error ? 1 : 0;
 }
 
 // macOS nuevos (visto en macOS 27) ya no mandan la imagen en "Ahora suena": solo un
@@ -417,6 +535,7 @@ function run(argv) {
   const mode = argv[0];
   const code =
     mode === 'command' ? sendCommand(argv[1])
+    : mode === 'search' ? searchSong(argv[1])
     : mode === 'artwork' ? testArtwork(argv[1], argv[2])
     : mode === 'video' ? testVideo()
     : mode === 'selftest' ? selfTest()

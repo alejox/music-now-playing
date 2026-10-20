@@ -48,6 +48,8 @@ public:
 
 	// previous | playpause | next, sobre la app que se está mostrando.
 	void sendCommand(const QString &action);
+	// Buscador del dock: busca la canción en el reproductor que suena (ver media/macos.js).
+	void searchSong(const QString &query);
 
 	static qint64 now();
 
@@ -60,6 +62,10 @@ signals:
 	void updated();
 	// Un botón no funcionó (p. ej. falta el permiso de Accesibilidad en macOS).
 	void commandFailed(const QString &message);
+	// Un aviso que no es un error (p. ej. "elige la canción en Spotify").
+	void commandNotice(const QString &message);
+	// Terminó una búsqueda (bien o mal): el dock vuelve a habilitar el buscador.
+	void searchFinished();
 
 private:
 	MediaWatcher() = default;

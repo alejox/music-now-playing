@@ -9,6 +9,7 @@
 #include <QIcon>
 #include <QImage>
 #include <QLabel>
+#include <QLineEdit>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
@@ -133,6 +134,21 @@ QPixmap glyphPixmap(Glyph glyph, const QColor &color, int size, qreal dpr)
 	return pixmap;
 }
 
+// Lupa del buscador.
+QPixmap searchGlyph(const QColor &color, int size, qreal dpr)
+{
+	QPixmap pixmap(QSize(size, size) * dpr);
+	pixmap.setDevicePixelRatio(dpr);
+	pixmap.fill(Qt::transparent);
+	QPainter p(&pixmap);
+	p.setRenderHint(QPainter::Antialiasing);
+	p.setPen(QPen(color, size * 0.11, Qt::SolidLine, Qt::RoundCap));
+	const qreal s = size;
+	p.drawEllipse(QRectF(s * 0.18, s * 0.18, s * 0.46, s * 0.46));
+	p.drawLine(QPointF(s * 0.58, s * 0.58), QPointF(s * 0.82, s * 0.82));
+	return pixmap;
+}
+
 QIcon glyphIcon(Glyph glyph, const QColor &color, int size, qreal dpr)
 {
 	QIcon icon;
@@ -240,10 +256,31 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	buttons->addStretch(1);
 	layout->addLayout(buttons);
 
+	// Buscador: Enter busca la canción en el reproductor que suena.
+	search_ = new QLineEdit(this);
+	search_->setPlaceholderText(text("NowPlaying.Search.Placeholder"));
+	search_->setToolTip(text("NowPlaying.Search.Tip"));
+	search_->setClearButtonEnabled(true);
+	search_->setMaxLength(200);
+	search_->setMinimumHeight(32);
+	search_->addAction(QIcon(searchGlyph(palette().color(QPalette::PlaceholderText), 16, devicePixelRatioF())),
+			   QLineEdit::LeadingPosition);
+	connect(search_, &QLineEdit::returnPressed, this, [this] {
+		if (search_->text().trimmed().isEmpty())
+			return;
+		search_->setEnabled(false);
+		commandError_ = text("NowPlaying.Search.Searching");
+		commandNotice_ = true;
+		commandErrorUntil_ = MediaWatcher::now() + 20000;
+		refresh();
+		MediaWatcher::instance().searchSong(search_->text());
+	});
+	layout->addSpacing(4);
+	layout->addWidget(search_);
+
 	status_ = new QLabel(this);
 	status_->setWordWrap(true);
 	status_->setAlignment(Qt::AlignHCenter);
-	status_->setStyleSheet("color: #f87171;");
 	layout->addWidget(status_);
 	layout->addStretch(1);
 
@@ -252,7 +289,23 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	// Si un botón no funcionó, el motivo se muestra unos segundos debajo de los botones.
 	connect(&MediaWatcher::instance(), &MediaWatcher::commandFailed, this, [this](const QString &message) {
 		commandError_ = message;
+		commandNotice_ = false;
 		commandErrorUntil_ = MediaWatcher::now() + 12000;
+		refresh();
+	});
+	connect(&MediaWatcher::instance(), &MediaWatcher::commandNotice, this, [this](const QString &message) {
+		commandError_ = message;
+		commandNotice_ = true;
+		commandErrorUntil_ = MediaWatcher::now() + 12000;
+		refresh();
+	});
+	connect(&MediaWatcher::instance(), &MediaWatcher::searchFinished, this, [this] {
+		// Si sigue el "Buscando…", la búsqueda salió bien sin aviso: se borra.
+		if (commandError_ == text("NowPlaying.Search.Searching"))
+			commandErrorUntil_ = 0;
+		if (commandNotice_)
+			search_->clear();
+		search_->setEnabled(true);
 		refresh();
 	});
 	auto *timer = new QTimer(this);
@@ -325,8 +378,12 @@ void NowPlayingDock::refresh()
 	default:
 		status_->clear();
 	}
-	if (!commandError_.isEmpty() && MediaWatcher::now() < commandErrorUntil_)
+	bool notice = false;
+	if (!commandError_.isEmpty() && MediaWatcher::now() < commandErrorUntil_) {
 		status_->setText(commandError_);
+		notice = commandNotice_;
+	}
+	status_->setStyleSheet(notice ? QString("color: palette(text);") : QString("color: #f87171;"));
 
 	Track track = watcher.current(true);
 	for (QToolButton *button : {previous_, playPause_, next_})

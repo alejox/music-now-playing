@@ -4,10 +4,11 @@
 #include <QWidget>
 
 class QLabel;
+class QLineEdit;
 class QProgressBar;
 class QToolButton;
 
-// Dock "Música": la canción que suena con anterior / pausa / siguiente. Vive dentro de
+// Dock "Música": la canción que suena con anterior / pausa / siguiente y un buscador. Vive dentro de
 // OBS (Docks → Música) y no sale en el stream.
 class NowPlayingDock : public QWidget {
 	Q_OBJECT
@@ -35,9 +36,11 @@ private:
 	QToolButton *previous_ = nullptr;
 	QToolButton *playPause_ = nullptr;
 	QToolButton *next_ = nullptr;
+	QLineEdit *search_ = nullptr;
 	QString artKey_;
 	QColor accent_;
 	bool playing_ = false;
 	QString commandError_;
 	qint64 commandErrorUntil_ = 0;
+	bool commandNotice_ = false;
 };
