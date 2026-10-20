@@ -97,7 +97,7 @@ Todo corre en tu computador y nada sale a internet. El servidor solo escucha en 
 - Correr desde el código: `npm start` (Node 18+). Usa la misma carpeta de datos que la app instalada; `OBS_NOW_PLAYING_DATA=/otra/ruta` la cambia.
 - Lectores del sistema: `media/windows.ps1` (Windows PowerShell 5.1 + WinRT) y `media/macos.js` (JavaScript for Automation). Ambos escriben una línea JSON por segundo; el protocolo está al inicio de `media/windows.ps1`. Para probar sin Windows ni Mac, `OBS_NOW_PLAYING_HELPER=lector-falso.js` hace que el servidor use un script de Node que escriba ese mismo protocolo.
 - En macOS 15.4+ Apple solo deja leer "Ahora suena" a programas del sistema; por eso el lector corre en `osascript` y no en Node.
-- Generar los instaladores: `./build/build.sh` (Linux, macOS o WSL; requiere `python3` con Pillow y `makensis`/NSIS). Descarga el Node.js oficial, verifica su SHA-256 y deja todo en `dist/`. Publicar un tag `v*` en GitHub hace lo mismo en Actions y sube los archivos a Releases.
+- Generar los instaladores: `./build/build.sh` (Linux o WSL; requiere `python3` con Pillow, `makensis`/NSIS, `clang` y `lld`). Descarga el Node.js oficial, verifica su SHA-256 y deja todo en `dist/`. Publicar un tag `v*` en GitHub hace lo mismo en Actions y sube los archivos a Releases.
 - La app de Mac usa el binario oficial de Node sin modificar (firmado y notarizado por Node.js); lo que macOS no puede verificar es el paquete `.app`. Quitar el aviso del todo requiere firmar y notarizar con una cuenta de Apple Developer (USD 99/año). En Windows, el equivalente es un certificado de firma de código.
 
 ## Licencia

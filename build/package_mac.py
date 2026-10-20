@@ -1,24 +1,20 @@
 """Arma "OBS Now Playing.app" y lo comprime en un .zip listo para descargar.
 
-Uso: python3 build/package_mac.py <version> <arch> <node_tar_gz> <icns> <salida.zip>
+Uso: python3 build/package_mac.py <version> <arch> <node_tar_gz> <icns> <lanzador> <salida.zip>
 
-El ejecutable de la app es un script corto que arranca el `node` oficial (firmado
-y notarizado por Node.js) en segundo plano y termina: así, abrir la app otra vez
-vuelve a correr el script, que detecta la copia abierta y muestra su panel.
+El ejecutable de la app es un lanzador compilado (build/macos/launcher.c) que
+arranca el `node` oficial (firmado y notarizado por Node.js) en segundo plano y
+termina: así, abrir la app otra vez lo vuelve a correr y server.js muestra el
+panel de la copia abierta.
 """
 import sys
 import tarfile
 import zipfile
 from pathlib import Path
 
-version, arch, node_tgz, icns, out_zip = sys.argv[1:6]
+version, arch, node_tgz, icns, launcher, out_zip = sys.argv[1:7]
 ROOT = Path(__file__).resolve().parent.parent
 APP = "OBS Now Playing.app"
-
-LAUNCHER = """#!/bin/bash
-RES="$(cd "$(dirname "$0")/../Resources" && pwd)"
-nohup "$RES/node" "$RES/app/server.js" --open --log >/dev/null 2>&1 &
-"""
 
 INFO_PLIST = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -30,6 +26,7 @@ INFO_PLIST = f"""<?xml version="1.0" encoding="UTF-8"?>
   <key>CFBundleVersion</key><string>{version}</string>
   <key>CFBundleShortVersionString</key><string>{version}</string>
   <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
   <key>CFBundleExecutable</key><string>OBS Now Playing</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
@@ -54,7 +51,7 @@ with tarfile.open(node_tgz) as tar:
 
 with zipfile.ZipFile(out_zip, "w", compresslevel=9) as zf:
     add(zf, "Contents/Info.plist", INFO_PLIST)
-    add(zf, "Contents/MacOS/OBS Now Playing", LAUNCHER, 0o755)
+    add(zf, "Contents/MacOS/OBS Now Playing", Path(launcher).read_bytes(), 0o755)
     add(zf, "Contents/Resources/AppIcon.icns", Path(icns).read_bytes())
     add(zf, "Contents/Resources/node", node_binary, 0o755)
     for f in ("server.js", "overlay.html", "now-playing.user.js"):
