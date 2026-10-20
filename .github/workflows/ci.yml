@@ -35,6 +35,24 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
+      - name: Diagnóstico paso a paso (WinRT en Windows PowerShell 5.1)
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -NonInteractive -Command {
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            "PowerShell $($PSVersionTable.PSVersion) / $([Environment]::OSVersion.VersionString)"
+            Add-Type -AssemblyName System.Runtime.WindowsRuntime
+            "Add-Type: $($sw.ElapsedMilliseconds) ms"
+            $type = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager,Windows.Media.Control,ContentType=WindowsRuntime]
+            "tipo SMTC: $($sw.ElapsedMilliseconds) ms"
+            $asTask = [System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object { $_.Name -eq 'AsTask' -and $_.GetParameters().Count -eq 1 -and $_.GetParameters()[0].ParameterType.Name -eq 'IAsyncOperation`1' } | Select-Object -First 1
+            $task = $asTask.MakeGenericMethod($type).Invoke($null, @($type::RequestAsync()))
+            "RequestAsync terminó: $($task.Wait(15000)) a los $($sw.ElapsedMilliseconds) ms, estado $($task.Status)"
+            if ($task.Exception) { "error: $($task.Exception.InnerException.Message)" }
+            if ($task.IsCompleted -and -not $task.IsFaulted) { "sesiones: $(@($task.Result.GetSessions()).Count)" }
+          }
+
       - name: El lector de Windows arranca y responde
         shell: pwsh
         run: |
@@ -42,9 +60,9 @@ jobs:
           $p = Start-Process powershell.exe -PassThru -NoNewWindow `
             -ArgumentList '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "$PWD\media\windows.ps1", '-CommandFile', $cmdFile `
             -RedirectStandardOutput out.txt -RedirectStandardError err.txt
-          Start-Sleep -Seconds 6
+          Start-Sleep -Seconds 15
           '{"cmd":"playpause","app":"no-existe.exe"}' | Set-Content $cmdFile
-          Start-Sleep -Seconds 3
+          Start-Sleep -Seconds 4
           Stop-Process -Id $p.Id -Force
           "--- salida"; Get-Content out.txt -TotalCount 5
           "--- errores"; Get-Content err.txt

@@ -30,7 +30,8 @@ function sendCommand(action) {
     return 3;
   }
   ObjC.bindFunction('MRMediaRemoteSendCommand', ['bool', ['int', 'id']]);
-  if (!$.MRMediaRemoteSendCommand(COMMANDS[action], null)) {
+  // El segundo argumento son opciones: un diccionario vacío (con null macOS falla).
+  if (!$.MRMediaRemoteSendCommand(COMMANDS[action], $.NSDictionary.dictionary)) {
     emit({ error: 'macOS no aceptó el comando (¿no hay nada sonando?).' });
     return 1;
   }
