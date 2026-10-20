@@ -41,8 +41,8 @@ Descarga el zip de tu sistema desde **[Releases](../../releases/latest)** y **ci
 | | macOS (OBS 31+) | Windows (OBS 31+) |
 |---|---|---|
 | **Archivo** | `obs-now-playing-plugin-<versión>-macos.zip` | `obs-now-playing-plugin-<versión>-windows-x64.zip` |
-| **1** | Descomprímelo: queda `obs-now-playing.plugin` | Descomprímelo en `C:\ProgramData\obs-studio\plugins\` |
-| **2** | Cópialo a `~/Library/Application Support/obs-studio/plugins/` | — |
+| **1** | Descomprímelo: queda `obs-now-playing.plugin` | Cierra OBS y descomprímelo donde sea (clic derecho → Extraer todo) |
+| **2** | Cópialo a `~/Library/Application Support/obs-studio/plugins/` | Abre `Instalar.cmd`: copia el plugin a `C:\ProgramData\obs-studio\plugins\obs-now-playing` |
 | **3** | Pega en la Terminal el comando de abajo (una vez) | — |
 | **4** | Abre OBS | Abre OBS |
 
@@ -81,7 +81,7 @@ Escribe una canción o un artista y pulsa **Enter**. Lo que pasa depende del rep
 <details>
 <summary><b>No sale la carátula</b></summary>
 
-En los macOS recientes el sistema ya no entrega la imagen. El plugin se la pide a la app de Spotify (macOS pregunta si OBS puede controlar Spotify: responde Permitir) y, para los demás reproductores, la busca por artista y canción en el catálogo público de Apple.
+En los macOS recientes el sistema ya no entrega la imagen. El plugin se la pide a la app de Spotify (macOS pregunta si OBS puede controlar Spotify: responde Permitir) y, para los demás reproductores, la busca por artista y canción en el catálogo público de Apple. En Windows, si el reproductor no manda imagen (los navegadores muchas veces no), hace la misma búsqueda y, para YouTube en el navegador, usa la miniatura del video.
 </details>
 
 <details>
@@ -181,7 +181,7 @@ Opciones para la URL (se combinan con `&`):
 ## 🔒 Privacidad
 
 - Todo corre en tu computador; no hay servidores nuestros.
-- El plugin solo se conecta a internet para buscar actualizaciones en GitHub, para buscar la carátula que falte en el catálogo público de Apple (nombre de la canción y artista) y, en el modo video, para cargar el reproductor de YouTube.
+- El plugin solo se conecta a internet para buscar actualizaciones en GitHub, para buscar la carátula que falte en el catálogo público de Apple (nombre de la canción y artista), en Windows para encontrar el video de YouTube que suena cuando no se puede leer la barra de direcciones (título del video y canal) y, en el modo video, para cargar el reproductor de YouTube.
 - La app solo escucha en `127.0.0.1` y no deja que otras páginas web lean lo que escuchas.
 
 ## 🛠️ Para desarrolladores
