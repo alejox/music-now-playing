@@ -24,6 +24,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QTimer>
 
 #include "media-watcher.hpp"
+#include "music-channel.hpp"
 #include "now-playing-dock.hpp"
 #include "now-playing-source.hpp"
 #include "updater.hpp"
@@ -54,6 +55,9 @@ bool obs_module_load(void)
 	auto *dock = new NowPlayingDock(main_window);
 	obs_frontend_add_dock_by_id("obs_now_playing_dock", obs_module_text("NowPlaying.Dock"), dock);
 	obs_frontend_add_event_callback(on_frontend_event, nullptr);
+	obs_frontend_add_tools_menu_item(
+		obs_module_text("NowPlaying.Channel.MenuItem"),
+		[](void *) { create_music_channel(static_cast<QWidget *>(obs_frontend_get_main_window())); }, nullptr);
 	obs_frontend_add_tools_menu_item(
 		obs_module_text("NowPlaying.Update.MenuItem"), [](void *) { Updater::instance().check(true); }, nullptr);
 	Updater::cleanupPreviousUpdate();

@@ -38,6 +38,8 @@ target_sources(
     src/plugin-main.cpp
     src/media-watcher.cpp
     src/media-watcher.hpp
+    src/music-channel.cpp
+    src/music-channel.hpp
     src/now-playing-source.cpp
     src/now-playing-source.hpp
     src/now-playing-dock.cpp

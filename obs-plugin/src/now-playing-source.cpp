@@ -1,6 +1,8 @@
 #include "now-playing-source.hpp"
 #include "media-watcher.hpp"
+#include "music-channel.hpp"
 
+#include <obs-frontend-api.h>
 #include <obs-module.h>
 #include <plugin-support.h>
 
@@ -255,6 +257,12 @@ bool np_size_modified(obs_properties_t *, obs_property_t *, obs_data_t *settings
 	return true;
 }
 
+bool np_create_channel(obs_properties_t *, obs_property_t *, void *)
+{
+	create_music_channel(static_cast<QWidget *>(obs_frontend_get_main_window()));
+	return false;
+}
+
 obs_properties_t *np_properties(void *)
 {
 	obs_properties_t *props = obs_properties_create();
@@ -317,6 +325,9 @@ obs_properties_t *np_properties(void *)
 	obs_properties_add_bool(props, "progress", obs_module_text("NowPlaying.Progress"));
 	obs_properties_add_bool(props, "label", obs_module_text("NowPlaying.Label"));
 	obs_properties_add_bool(props, "preview", obs_module_text("NowPlaying.Preview"));
+	// También desde aquí, donde se busca primero (además del dock y de Herramientas).
+	obs_properties_add_button(props, "create_channel", obs_module_text("NowPlaying.Channel.Button"),
+				  np_create_channel);
 	return props;
 }
 
