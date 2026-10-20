@@ -78,8 +78,12 @@ jobs:
           name: mac
           path: dist/*
 
+  # El plugin nativo de OBS (obs-plugin/), compilado en Mac y Windows.
+  plugin:
+    uses: ./.github/workflows/plugin.yml
+
   publish:
-    needs: [windows, mac]
+    needs: [windows, mac, plugin]
     if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish }}
     runs-on: ubuntu-24.04
     steps:
@@ -104,5 +108,11 @@ jobs:
             - **Windows 10/11:** `OBS-Now-Playing-Setup-….exe`
             - **Mac con chip Apple (M1/M2/M3/M4…):** `OBS-Now-Playing-…-mac-apple.zip`
             - **Mac con Intel:** `OBS-Now-Playing-…-mac-intel.zip`
+
+            ### Plugin nativo para OBS (fuente "Now Playing" y dock "Música")
+            - **macOS:** `obs-now-playing-plugin-…-macos.zip`
+            - **Windows:** `obs-now-playing-plugin-…-windows-x64.zip`
+
+            Cómo instalarlo: [obs-plugin/README](${{ github.server_url }}/${{ github.repository }}/tree/main/obs-plugin#instalar).
 
             Cómo instalar y qué hacer con los avisos de Windows/macOS: [README](${{ github.server_url }}/${{ github.repository }}#1-instalar).

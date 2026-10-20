@@ -4,6 +4,13 @@ Muestra en OBS la canción que suena en tu computador: carátula, título, artis
 
 ![Overlay](docs/overlay.png)
 
+## ¿App o plugin?
+
+Hay dos formas de usarlo, con los mismos lectores por dentro:
+
+- **Plugin de OBS** (recomendado si solo lo usas en OBS): agrega la fuente **Now Playing (música)** y el dock **Música** directamente dentro de OBS, configurables desde sus propiedades. Ver **[obs-plugin/](obs-plugin/)**.
+- **App** (esta página): corre aparte y sirve el overlay por URL. Sirve también para otros programas de streaming, o para usar la Fuente de texto.
+
 ## Cómo funciona
 
 Windows y macOS ya saben qué está sonando: es lo que muestran el control de volumen de Windows y el "Ahora suena" del Centro de control del Mac. La app lee esa información y la sirve como una página que OBS muestra con una **Fuente de navegador**.
