@@ -8,6 +8,10 @@
 # Es un archivo y no la entrada estándar a propósito: en Windows PowerShell 5.1 leer
 # la entrada sin bloquear el bucle no es confiable, y un lector bloqueado congela el overlay.
 #
+# Modo video (plugin de OBS): mientras exista el archivo -VideoFlag, para lo que suena en
+# un navegador se agrega "videoId", el id del video de YouTube / YouTube Music leído de la
+# barra de direcciones (UI Automation). Solo sirve si esa pestaña es la visible de su ventana.
+#
 #   {"sessions":[{"app":"Spotify.exe","title":"…","artist":"…","album":"…",
 #                 "isPlaying":true,"current":true,"progressMs":1234,"durationMs":5678,
 #                 "artwork":"data:image/png;base64,…"}]}      ← artwork solo cuando cambia
@@ -15,7 +19,7 @@
 #
 # Usa solo lo que trae Windows PowerShell 5.1 (Windows 10/11): sin módulos extra.
 
-param([string]$CommandFile = '')
+param([string]$CommandFile = '', [string]$VideoFlag = '')
 
 $ErrorActionPreference = 'Stop'
 $stdout = New-Object System.IO.StreamWriter ([Console]::OpenStandardOutput()), (New-Object System.Text.UTF8Encoding $false)
@@ -83,6 +87,54 @@ function Read-Thumbnail($reference) {
   }
 }
 
+# Modo video: el id del video de YouTube que suena, leído de la barra de direcciones de
+# las ventanas del navegador (la de la pestaña visible). Una ventana sirve si su título
+# (el de la pestaña) dice YouTube o trae el nombre de la canción.
+$browserApps = 'chrome|msedge|brave|vivaldi|opera|firefox'
+$youtubeWatch = '^(?:https?://)?(?:music\.|www\.|m\.)?youtube\.com/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})'
+$videoIds = @{}   # "app`ncanción" → id
+$videoTries = @{}
+$uiaReady = $false
+
+function Find-YouTubeVideoId($title) {
+  if (-not $script:uiaReady) {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $script:uiaReady = $true
+  }
+  $auto = [System.Windows.Automation.AutomationElement]
+  $scope = [System.Windows.Automation.TreeScope]
+  $byType = { param($type) New-Object System.Windows.Automation.PropertyCondition($auto::ControlTypeProperty, $type) }
+  $found = New-Object System.Collections.ArrayList
+  $windows = $auto::RootElement.FindAll($scope::Children, (& $byType ([System.Windows.Automation.ControlType]::Window)))
+  foreach ($window in $windows) {
+    $name = "$($window.Current.Name)"
+    if ($name -notmatch 'YouTube' -and -not ($title -and $name.ToLower().Contains($title.ToLower()))) { continue }
+    # La barra de direcciones es el primer cuadro de texto (la página viene después):
+    # FindFirst no recorre la página entera.
+    $edit = $window.FindFirst($scope::Descendants, (& $byType ([System.Windows.Automation.ControlType]::Edit)))
+    if (-not $edit) { continue }
+    $value = ''
+    try { $value = "$($edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value)" } catch { continue }
+    if ($value -match $youtubeWatch) { [void]$found.Add(@{ id = $Matches[1]; name = $name.ToLower() }) }
+  }
+  # Con varias ventanas de YouTube, la que tiene el título de la canción.
+  $hit = $found | Where-Object { $title -and $_.name.Contains($title.ToLower()) } | Select-Object -First 1
+  if (-not $hit -and $found.Count -eq 1) { $hit = $found[0] }
+  if ($hit) { $hit.id } else { '' }
+}
+
+function Get-VideoId($app, $title) {
+  if (-not $VideoFlag -or $app -notmatch $browserApps -or -not [System.IO.File]::Exists($VideoFlag)) { return '' }
+  $key = "$app`n$title"
+  if ($videoIds[$key]) { return $videoIds[$key] }
+  if ([int]$videoTries[$key] -ge 3) { return '' } # la dirección cambia un instante después del título
+  $videoTries[$key] = 1 + [int]$videoTries[$key]
+  $id = ''
+  try { $id = Find-YouTubeVideoId $title } catch { $id = '' }
+  if ($id) { $videoIds[$key] = $id }
+  $id
+}
+
 try {
   $manager = Await ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager]::RequestAsync()) ([Windows.Media.Control.GlobalSystemMediaTransportControlsSessionManager])
 } catch {
@@ -148,6 +200,8 @@ for ($i = 0; $i -lt 1800; $i++) {
           $tries[$app] = 0
         }
       }
+      $videoId = Get-VideoId $app $props.Title
+      if ($videoId) { $entry.videoId = $videoId }
       [void]$sessions.Add($entry)
     }
 

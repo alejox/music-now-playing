@@ -28,7 +28,7 @@ Funciona con **Spotify** (app o web), **YouTube Music**, **Apple Music** y cualq
 | 🎨 **Colores de la carátula** | La tarjeta toma los colores de la carátula de cada canción, con una transición suave. |
 | 🪟 **Sólido o cristal** | Tarjeta sólida o traslúcida tipo "cristal", con opacidad ajustable. Tema claro u oscuro. |
 | 📐 **Horizontal o vertical** | Barra o tarjeta vertical; el tamaño de la fuente se ajusta solo. |
-| 🎬 **Modo video** | Con YouTube Music / YouTube, el video en vez de la carátula (sin sonido y sincronizado). |
+| 🎬 **Modo video** | Con YouTube Music / YouTube, el video en vez de la carátula (sin sonido y sincronizado), en Mac y Windows. |
 | 🖼️ **Tu logo** | Una imagen tuya para las canciones sin carátula. |
 | ⏯️ **Dock de control** | Anterior / pausa / siguiente y un **buscador de canciones**, dentro de OBS y fuera del stream. |
 | 🔊 **Canal de música** | Con un clic, un canal en el Mezclador de audio solo con el sonido del reproductor; te sigue si cambias de reproductor. |

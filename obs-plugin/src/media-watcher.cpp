@@ -135,7 +135,9 @@ void MediaWatcher::launch()
 		"-File",
 		QDir::toNativeSeparators(moduleFile("media/windows.ps1")),
 		"-CommandFile",
-		QDir::toNativeSeparators(commandFile_)};
+		QDir::toNativeSeparators(commandFile_),
+		"-VideoFlag",
+		QDir::toNativeSeparators(videoFlagFile_)};
 	QFile::remove(commandFile_); // un comando viejo no se ejecuta al arrancar
 #else
 	// Desde macOS 15.4 solo programas del sistema pueden leer "Ahora suena": por eso
@@ -222,6 +224,11 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		QString title = s.value("title").toString().trimmed().left(300);
 		if (app.isEmpty() || title.isEmpty())
 			continue;
+#ifdef _WIN32
+		// El video de la tarjeta suena dentro de OBS (sin sonido): nunca es la música.
+		if (app.compare("obs64.exe", Qt::CaseInsensitive) == 0)
+			continue;
+#endif
 
 		Track track;
 		AppInfo info = classifyApp(app, s.value("name").toString().left(100));
