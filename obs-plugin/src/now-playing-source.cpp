@@ -32,7 +32,7 @@ Size suggestedSize(const char *layout, const char *art)
 	bool hidden = strcmp(art, "hidden") == 0;
 	bool big = strcmp(art, "big") == 0;
 	if (vertical)
-		return hidden ? Size{320, 160} : Size{320, 420};
+		return hidden ? Size{280, 140} : Size{280, 360};
 	return big ? Size{520, 180} : Size{480, 150};
 }
 

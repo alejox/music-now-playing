@@ -77,31 +77,41 @@
      prohíben): se carga a tamaño de escritorio y se muestra reducido con transform. Con un
      reproductor chico YouTube usa su interfaz compacta, que deja un botón de pausa fijo
      en el centro. No se muestra hasta que reproduce. */
+  /* El recuadro es el mismo que el de la carátula (la tarjeta no cambia de tamaño): el
+     video va completo en 16:9 y centrado, y el espacio de arriba y abajo lo llena la
+     carátula difuminada, por detrás del reproductor (no lo tapa ni lo recorta). */
   .video { position: relative; overflow: hidden; background: #000; }
-  .video iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; pointer-events: none; }
-  [data-layout="vertical"] .art.video { aspect-ratio: 16 / 9; }
+  .video::before {
+    content: "";
+    position: absolute;
+    inset: -20px;
+    background: var(--cover, none) center / cover no-repeat;
+    filter: blur(18px) saturate(1.3) brightness(0.75);
+  }
+  .video iframe { position: absolute; left: 0; border: 0; transform-origin: 0 0; pointer-events: none; z-index: 1; }
 
   /* Diseño vertical: carátula arriba, cuadrada y a todo el ancho; textos centrados.
-     La altura sale del ancho de la fuente (carátula cuadrada + textos). */
+     Compacta: la altura sale del ancho de la fuente (carátula + textos). */
   [data-layout="vertical"] .card {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
-    padding: 14px;
+    gap: 9px;
+    padding: 10px;
     text-align: center;
-    border-radius: 20px;
+    border-radius: 18px;
   }
   [data-layout="vertical"] .art {
     width: 100%;
     height: auto;
     aspect-ratio: 1;
-    border-radius: 14px;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    border-radius: 11px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3);
   }
-  [data-layout="vertical"] .label { justify-content: center; }
-  [data-layout="vertical"] .title { font-size: 21px; margin-top: 4px; }
-  [data-layout="vertical"] .artist { font-size: 15px; margin-top: 2px; }
-  [data-layout="vertical"] .progress { margin-top: 12px; }
+  [data-layout="vertical"] .meta { padding: 0 2px 2px; }
+  [data-layout="vertical"] .label { justify-content: center; font-size: 9.5px; letter-spacing: 0.06em; white-space: nowrap; }
+  [data-layout="vertical"] .title { font-size: 17px; margin-top: 3px; }
+  [data-layout="vertical"] .artist { font-size: 13px; margin-top: 1px; }
+  [data-layout="vertical"] .progress { margin-top: 7px; font-size: 10px; }
 
   /* Estilo cristal: fondo traslúcido del color de la carátula (deja ver la escena),
      brillo en diagonal, borde de luz y sombra interior. OBS no deja que una fuente
@@ -325,17 +335,22 @@
     video.lastSync = Date.now();
   }
 
-  // El reproductor se arma a 480 px de ancho como mínimo (interfaz de escritorio) y se
-  // reduce al tamaño del recuadro.
+  // El reproductor se arma a 480 px de ancho como mínimo (interfaz de escritorio), en
+  // 16:9, y se reduce y centra en el recuadro cuadrado de la carátula.
   const VIDEO_RENDER_WIDTH = 480;
   function fitVideo() {
     const box = $('videoBox');
     const frame = video.ready && video.player.getIframe();
     if (!frame || box.hidden || !box.clientWidth) return;
-    const k = Math.max(1, VIDEO_RENDER_WIDTH / box.clientWidth);
-    frame.style.width = `${box.clientWidth * k}px`;
-    frame.style.height = `${box.clientHeight * k}px`;
+    const width = box.clientWidth;
+    const height = Math.min(box.clientHeight, (width * 9) / 16);
+    const k = Math.max(1, VIDEO_RENDER_WIDTH / width);
+    frame.style.width = `${width * k}px`;
+    frame.style.height = `${height * k}px`;
+    frame.style.top = `${(box.clientHeight - height) / 2}px`;
     frame.style.transform = `scale(${1 / k})`;
+    const art = $('art').getAttribute('src');
+    box.style.setProperty('--cover', art ? `url("${art}")` : 'none');
   }
 
   function showVideo(on) {
