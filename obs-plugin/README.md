@@ -5,6 +5,8 @@ Plugin nativo para OBS Studio (macOS y Windows) que agrega:
 - Una fuente **Now Playing (música)**: la tarjeta con la canción que suena (carátula, título, artista, barra de progreso) con los colores de la carátula. Se agrega a la escena como cualquier fuente y se configura en sus **Propiedades**: tema claro/oscuro, carátula normal/grande/oculta, colores de la carátula, fondo difuminado, barra de progreso y la línea "Escuchando en …".
 - Un dock **Música** (menú **Docks**): la canción con los botones **anterior / pausa / siguiente**. Vive dentro de OBS y no sale en el stream.
 
+**Carátula:** si el reproductor no la entrega (en macOS 27 el sistema solo manda su identificador), la pide a la app de Spotify (la primera vez macOS pregunta si OBS puede controlar Spotify: responde Permitir) y, para YouTube Music y los demás, la busca por artista y canción en el catálogo público de Apple (iTunes Search); solo la usa si artista y título coinciden. Esa búsqueda manda a Apple el nombre de la canción y el artista, nada más.
+
 Lee la música del sistema, como la app: en Windows los controles multimedia (SMTC) y en macOS el "Ahora suena". Funciona con la app de Spotify, YouTube Music o Spotify en el navegador, Apple Music y cualquier reproductor que el sistema reconozca. No necesita la app OBS Now Playing ni ninguna cuenta.
 
 Está basado en la plantilla oficial `obs-plugintemplate` de OBS Project, igual que *Alejox Theme Panel*.

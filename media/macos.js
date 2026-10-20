@@ -4,6 +4,7 @@
 //
 // Corre con: /usr/bin/osascript -l JavaScript media/macos.js
 // Para controlar el reproductor: ... media/macos.js command next   (previous | playpause | next)
+// Para probar la búsqueda de carátulas: ... media/macos.js artwork "Canción" "Artista"
 //
 // Desde macOS 15.4 Apple solo deja leer MediaRemote a programas del propio sistema;
 // osascript lo es, por eso esto va en JavaScript for Automation y no en Node.
@@ -57,6 +58,45 @@ function spotifyArtwork(title) {
   } catch (e) {
     return '';
   }
+}
+
+// Último recurso (YouTube Music, navegadores…): buscar la carátula por artista y
+// canción en el catálogo público de Apple (iTunes Search, sin cuenta ni clave). Solo
+// se acepta si artista y título coinciden, para no mostrar una carátula equivocada.
+const lookups = {}; // "artista\ncanción" → carátula ('' = no se encontró), una búsqueda por canción
+
+function fetchData(url) {
+  const data = $.NSData.dataWithContentsOfURL($.NSURL.URLWithString(url));
+  return data && !data.isNil() && data.length ? data : null;
+}
+
+function catalogArtwork(title, artist) {
+  const key = `${artist}\n${title}`;
+  if (key in lookups) return lookups[key];
+  lookups[key] = '';
+  // "Canción (Official Video)" o "Artista - Topic" son cosas de YouTube, no del disco.
+  const clean = (s) => s.replace(/\s*[([][^)\]]*[)\]]/g, '').replace(/\s+-\s+topic$/i, '').trim();
+  const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+  const a = norm(clean(artist));
+  const t = norm(clean(title));
+  if (!a || !t) return '';
+  try {
+    const term = encodeURIComponent(`${clean(artist)} ${clean(title)}`);
+    const json = fetchData(`https://itunes.apple.com/search?media=music&entity=song&limit=10&term=${term}`);
+    if (!json) return '';
+    const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(json, $.NSUTF8StringEncoding));
+    const hit = (JSON.parse(text).results || []).find((r) => {
+      const ra = norm(r.artistName || '');
+      const rt = norm(r.trackName || '');
+      return ra && rt && (ra.includes(a) || a.includes(ra)) && (rt.includes(t) || t.includes(rt));
+    });
+    if (!hit || !hit.artworkUrl100) return '';
+    const image = fetchData(hit.artworkUrl100.replace(/\/\d+x\d+bb\./, '/600x600bb.'));
+    if (image) lookups[key] = `data:image/jpeg;base64,${ObjC.unwrap(image.base64EncodedStringWithOptions(0))}`;
+  } catch (e) {
+    // sin internet o respuesta rara: sin carátula
+  }
+  return lookups[key];
 }
 
 function watch() {
@@ -132,8 +172,9 @@ function watch() {
             const mime = value('kMRMediaRemoteNowPlayingInfoArtworkMIMEType') || 'image/jpeg';
             art = `data:${mime};base64,${b64}`;
             hash = `${b64.length}:${b64.slice(-96)}`;
-          } else if (app === 'com.spotify.client') {
-            art = spotifyArtwork(entry.title);
+          } else {
+            if (app === 'com.spotify.client') art = spotifyArtwork(entry.title);
+            if (!art) art = catalogArtwork(entry.title, entry.artist);
             hash = art ? `${art.length}:${art.slice(-96)}` : '';
           }
           if ((art && hash !== sentHash) || tries >= 5) {
@@ -155,7 +196,13 @@ function watch() {
   return 0;
 }
 
+function testArtwork(title, artist) {
+  const art = catalogArtwork(title || '', artist || '');
+  emit({ title, artist, found: Boolean(art), bytes: art.length });
+  return 0;
+}
+
 function run(argv) {
-  const code = argv[0] === 'command' ? sendCommand(argv[1]) : watch();
+  const code = argv[0] === 'command' ? sendCommand(argv[1]) : argv[0] === 'artwork' ? testArtwork(argv[1], argv[2]) : watch();
   if (code) $.exit(code);
 }
