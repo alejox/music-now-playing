@@ -71,7 +71,16 @@ const NowPlayingUI = (() => {
       dark ? clamp(base[2], 0.6, 0.75) : clamp(base[2], 0.3, 0.42),
     ];
     const background = [dh, clamp(ds, 0, 0.45), dark ? 0.11 : 0.93];
-    return { accent: hsl(accent), background: hsl(background, dark ? 0.86 : 0.92), track: hsl(accent, 0.25) };
+    // tint: el tono dominante con más color y algo más de luz, para el estilo cristal
+    // (traslúcido): con poca opacidad, un fondo casi negro se vería gris, no del color.
+    const tint = [dh, clamp(ds, 0.25, 0.65), dark ? 0.22 : 0.88];
+    return {
+      accent: hsl(accent),
+      background: hsl(background, dark ? 0.86 : 0.92),
+      track: hsl(accent, 0.25),
+      solid: (alpha) => hsl(background, alpha),
+      glass: (alpha) => hsl(tint, alpha),
+    };
   }
 
   const fmt = (ms) => {

@@ -70,6 +70,35 @@
   }
   [data-blur] .backdrop.ready { opacity: 0.55; }
 
+  /* Estilo cristal: fondo traslúcido del color de la carátula (deja ver la escena),
+     brillo en diagonal, borde de luz y sombra interior. OBS no deja que una fuente
+     difumine lo que tiene debajo: el "esmerilado" lo pone la carátula difuminada. */
+  .art, .meta { position: relative; z-index: 1; }
+  [data-style="glass"] .card {
+    backdrop-filter: none;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -1px 0 rgba(0, 0, 0, 0.12);
+  }
+  [data-style="glass"] .card::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.07) 38%, rgba(255, 255, 255, 0) 58%),
+      linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 35%);
+  }
+  [data-style="glass"][data-blur] .backdrop.ready { opacity: calc(0.25 + var(--alpha, 0.6) * 0.4); }
+  [data-style="glass"] .title, [data-style="glass"] .artist, [data-style="glass"] .label, [data-style="glass"] .progress {
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
+  }
+  [data-style="glass"][data-theme="light"] .card { border-color: rgba(255, 255, 255, 0.7); }
+  [data-style="glass"][data-theme="light"] .title, [data-style="glass"][data-theme="light"] .artist,
+  [data-style="glass"][data-theme="light"] .label, [data-style="glass"][data-theme="light"] .progress {
+    text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
+  }
+
   .art {
     flex: none;
     width: var(--art);
@@ -137,7 +166,10 @@
     artist: 'Artista de prueba', isPlaying: true, progressMs: 42000, durationMs: 215000,
   };
 
-  let config = { theme: 'dark', art: 'normal', colors: true, blur: false, progress: true, label: true, preview: false };
+  let config = {
+    theme: 'dark', style: 'solid', opacity: 85, art: 'normal', colors: true, blur: false, progress: true, label: true, preview: false,
+  };
+  let lastColors = null; // colores de la carátula actual, para recalcular al cambiar estilo u opacidad
   let configKey = '';
   let track = null;
   let key = '';
@@ -154,18 +186,27 @@
     else delete root.dataset.art;
     if (config.blur) root.dataset.blur = '';
     else delete root.dataset.blur;
+    root.dataset.style = config.style === 'glass' ? 'glass' : 'solid';
     $('progress').hidden = !config.progress;
     $('label').hidden = !config.label;
     key = ''; // vuelve a pintar con la configuración nueva
+    if (track) setPalette(track, lastColors);
   }
 
   function setPalette(t, colors) {
+    lastColors = colors;
+    const alpha = Math.min(100, Math.max(0, Number(config.opacity ?? 85))) / 100;
+    const glass = config.style === 'glass';
+    const light = config.theme === 'light';
+    root.style.setProperty('--alpha', String(alpha));
     root.style.setProperty('--accent', colors?.accent || ACCENTS[t.kind] || ACCENTS.other);
     if (colors) {
-      root.style.setProperty('--bg', colors.background);
+      root.style.setProperty('--bg', glass ? colors.glass(alpha) : colors.solid(alpha));
       root.style.setProperty('--track', colors.track);
     } else {
-      root.style.removeProperty('--bg');
+      // Sin carátula: el gris de siempre, con la opacidad elegida.
+      const base = light ? '255, 255, 255' : glass ? '44, 46, 58' : '16, 17, 22';
+      root.style.setProperty('--bg', `rgba(${base}, ${alpha})`);
       root.style.removeProperty('--track');
     }
   }
@@ -185,7 +226,7 @@
     });
   }
 
-  $('art').addEventListener('load', () => {
+  function onArtLoaded() {
     if (!track) return;
     let colors = null;
     try {
@@ -194,7 +235,8 @@
     setPalette(track, colors);
     $('backdrop').style.backgroundImage = `url("${$('art').src}")`;
     $('backdrop').classList.add('ready');
-  });
+  }
+  $('art').addEventListener('load', onArtLoaded);
   $('art').addEventListener('error', () => {
     $('art').hidden = true;
     if (track) setPalette(track, null);
@@ -220,7 +262,10 @@
       $('backdrop').classList.remove('ready');
       if (art) {
         $('art').hidden = config.art === 'hidden';
-        $('art').src = art; // al cargar, toma sus colores (también si está oculta)
+        // Al cargar toma sus colores (también si está oculta). Si es la misma imagen,
+        // el navegador no la vuelve a cargar: se recalculan con el tema nuevo aquí.
+        if ($('art').getAttribute('src') === art && $('art').complete) onArtLoaded();
+        else $('art').src = art;
       } else {
         $('art').hidden = true;
         $('art').removeAttribute('src');

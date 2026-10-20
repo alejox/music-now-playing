@@ -76,6 +76,8 @@ void readSettings(NowPlayingSource *s, obs_data_t *settings)
 	s->height = (uint32_t)std::max<long long>(60, obs_data_get_int(settings, "height"));
 	s->config = QJsonObject{
 		{"theme", obs_data_get_string(settings, "theme")},
+		{"style", obs_data_get_string(settings, "style")},
+		{"opacity", (int)obs_data_get_int(settings, "opacity")},
 		{"art", obs_data_get_string(settings, "art")},
 		{"colors", obs_data_get_bool(settings, "colors")},
 		{"blur", obs_data_get_bool(settings, "blur")},
@@ -154,6 +156,8 @@ void np_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "width", 480);
 	obs_data_set_default_int(settings, "height", 140);
 	obs_data_set_default_string(settings, "theme", "dark");
+	obs_data_set_default_string(settings, "style", "solid");
+	obs_data_set_default_int(settings, "opacity", 85);
 	obs_data_set_default_string(settings, "art", "normal");
 	obs_data_set_default_bool(settings, "colors", true);
 	obs_data_set_default_bool(settings, "blur", false);
@@ -172,6 +176,16 @@ obs_properties_t *np_properties(void *)
 							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 	obs_property_list_add_string(theme, obs_module_text("NowPlaying.Theme.Dark"), "dark");
 	obs_property_list_add_string(theme, obs_module_text("NowPlaying.Theme.Light"), "light");
+
+	obs_property_t *style = obs_properties_add_list(props, "style", obs_module_text("NowPlaying.Style"),
+							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Solid"), "solid");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Glass"), "glass");
+	obs_property_set_long_description(style, obs_module_text("NowPlaying.Style.Help"));
+
+	obs_property_t *opacity =
+		obs_properties_add_int_slider(props, "opacity", obs_module_text("NowPlaying.Opacity"), 0, 100, 1);
+	obs_property_int_set_suffix(opacity, " %");
 
 	obs_property_t *art = obs_properties_add_list(props, "art", obs_module_text("NowPlaying.Art"),
 						      OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
