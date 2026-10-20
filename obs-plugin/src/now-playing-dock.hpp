@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QColor>
 #include <QWidget>
 
 class QLabel;
@@ -14,10 +15,14 @@ class NowPlayingDock : public QWidget {
 public:
 	explicit NowPlayingDock(QWidget *parent = nullptr);
 
+protected:
+	void changeEvent(QEvent *event) override;
+
 private:
 	void refresh();
 	void tick();
 	void applyAccent(const QColor &accent);
+	void updateIcons();
 
 	QLabel *art_ = nullptr;
 	QLabel *title_ = nullptr;
@@ -31,6 +36,8 @@ private:
 	QToolButton *playPause_ = nullptr;
 	QToolButton *next_ = nullptr;
 	QString artKey_;
+	QColor accent_;
+	bool playing_ = false;
 	QString commandError_;
 	qint64 commandErrorUntil_ = 0;
 };

@@ -324,7 +324,9 @@
           onStateChange: (e) => {
             if (e.data === YT.PlayerState.PLAYING) {
               hideCaptions();
-              showVideo(true);
+              // Si la música está en pausa, el video no se muestra (ver updateVideo).
+              if (track && track.isPlaying) showVideo(true);
+              else video.player.pauseVideo();
             }
             if (e.data === YT.PlayerState.ENDED) showVideo(false);
           },
@@ -388,6 +390,11 @@
     box.style.setProperty('--cover', layers.join(', ') || 'none');
   }
 
+  // Si cambia el tamaño del recuadro (diseño, tamaño de la fuente), el reproductor se
+  // reajusta enseguida: a menos de 480 px YouTube usa su interfaz compacta, la del botón
+  // de pausa fijo en el centro.
+  if (window.ResizeObserver) new ResizeObserver(() => fitVideo()).observe($('videoBox'));
+
   function showVideo(on) {
     $('videoBox').hidden = !on;
     $('art').hidden = on || config.art === 'hidden' || !$('art').getAttribute('src');
@@ -412,12 +419,26 @@
       startVideo(wanted);
       return;
     }
-    if (!video.ready || Date.now() - video.lastSync < 3000) return;
+    if (!video.ready) return;
+    const state = video.player.getPlayerState();
+    // En pausa, YouTube tapa el video con el título, "Más videos" y un botón grande en
+    // el centro, y se queda así. Mientras la música está en pausa se muestra la carátula
+    // y el video espera detrás; al seguir la música vuelve cuando YouTube ya reproduce.
+    if (!t.isPlaying) {
+      if (!$('videoBox').hidden) showVideo(false);
+      if (state === YT.PlayerState.PLAYING || state === YT.PlayerState.BUFFERING) video.player.pauseVideo();
+      return;
+    }
+    if (state === YT.PlayerState.PAUSED || state === YT.PlayerState.CUED) {
+      video.player.seekTo(expectedSeconds(), true);
+      video.player.playVideo();
+      video.lastSync = Date.now();
+      return;
+    }
+    if (state === YT.PlayerState.PLAYING && $('videoBox').hidden) showVideo(true);
+    if (Date.now() - video.lastSync < 3000) return;
     video.lastSync = Date.now();
     fitVideo(); // por si cambió el diseño o el tamaño de la fuente
-    const state = video.player.getPlayerState();
-    if (!t.isPlaying && state === YT.PlayerState.PLAYING) video.player.pauseVideo();
-    if (t.isPlaying && state === YT.PlayerState.PAUSED) video.player.playVideo();
     const drift = Math.abs(video.player.getCurrentTime() - expectedSeconds());
     if (t.isPlaying && drift > 1.5) video.player.seekTo(expectedSeconds(), true);
     video.player.mute();

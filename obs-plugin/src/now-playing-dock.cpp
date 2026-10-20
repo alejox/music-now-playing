@@ -3,14 +3,17 @@
 
 #include <obs-module.h>
 
+#include <QEvent>
 #include <QHBoxLayout>
 #include <QHash>
+#include <QIcon>
 #include <QImage>
 #include <QLabel>
+#include <QPainter>
+#include <QPainterPath>
 #include <QPalette>
 #include <QPixmap>
 #include <QProgressBar>
-#include <QStyle>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -21,6 +24,8 @@
 namespace {
 
 constexpr int kArtSize = 160;
+constexpr int kSideButton = 40;
+constexpr int kMainButton = 52;
 
 QString text(const char *key)
 {
@@ -81,6 +86,73 @@ QColor accentFrom(const QImage &source)
 	float h, s, l;
 	best.getHslF(&h, &s, &l);
 	return QColor::fromHslF(h, std::clamp(s, 0.55f, 1.0f), std::clamp(l, 0.55f, 0.7f));
+}
+
+enum class Glyph { Previous, Play, Pause, Next };
+
+// Iconos dibujados aquí (y no los del sistema, que en el tema de OBS se ven grises y
+// borrosos, como deshabilitados): triángulos y barras redondeados del color pedido.
+QPixmap glyphPixmap(Glyph glyph, const QColor &color, int size, qreal dpr)
+{
+	QPixmap pixmap(QSize(size, size) * dpr);
+	pixmap.setDevicePixelRatio(dpr);
+	pixmap.fill(Qt::transparent);
+	QPainter p(&pixmap);
+	p.setRenderHint(QPainter::Antialiasing);
+	p.setPen(QPen(color, size * 0.08, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+	p.setBrush(color);
+	const qreal s = size;
+	auto triangle = [&](qreal left, qreal right, bool pointsRight) {
+		QPainterPath path;
+		qreal tip = pointsRight ? right : left;
+		qreal base = pointsRight ? left : right;
+		path.moveTo(base, s * 0.24);
+		path.lineTo(tip, s * 0.5);
+		path.lineTo(base, s * 0.76);
+		path.closeSubpath();
+		p.drawPath(path);
+	};
+	auto bar = [&](qreal x, qreal width) { p.drawRoundedRect(QRectF(x, s * 0.24, width, s * 0.52), s * 0.03, s * 0.03); };
+	switch (glyph) {
+	case Glyph::Play:
+		triangle(s * 0.34, s * 0.76, true);
+		break;
+	case Glyph::Pause:
+		bar(s * 0.3, s * 0.13);
+		bar(s * 0.57, s * 0.13);
+		break;
+	case Glyph::Next:
+		triangle(s * 0.24, s * 0.62, true);
+		bar(s * 0.66, s * 0.1);
+		break;
+	case Glyph::Previous:
+		bar(s * 0.24, s * 0.1);
+		triangle(s * 0.38, s * 0.76, false);
+		break;
+	}
+	return pixmap;
+}
+
+QIcon glyphIcon(Glyph glyph, const QColor &color, int size, qreal dpr)
+{
+	QIcon icon;
+	icon.addPixmap(glyphPixmap(glyph, color, size, dpr), QIcon::Normal);
+	QColor faded = color;
+	faded.setAlphaF(0.35f);
+	icon.addPixmap(glyphPixmap(glyph, faded, size, dpr), QIcon::Disabled);
+	return icon;
+}
+
+// Texto negro o blanco, el que se lea mejor sobre el color.
+QColor contrastOn(const QColor &background)
+{
+	double luminance = 0.2126 * background.redF() + 0.7152 * background.greenF() + 0.0722 * background.blueF();
+	return luminance > 0.6 ? QColor(20, 20, 20) : QColor(Qt::white);
+}
+
+QString rgba(const QColor &color, double alpha)
+{
+	return QString("rgba(%1,%2,%3,%4)").arg(color.red()).arg(color.green()).arg(color.blue()).arg(alpha);
 }
 
 QPixmap pixmapFromDataUrl(const QString &dataUrl)
@@ -146,26 +218,25 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	layout->addLayout(progressRow);
 
 	auto *buttons = new QHBoxLayout();
+	buttons->setSpacing(14);
 	buttons->addStretch(1);
-	auto makeButton = [this, buttons](QStyle::StandardPixmap icon, const char *tip, const QString &action,
-					  int size) {
+	auto makeButton = [this, buttons](const char *tip, const QString &action, int size) {
 		auto *button = new QToolButton(this);
-		button->setIcon(style()->standardIcon(icon));
-		button->setIconSize(QSize(size / 2, size / 2));
 		button->setFixedSize(size, size);
 		button->setToolTip(text(tip));
-		button->setAutoRaise(true);
+		button->setCursor(Qt::PointingHandCursor);
+		button->setFocusPolicy(Qt::NoFocus);
 		connect(button, &QToolButton::clicked, this, [this, action] {
 			MediaWatcher::instance().sendCommand(action);
 			// Que se vea el cambio enseguida, sin esperar al siguiente segundo.
 			QTimer::singleShot(500, this, &NowPlayingDock::refresh);
 		});
-		buttons->addWidget(button);
+		buttons->addWidget(button, 0, Qt::AlignVCenter);
 		return button;
 	};
-	previous_ = makeButton(QStyle::SP_MediaSkipBackward, "NowPlaying.Previous", "previous", 40);
-	playPause_ = makeButton(QStyle::SP_MediaPlay, "NowPlaying.PlayPause", "playpause", 52);
-	next_ = makeButton(QStyle::SP_MediaSkipForward, "NowPlaying.Next", "next", 40);
+	previous_ = makeButton("NowPlaying.Previous", "previous", kSideButton);
+	playPause_ = makeButton("NowPlaying.PlayPause", "playpause", kMainButton);
+	next_ = makeButton("NowPlaying.Next", "next", kSideButton);
 	buttons->addStretch(1);
 	layout->addLayout(buttons);
 
@@ -192,12 +263,53 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 
 void NowPlayingDock::applyAccent(const QColor &accent)
 {
-	QString color = accent.isValid() ? accent.name() : QString("palette(highlight)");
+	accent_ = accent.isValid() ? accent : palette().color(QPalette::Highlight);
+	const QString color = accent_.name();
 	progress_->setStyleSheet(QString("QProgressBar { border: 0; border-radius: 2px; background: rgba(127,127,127,0.25); }"
 					 "QProgressBar::chunk { border-radius: 2px; background: %1; }")
 					 .arg(color));
-	playPause_->setStyleSheet(QString("QToolButton { border-radius: 26px; background: %1; }").arg(color));
 	source_->setStyleSheet(QString("color: %1;").arg(color));
+
+	// Anterior / siguiente: redondos, con borde y fondo suave del color de la carátula,
+	// que se aclaran al pasar el mouse y se marcan al presionar.
+	const QString side = QString("QToolButton { border-radius: %1px; border: 1px solid %2; background: %3; }"
+				     "QToolButton:hover { border-color: %4; background: %5; }"
+				     "QToolButton:pressed { background: %6; }"
+				     "QToolButton:disabled { border-color: rgba(127,127,127,0.2); background: transparent; }")
+				     .arg(kSideButton / 2)
+				     .arg(rgba(accent_, 0.45), rgba(accent_, 0.14), color, rgba(accent_, 0.28),
+					  rgba(accent_, 0.45));
+	previous_->setStyleSheet(side);
+	next_->setStyleSheet(side);
+	playPause_->setStyleSheet(QString("QToolButton { border-radius: %1px; border: 0; background: %2; }"
+					  "QToolButton:hover { background: %3; }"
+					  "QToolButton:pressed { background: %4; }"
+					  "QToolButton:disabled { background: rgba(127,127,127,0.25); }")
+					  .arg(kMainButton / 2)
+					  .arg(color, accent_.lighter(115).name(), accent_.darker(120).name()));
+	updateIcons();
+}
+
+void NowPlayingDock::changeEvent(QEvent *event)
+{
+	QWidget::changeEvent(event);
+	// Al cambiar el tema de OBS, los iconos toman el nuevo color del texto.
+	if (event->type() == QEvent::PaletteChange && previous_)
+		updateIcons();
+}
+
+void NowPlayingDock::updateIcons()
+{
+	const qreal dpr = devicePixelRatioF();
+	const QColor textColor = palette().color(QPalette::WindowText);
+	const int side = kSideButton / 2;
+	previous_->setIcon(glyphIcon(Glyph::Previous, textColor, side, dpr));
+	previous_->setIconSize(QSize(side, side));
+	next_->setIcon(glyphIcon(Glyph::Next, textColor, side, dpr));
+	next_->setIconSize(QSize(side, side));
+	const int main = kMainButton / 2;
+	playPause_->setIcon(glyphIcon(playing_ ? Glyph::Pause : Glyph::Play, contrastOn(accent_), main, dpr));
+	playPause_->setIconSize(QSize(main, main));
 }
 
 void NowPlayingDock::refresh()
@@ -237,7 +349,10 @@ void NowPlayingDock::refresh()
 	artist_->setText(artist_->fontMetrics().elidedText(track.artist, Qt::ElideRight, width));
 	source_->setText(track.kind == "browser" ? text("NowPlaying.ListeningNow")
 						 : text("NowPlaying.ListeningOn").arg(track.label));
-	playPause_->setIcon(style()->standardIcon(track.isPlaying ? QStyle::SP_MediaPause : QStyle::SP_MediaPlay));
+	if (track.isPlaying != playing_) {
+		playing_ = track.isPlaying;
+		updateIcons();
+	}
 
 	QString artKey = track.app + '\n' + track.title + '\n' + QString::number(track.artwork.size());
 	if (artKey != artKey_) {
