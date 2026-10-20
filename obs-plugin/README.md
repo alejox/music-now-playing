@@ -30,6 +30,12 @@ Descarga el zip de tu sistema desde **[Releases](../../../releases/latest)** (`o
 1. Descomprime el zip en `C:\ProgramData\obs-studio\plugins\` (queda `C:\ProgramData\obs-studio\plugins\obs-now-playing\bin\64bit\obs-now-playing.dll`).
 2. Abre OBS.
 
+## Actualizaciones
+
+Desde la versión 1.0.3, al abrir OBS el plugin revisa si hay una versión nueva en las Releases de GitHub. Si la hay, muestra un aviso con **Actualizar ahora**, **Más tarde** u **Omitir esta versión**: "Actualizar ahora" la descarga, reemplaza el plugin y pide reiniciar OBS. También se puede revisar a mano en **Herramientas → Now Playing: buscar actualizaciones**.
+
+Solo se actualiza sola si está instalada en su propia carpeta, como dicen las instrucciones de arriba. Si no, el aviso ofrece abrir la página de descargas.
+
 ## Usar
 
 1. **Fuentes → + → Now Playing (música)**. Ubícala y escálala como cualquier fuente; el tamaño de la tarjeta se cambia en sus Propiedades (ancho y alto).

@@ -42,6 +42,8 @@ target_sources(
     src/now-playing-source.hpp
     src/now-playing-dock.cpp
     src/now-playing-dock.hpp
+    src/updater.cpp
+    src/updater.hpp
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
