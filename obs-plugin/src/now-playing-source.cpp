@@ -16,8 +16,8 @@ namespace {
 
 // Tamaños sugeridos de cada diseño. Al cambiar de diseño, si la fuente tiene el tamaño
 // sugerido del otro, se pasa al de este; si el usuario puso uno a mano, no se toca.
-constexpr long long kHorizontalSize[2] = {480, 140};
-constexpr long long kVerticalSize[2] = {320, 430};
+constexpr long long kHorizontalSize[2] = {480, 150};
+constexpr long long kVerticalSize[2] = {320, 420};
 
 struct NowPlayingSource {
 	obs_source_t *self = nullptr;
