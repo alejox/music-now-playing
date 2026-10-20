@@ -18,35 +18,80 @@ permissions:
   contents: write
 
 jobs:
-  build:
+  windows:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-      - name: Herramientas (NSIS, Pillow, clang y lld)
-        run: sudo apt-get update && sudo apt-get install -y nsis python3-pil clang lld
+      - name: Herramientas (NSIS y Pillow)
+        run: sudo apt-get update && sudo apt-get install -y nsis python3-pil
       - name: Versión
-        id: version
         run: |
           tag="v$(node -p "require('./package.json').version")"
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
           if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "$tag" ]]; then
             echo "El tag es $GITHUB_REF_NAME pero package.json dice $tag"; exit 1
           fi
       - name: Prueba de humo
         run: npm test
-      - name: Instaladores
-        run: ./build/build.sh
-      - name: Guardar como artefacto
-        if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.publish }}
-        uses: actions/upload-artifact@v4
+      - name: Instalador de Windows
+        run: ./build/build.sh windows
+      - uses: actions/upload-artifact@v4
         with:
-          name: instaladores
+          name: windows
           path: dist/*
+
+  # En un Mac de verdad: la app queda firmada ad hoc entera (sin eso, macOS la da por
+  # "dañada" al descargarla) y se prueba que abre.
+  mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Pillow
+        run: python -m pip install pillow
+      - name: Apps de macOS
+        run: ./build/build.sh mac
+      - name: La app firmada abre y responde
+        run: |
+          app_dir="$RUNNER_TEMP/prueba"
+          mkdir -p "$app_dir"
+          ditto -x -k dist/OBS-Now-Playing-*-mac-apple.zip "$app_dir"
+          app="$app_dir/OBS Now Playing.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          codesign -dv "$app" 2>&1 | grep -E "Identifier|Signature"
+          open "$app"
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8787/ >/dev/null && break; sleep 1; done
+          sleep 4
+          curl -fs http://127.0.0.1:8787/api/now-playing
+          echo
+          curl -fs http://127.0.0.1:8787/ | grep -o 'Lector del sistema:</b>.\{0,200\}' | sed 's/<[^>]*>//g'
+          echo "--- log"; cat "$HOME/Library/Application Support/OBS Now Playing/log.txt"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: dist/*
+
+  publish:
+    needs: [windows, mac]
+    if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Versión
+        id: version
+        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
       - name: Publicar Release
-        if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}

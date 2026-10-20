@@ -42,7 +42,8 @@ Se instala en tu usuario, sin permisos de administrador. Para quitarla: **Config
    - Ve a **Ajustes del Sistema → Privacidad y seguridad**, baja hasta *"Se bloqueó OBS Now Playing"* y pulsa **Abrir igualmente**. Confirma con tu contraseña.
    - Solo pasa esa vez.
 
-   (Alternativa en la Terminal: `xattr -dr com.apple.quarantine "/Applications/OBS Now Playing.app"`.)
+   Si en vez de eso dice **"está dañado y no puede abrirse"** (pasa con algunas versiones de macOS con apps sin firma de Apple), no está dañado: abre la Terminal y pega
+   `xattr -cr "/Applications/OBS Now Playing.app" && open "/Applications/OBS Now Playing.app"`
 4. Para que arranque sola: **Ajustes del Sistema → General → Ítems de inicio → +** y elige la app.
 
 La app no tiene ventana ni ícono en el Dock: al abrirla se abre su **panel** en el navegador. Si cierras esa pestaña, sigue funcionando; abre la app otra vez para volver al panel.
@@ -111,7 +112,7 @@ Todo corre en tu computador y nada sale a internet. El servidor solo escucha en 
 - Correr desde el código: `npm start` (Node 18+). Usa la misma carpeta de datos que la app instalada; `OBS_NOW_PLAYING_DATA=/otra/ruta` la cambia.
 - Lectores del sistema: `media/windows.ps1` (Windows PowerShell 5.1 + WinRT) y `media/macos.js` (JavaScript for Automation). Ambos escriben una línea JSON por segundo; el protocolo está al inicio de `media/windows.ps1`. Los botones llegan a Windows por el archivo `.command` de la carpeta de datos, a macOS con `osascript media/macos.js command next` y al userscript en la respuesta de su latido. Para probar sin Windows ni Mac, `OBS_NOW_PLAYING_HELPER=lector-falso.js` hace que el servidor use un script de Node que escriba ese mismo protocolo.
 - En macOS 15.4+ Apple solo deja leer "Ahora suena" a programas del sistema; por eso el lector corre en `osascript` y no en Node.
-- Generar los instaladores: `./build/build.sh` (Linux o WSL; requiere `python3` con Pillow, `makensis`/NSIS, `clang` y `lld`). Descarga el Node.js oficial, verifica su SHA-256 y deja todo en `dist/`. Publicar un tag `v*` en GitHub hace lo mismo en Actions y sube los archivos a Releases.
+- Generar los instaladores: `./build/build.sh [all|windows|mac]` (requiere `python3` con Pillow; Windows: `makensis`/NSIS; Mac: mejor en un Mac, que es el único que firma la app entera, o en Linux con `clang` y `lld` sin firmar). Descarga el Node.js oficial, verifica su SHA-256 y deja todo en `dist/`. Publicar un tag `v*` en GitHub hace lo mismo en Actions y sube los archivos a Releases.
 - La app de Mac usa el binario oficial de Node sin modificar (firmado y notarizado por Node.js); lo que macOS no puede verificar es el paquete `.app`. Quitar el aviso del todo requiere firmar y notarizar con una cuenta de Apple Developer (USD 99/año). En Windows, el equivalente es un certificado de firma de código.
 
 ## Licencia

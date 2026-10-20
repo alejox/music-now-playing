@@ -27,3 +27,52 @@ jobs:
           if ($errors) { $errors | ForEach-Object { Write-Error "$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
       - name: Prueba de humo
         run: npm test
+
+  # Los lectores del sistema solo se pueden probar en el sistema de verdad. En las
+  # máquinas de GitHub no suena nada, así que lo esperado es {"sessions":[]}: lo que se
+  # prueba es que arrancan, cargan las APIs del sistema y escriben el protocolo.
+  windows-reader:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: El lector de Windows arranca y responde
+        shell: pwsh
+        run: |
+          $cmdFile = Join-Path $env:RUNNER_TEMP 'command.json'
+          $p = Start-Process powershell.exe -PassThru -NoNewWindow `
+            -ArgumentList '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "$PWD\media\windows.ps1", '-CommandFile', $cmdFile `
+            -RedirectStandardOutput out.txt -RedirectStandardError err.txt
+          Start-Sleep -Seconds 6
+          '{"cmd":"playpause","app":"no-existe.exe"}' | Set-Content $cmdFile
+          Start-Sleep -Seconds 3
+          Stop-Process -Id $p.Id -Force
+          "--- salida"; Get-Content out.txt -TotalCount 5
+          "--- errores"; Get-Content err.txt
+          $lines = @(Get-Content out.txt)
+          if ($lines.Count -lt 3) { throw "El lector escribió solo $($lines.Count) líneas" }
+          $first = $lines[0] | ConvertFrom-Json
+          if ($first.error) { throw "El lector falló: $($first.error)" }
+          if ($null -eq $first.sessions) { throw 'Salida inesperada' }
+          if (Test-Path $cmdFile) { throw 'El lector no leyó el archivo de comandos' }
+
+  mac-reader:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+      - name: El lector de macOS arranca y responde
+        run: |
+          osascript -l JavaScript media/macos.js > out.txt 2> err.txt &
+          pid=$!
+          sleep 6
+          kill "$pid" || true
+          echo "--- salida"; head -5 out.txt
+          echo "--- errores"; cat err.txt
+          echo "--- comando (sin nada sonando puede fallar, solo se muestra)"
+          osascript -l JavaScript media/macos.js command playpause || true
+          node -e "
+            const lines = require('fs').readFileSync('out.txt', 'utf8').trim().split('\n').filter(Boolean);
+            if (lines.length < 3) throw new Error('El lector escribió solo ' + lines.length + ' líneas');
+            const first = JSON.parse(lines[0]);
+            if (first.error) throw new Error('El lector falló: ' + first.error);
+            if (!Array.isArray(first.sessions)) throw new Error('Salida inesperada');
+          "
