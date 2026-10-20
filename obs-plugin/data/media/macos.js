@@ -83,12 +83,83 @@ function selfTest() {
   return ok ? 0 : 1;
 }
 
+// YouTube Music / YouTube en un navegador: se pulsa el botón de la propia página, en la
+// pestaña que suena (Chrome y compañía: "Permitir JavaScript desde Apple Events" en
+// Ver → Opciones para desarrolladores; Safari: lo mismo en el menú Desarrollo). Las teclas
+// de música las recibe "la app que suena" según macOS, y esa puede ser otra (p. ej. el
+// video de la tarjeta dentro de OBS): por eso no alcanzan para el navegador.
+function pageScript(action) {
+  return `(() => {
+    const music = location.hostname === 'music.youtube.com';
+    const selectors = {
+      next: music ? 'ytmusic-player-bar .next-button' : '.ytp-next-button',
+      previous: music ? 'ytmusic-player-bar .previous-button' : '.ytp-prev-button',
+      playpause: music ? 'ytmusic-player-bar #play-pause-button' : '.ytp-play-button',
+    };
+    const button = document.querySelector(selectors['${action}']);
+    if (button && button.offsetParent !== null) { button.click(); return 'ok'; }
+    const video = document.querySelector('video');
+    if (!video) return 'sin-boton';
+    if ('${action}' === 'playpause') { video.paused ? video.play() : video.pause(); return 'ok'; }
+    if ('${action}' === 'previous') { video.currentTime = 0; return 'ok'; }
+    return 'sin-boton';
+  })()`;
+}
+
+function browserCommand(app, action) {
+  const browser = BROWSERS.find(([id]) => app === id || app.startsWith(`${id}.`));
+  // Si macOS cree que "suena" OBS (el video de la tarjeta), la música real está en algún
+  // navegador: se prueba en todos los abiertos.
+  if (!browser) {
+    if (!/obsproject/i.test(app)) return { tried: false };
+    let blocked = false;
+    for (const [id] of BROWSERS) {
+      const r = browserCommandIn(BROWSERS.find(([b]) => b === id), action);
+      if (r.ok) return r;
+      blocked = blocked || r.blocked;
+    }
+    return { tried: true, ok: false, blocked };
+  }
+  return browserCommandIn(browser, action);
+}
+
+function browserCommandIn(browser, action) {
+  try {
+    const b = Application(browser[0]);
+    if (!b.running()) return { tried: false };
+    const title = String(ObjC.unwrap($.NSClassFromString('MRNowPlayingRequest').localNowPlayingItem.nowPlayingInfo
+      .objectForKey('kMRMediaRemoteNowPlayingInfoTitle')) || '').toLowerCase();
+    const tabs = [];
+    for (const w of b.windows()) {
+      for (const t of w.tabs()) {
+        if (YOUTUBE_WATCH.test(String(t.url() || ''))) tabs.push({ tab: t, name: String(t[browser[1]]() || '').toLowerCase() });
+      }
+    }
+    const hit = tabs.find((t) => title && t.name.includes(title)) || (tabs.length === 1 ? tabs[0] : null);
+    if (!hit) return { tried: false };
+    const code = pageScript(action);
+    const result = browser[0] === 'com.apple.Safari' ? b.doJavaScript(code, { in: hit.tab }) : hit.tab.execute({ javascript: code });
+    return { tried: true, ok: result === 'ok' };
+  } catch (e) {
+    // El navegador no deja ejecutar JavaScript desde Apple Events (viene apagado).
+    return { tried: true, ok: false, blocked: /javascript/i.test(String(e)) };
+  }
+}
+
 function sendCommand(action) {
   if (!ACTIONS.includes(action)) {
     emit({ error: `Comando desconocido: ${action}` });
     return 2;
   }
   const app = nowPlayingApp();
+  const page = browserCommand(app, action);
+  if (page.ok) {
+    emit({ ok: true, via: 'página de YouTube' });
+    return 0;
+  }
+  const hint = page.blocked
+    ? 'Para que los botones vayan siempre a YouTube Music, activa en el navegador: Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events.'
+    : '';
   const direct = APP_COMMANDS[app];
   if (direct) {
     try {
@@ -109,7 +180,7 @@ function sendCommand(action) {
     });
     return 1;
   }
-  emit({ ok: true, via: 'teclas de música' });
+  emit({ ok: true, via: 'teclas de música', ...(hint ? { hint } : {}) });
   return 0;
 }
 

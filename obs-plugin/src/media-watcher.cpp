@@ -327,9 +327,12 @@ void MediaWatcher::sendCommand(const QString &action)
 		QByteArray out = command->readAllStandardOutput().trimmed();
 		command->deleteLater();
 		QJsonObject result = QJsonDocument::fromJson(out.split('\n').last()).object();
-		if (result.contains("error")) {
-			obs_log(LOG_WARNING, "botón: %s", result.value("error").toString().toUtf8().constData());
-			emit commandFailed(result.value("error").toString());
+		QString problem = result.value("error").toString();
+		if (problem.isEmpty())
+			problem = result.value("hint").toString();
+		if (!problem.isEmpty()) {
+			obs_log(LOG_WARNING, "botón: %s", problem.toUtf8().constData());
+			emit commandFailed(problem);
 		}
 	});
 	command->start("/usr/bin/osascript", {"-l", "JavaScript", moduleFile("media/macos.js"), "command", action});

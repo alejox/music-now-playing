@@ -1,6 +1,5 @@
 #include "now-playing-dock.hpp"
 #include "media-watcher.hpp"
-#include "music-channel.hpp"
 
 #include <obs-module.h>
 
@@ -11,7 +10,6 @@
 #include <QPalette>
 #include <QPixmap>
 #include <QProgressBar>
-#include <QPushButton>
 #include <QStyle>
 #include <QTimer>
 #include <QToolButton>
@@ -171,12 +169,6 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	buttons->addStretch(1);
 	layout->addLayout(buttons);
 
-	// Canal propio en el Mezclador de audio para la app que suena.
-	channel_ = new QPushButton(text("NowPlaying.Channel.Button"), this);
-	channel_->setToolTip(text("NowPlaying.Channel.Tooltip"));
-	connect(channel_, &QPushButton::clicked, this, &NowPlayingDock::createMusicChannel);
-	layout->addWidget(channel_, 0, Qt::AlignHCenter);
-
 	status_ = new QLabel(this);
 	status_->setWordWrap(true);
 	status_->setAlignment(Qt::AlignHCenter);
@@ -261,11 +253,6 @@ void NowPlayingDock::refresh()
 		}
 	}
 	tick();
-}
-
-void NowPlayingDock::createMusicChannel()
-{
-	create_music_channel(this);
 }
 
 void NowPlayingDock::tick()
