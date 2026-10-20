@@ -19,25 +19,97 @@ function loadMediaRemote() {
   return $.NSBundle.bundleWithPath('/System/Library/PrivateFrameworks/MediaRemote.framework/').load;
 }
 
-// Códigos de MRMediaRemoteSendCommand: el mismo comando que mandan las teclas multimedia.
-const COMMANDS = { playpause: 2, next: 4, previous: 5 };
+// Botones anterior / pausa / siguiente.
+//
+// En macOS 27 el comando de MediaRemote (MRMediaRemoteSendCommand) responde "ok" pero los
+// reproductores lo ignoran. Por eso se usa, en orden:
+//   1. Spotify y Apple Music: se le pide directo a la app (mismo permiso de Automatización
+//      que ya usa la carátula de Spotify).
+//   2. El resto (YouTube Music, navegadores…): se simulan las teclas de música del
+//      teclado (⏮ ⏯ ⏭), que macOS siempre entrega al reproductor que suena. Simular teclas
+//      necesita el permiso de Accesibilidad para OBS (o la Terminal, si se prueba desde ahí).
+const ACTIONS = ['previous', 'playpause', 'next'];
+const APP_COMMANDS = {
+  'com.spotify.client': { previous: 'previousTrack', playpause: 'playpause', next: 'nextTrack' },
+  'com.apple.Music': { previous: 'previousTrack', playpause: 'playpause', next: 'nextTrack' },
+};
+// Códigos NX_KEYTYPE_* de las teclas de música (IOKit/hidsystem/ev_keymap.h).
+const MEDIA_KEYS = { playpause: 16, next: 17, previous: 18 };
+
+function nowPlayingApp() {
+  if (!loadMediaRemote()) return '';
+  try {
+    const Request = $.NSClassFromString('MRNowPlayingRequest');
+    return ObjC.unwrap(Request.localNowPlayingPlayerPath.client.bundleIdentifier) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function mediaKeyEvent(code, down) {
+  ObjC.import('Cocoa');
+  const flags = down ? 0xa00 : 0xb00;
+  return $.NSEvent.otherEventWithTypeLocationModifierFlagsTimestampWindowNumberContextSubtypeData1Data2(
+    14, // NSEventTypeSystemDefined
+    $.NSMakePoint(0, 0),
+    flags,
+    0,
+    0,
+    null,
+    8, // subtipo de las teclas especiales (NX_SUBTYPE_AUX_CONTROL_BUTTONS)
+    (code << 16) | flags,
+    -1,
+  );
+}
+
+function accessibilityAllowed(prompt) {
+  ObjC.import('ApplicationServices');
+  return $.AXIsProcessTrustedWithOptions($({ AXTrustedCheckOptionPrompt: prompt }));
+}
+
+function pressMediaKey(code) {
+  // Si OBS no tiene el permiso, macOS descarta las teclas en silencio: mejor avisar (y
+  // la primera vez, esto abre el aviso de macOS para darlo).
+  if (!accessibilityAllowed(true)) return false;
+  for (const down of [true, false]) $.CGEventPost(0, mediaKeyEvent(code, down).CGEvent); // kCGHIDEventTap
+  return true;
+}
+
+// Para CI: arma las teclas de música sin enviarlas y consulta el permiso (sin pedirlo).
+function selfTest() {
+  const event = mediaKeyEvent(MEDIA_KEYS.next, true);
+  const ok = Boolean(event && !event.isNil() && event.CGEvent);
+  emit({ mediaKeyEvent: ok, accessibilityAllowed: Boolean(accessibilityAllowed(false)), cgEventPost: typeof $.CGEventPost === 'function' });
+  return ok ? 0 : 1;
+}
 
 function sendCommand(action) {
-  if (!(action in COMMANDS)) {
+  if (!ACTIONS.includes(action)) {
     emit({ error: `Comando desconocido: ${action}` });
     return 2;
   }
-  if (!loadMediaRemote()) {
-    emit({ error: 'No se pudo cargar MediaRemote de macOS.' });
-    return 3;
+  const app = nowPlayingApp();
+  const direct = APP_COMMANDS[app];
+  if (direct) {
+    try {
+      const player = Application(app);
+      if (player.running()) {
+        player[direct[action]]();
+        emit({ ok: true, via: app });
+        return 0;
+      }
+    } catch (e) {
+      // sin permiso de Automatización: se prueba con las teclas de música
+    }
   }
-  ObjC.bindFunction('MRMediaRemoteSendCommand', ['bool', ['int', 'id']]);
-  // El segundo argumento son opciones: un diccionario vacío (con null macOS falla).
-  if (!$.MRMediaRemoteSendCommand(COMMANDS[action], $.NSDictionary.dictionary)) {
-    emit({ error: 'macOS no aceptó el comando (¿no hay nada sonando?).' });
+  if (!pressMediaKey(MEDIA_KEYS[action])) {
+    emit({
+      error: 'Falta el permiso de Accesibilidad: en Ajustes del Sistema → Privacidad y seguridad → Accesibilidad, activa OBS.',
+      needsAccessibility: true,
+    });
     return 1;
   }
-  emit({ ok: true });
+  emit({ ok: true, via: 'teclas de música' });
   return 0;
 }
 
@@ -276,6 +348,7 @@ function run(argv) {
     mode === 'command' ? sendCommand(argv[1])
     : mode === 'artwork' ? testArtwork(argv[1], argv[2])
     : mode === 'video' ? testVideo()
+    : mode === 'selftest' ? selfTest()
     : watch(mode === 'watch' ? argv[1] : ''); // watch <archivo>: el plugin pide modo video
   if (code) $.exit(code);
 }

@@ -34,4 +34,6 @@ private:
 	QToolButton *next_ = nullptr;
 	QPushButton *channel_ = nullptr;
 	QString artKey_;
+	QString commandError_;
+	qint64 commandErrorUntil_ = 0;
 };

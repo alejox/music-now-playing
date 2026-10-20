@@ -186,6 +186,12 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 
 	applyAccent(QColor());
 	connect(&MediaWatcher::instance(), &MediaWatcher::updated, this, &NowPlayingDock::refresh);
+	// Si un botón no funcionó, el motivo se muestra unos segundos debajo de los botones.
+	connect(&MediaWatcher::instance(), &MediaWatcher::commandFailed, this, [this](const QString &message) {
+		commandError_ = message;
+		commandErrorUntil_ = MediaWatcher::now() + 12000;
+		refresh();
+	});
 	auto *timer = new QTimer(this);
 	connect(timer, &QTimer::timeout, this, &NowPlayingDock::tick);
 	timer->start(250);
@@ -215,6 +221,8 @@ void NowPlayingDock::refresh()
 	default:
 		status_->clear();
 	}
+	if (!commandError_.isEmpty() && MediaWatcher::now() < commandErrorUntil_)
+		status_->setText(commandError_);
 
 	Track track = watcher.current(true);
 	for (QToolButton *button : {previous_, playPause_, next_})

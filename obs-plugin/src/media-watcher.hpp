@@ -58,6 +58,8 @@ public:
 signals:
 	// Cada vez que el lector escribe (una vez por segundo) o cambia el estado.
 	void updated();
+	// Un botón no funcionó (p. ej. falta el permiso de Accesibilidad en macOS).
+	void commandFailed(const QString &message);
 
 private:
 	MediaWatcher() = default;

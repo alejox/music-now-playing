@@ -91,6 +91,9 @@ jobs:
           osascript -l JavaScript media/macos.js artwork "Receta de arepas" "Canal de cocina" | tee art3.txt
           grep -q '"found":true' art1.txt && grep -q '"found":true' art2.txt || { echo "No encontró carátulas conocidas"; exit 1; }
           grep -q '"found":false' art3.txt || { echo "Aceptó una carátula para algo que no es una canción"; exit 1; }
+          echo "--- teclas de música (se arman sin enviarlas) y permiso de Accesibilidad"
+          osascript -l JavaScript media/macos.js selftest | tee selftest.txt
+          grep -q '"mediaKeyEvent":true' selftest.txt && grep -q '"cgEventPost":true' selftest.txt || { echo "No se pudo armar la tecla de música"; exit 1; }
           echo "--- comando (sin nada sonando puede fallar, solo se muestra)"
           osascript -l JavaScript media/macos.js command playpause || true
           node -e "

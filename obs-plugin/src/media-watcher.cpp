@@ -322,6 +322,16 @@ void MediaWatcher::sendCommand(const QString &action)
 		file.commit();
 	}
 #elif defined(__APPLE__)
-	QProcess::startDetached("/usr/bin/osascript", {"-l", "JavaScript", moduleFile("media/macos.js"), "command", action});
+	auto *command = new QProcess(this);
+	connect(command, &QProcess::finished, this, [this, command](int, QProcess::ExitStatus) {
+		QByteArray out = command->readAllStandardOutput().trimmed();
+		command->deleteLater();
+		QJsonObject result = QJsonDocument::fromJson(out.split('\n').last()).object();
+		if (result.contains("error")) {
+			obs_log(LOG_WARNING, "botón: %s", result.value("error").toString().toUtf8().constData());
+			emit commandFailed(result.value("error").toString());
+		}
+	});
+	command->start("/usr/bin/osascript", {"-l", "JavaScript", moduleFile("media/macos.js"), "command", action});
 #endif
 }
