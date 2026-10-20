@@ -94,6 +94,10 @@
     filter: blur(16px) saturate(1.4) brightness(0.8);
   }
   .video iframe { position: absolute; left: 0; border: 0; transform-origin: 0 0; pointer-events: none; z-index: 1; }
+  /* "Ajustado al video": el recuadro toma la forma 16:9 del video, sin franjas (en
+     vertical la tarjeta se achica mientras hay video; en horizontal se ensancha). */
+  [data-video-fit="wide"] .art.video { aspect-ratio: 16 / 9; width: calc(var(--art) * 16 / 9); }
+  [data-video-fit="wide"][data-layout="vertical"] .art.video { width: 100%; height: auto; }
 
   /* Diseño vertical: carátula arriba, cuadrada y a todo el ancho; textos centrados.
      Compacta: la altura sale del ancho de la fuente (carátula + textos). */
@@ -216,7 +220,7 @@
   };
 
   let config = {
-    theme: 'dark', layout: 'horizontal', style: 'solid', opacity: 85, art: 'normal', media: 'art', colors: true, blur: false, progress: true, label: true, preview: false,
+    theme: 'dark', layout: 'horizontal', style: 'solid', opacity: 85, art: 'normal', media: 'art', videoFit: 'square', colors: true, blur: false, progress: true, label: true, preview: false,
   };
   let lastColors = null; // colores de la carátula actual, para recalcular al cambiar estilo u opacidad
   let configKey = '';
@@ -237,6 +241,7 @@
     else delete root.dataset.blur;
     root.dataset.style = config.style === 'glass' ? 'glass' : 'solid';
     root.dataset.layout = config.layout === 'vertical' ? 'vertical' : 'horizontal';
+    root.dataset.videoFit = config.videoFit === 'wide' ? 'wide' : 'square';
     $('progress').hidden = !config.progress;
     $('label').hidden = !config.label;
     key = ''; // vuelve a pintar con la configuración nueva
