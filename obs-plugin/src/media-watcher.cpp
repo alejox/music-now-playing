@@ -97,6 +97,7 @@ void MediaWatcher::start()
 	// Los comandos para el lector de Windows van por este archivo (ver media/windows.ps1).
 	QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
 	commandFile_ = QDir(dir).filePath("obs-now-playing-command.json");
+	videoFlagFile_ = QDir(dir).filePath("obs-now-playing-video.flag");
 	launch();
 #else
 	setStatus(Status::Unsupported);
@@ -138,7 +139,7 @@ void MediaWatcher::launch()
 	// Desde macOS 15.4 solo programas del sistema pueden leer "Ahora suena": por eso
 	// el lector corre en osascript y no dentro de OBS.
 	program = "/usr/bin/osascript";
-	args = {"-l", "JavaScript", moduleFile("media/macos.js")};
+	args = {"-l", "JavaScript", moduleFile("media/macos.js"), "watch", videoFlagFile_};
 #endif
 
 	process_ = new QProcess(this);
@@ -232,6 +233,10 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		track.isCurrent = s.value("current").toBool();
 		track.progressMs = std::max<qint64>(0, s.value("progressMs").toInteger());
 		track.durationMs = std::max<qint64>(0, s.value("durationMs").toInteger());
+		static const QRegularExpression videoIdPattern("^[A-Za-z0-9_-]{11}$");
+		QString videoId = s.value("videoId").toString();
+		if (videoIdPattern.match(videoId).hasMatch())
+			track.videoId = videoId;
 		track.updatedAt = t;
 
 		// La carátula llega solo cuando cambia la canción: la guardamos con su canción
@@ -287,6 +292,19 @@ Track MediaWatcher::current(bool includePaused) const
 			return track;
 	}
 	return includePaused && !alive.isEmpty() ? alive.first() : Track();
+}
+
+void MediaWatcher::setVideoWanted(bool wanted)
+{
+	if (videoFlagFile_.isEmpty())
+		return;
+	if (!wanted) {
+		QFile::remove(videoFlagFile_);
+		return;
+	}
+	QFile flag(videoFlagFile_);
+	if (!flag.exists() && flag.open(QIODevice::WriteOnly))
+		flag.close();
 }
 
 void MediaWatcher::sendCommand(const QString &action)

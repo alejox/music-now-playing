@@ -14,6 +14,7 @@ struct Track {
 	QString artist;
 	QString album;
 	QString artwork; // data:image/…;base64,… (vacío si no hay)
+	QString videoId; // id de YouTube si se pudo leer (modo video, solo macOS)
 	bool isPlaying = false;
 	bool isCurrent = false;
 	qint64 progressMs = 0;
@@ -50,6 +51,10 @@ public:
 
 	static qint64 now();
 
+	// Modo video: el lector solo lee las pestañas del navegador si alguna fuente lo pidió
+	// (leerlas hace que macOS pida permiso para controlar el navegador).
+	void setVideoWanted(bool wanted);
+
 signals:
 	// Cada vez que el lector escribe (una vez por segundo) o cambia el estado.
 	void updated();
@@ -67,6 +72,7 @@ private:
 	Status status_ = Status::Starting;
 	QString error_;
 	QString commandFile_;
+	QString videoFlagFile_;
 	qint64 startedAt_ = 0;
 	int failures_ = 0;
 	bool stopping_ = false;

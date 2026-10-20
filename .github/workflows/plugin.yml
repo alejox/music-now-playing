@@ -5,9 +5,9 @@ name: Plugin de OBS
 on:
   push:
     branches: [main]
-    paths: ['obs-plugin/**', 'media/**', 'ui.js', '.github/workflows/plugin.yml']
+    paths: ['obs-plugin/**', 'media/**', 'ui.js', 'test/video-mode.js', '.github/workflows/plugin.yml']
   pull_request:
-    paths: ['obs-plugin/**', 'media/**', 'ui.js', '.github/workflows/plugin.yml']
+    paths: ['obs-plugin/**', 'media/**', 'ui.js', 'test/video-mode.js', '.github/workflows/plugin.yml']
   workflow_call:
   workflow_dispatch:
 
@@ -22,6 +22,27 @@ jobs:
           cmp media/windows.ps1 obs-plugin/data/media/windows.ps1
           cmp media/macos.js obs-plugin/data/media/macos.js
           cmp ui.js obs-plugin/data/overlay/ui.js
+
+  # El modo video de la tarjeta necesita YouTube de verdad: se prueba en un Chromium real.
+  video-mode:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Playwright + Chromium
+        run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
+      - name: El video aparece, va sincronizado y sin sonido
+        run: |
+          python3 -m http.server 8000 --directory obs-plugin/data/overlay >/dev/null 2>&1 &
+          sleep 2
+          node test/video-mode.js http://127.0.0.1:8000/index.html .
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: video-mode
+          path: video-*.png
 
   macos:
     runs-on: macos-15

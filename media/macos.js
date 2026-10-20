@@ -5,6 +5,7 @@
 // Corre con: /usr/bin/osascript -l JavaScript media/macos.js
 // Para controlar el reproductor: ... media/macos.js command next   (previous | playpause | next)
 // Para probar la búsqueda de carátulas: ... media/macos.js artwork "Canción" "Artista"
+// Para probar el modo video con lo que suena: ... media/macos.js video
 //
 // Desde macOS 15.4 Apple solo deja leer MediaRemote a programas del propio sistema;
 // osascript lo es, por eso esto va en JavaScript for Automation y no en Node.
@@ -99,7 +100,61 @@ function catalogArtwork(title, artist) {
   return lookups[key];
 }
 
-function watch() {
+// Modo video: el id del video de YouTube / YouTube Music que suena, leído de la dirección
+// de la pestaña (o de la app instalada de YouTube Music, que es una ventana del
+// navegador). Solo si el plugin lo pidió (existe el archivo videoFlag): leer pestañas
+// hace que macOS pregunte si OBS puede controlar el navegador, y eso no debe pasarle a
+// quien no eligió "Video si es posible".
+const BROWSERS = [
+  // [id de la app, cómo se llama el título de la pestaña en su AppleScript]
+  ['com.google.Chrome', 'title'],
+  ['com.microsoft.edgemac', 'title'],
+  ['com.brave.Browser', 'title'],
+  ['com.vivaldi.Vivaldi', 'title'],
+  ['com.operasoftware.Opera', 'title'],
+  ['company.thebrowser.Browser', 'title'],
+  ['com.apple.Safari', 'name'],
+];
+const YOUTUBE_WATCH = /^https:\/\/(?:music\.|www\.|m\.)?youtube\.com\/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})/;
+
+function youtubeVideoId(app, title) {
+  // Las apps instaladas (PWA) llevan el id del navegador como prefijo:
+  // com.google.Chrome.app.cinhimbnkkaeohfgghhklpknlkffjgod es YouTube Music en Chrome.
+  const browser = BROWSERS.find(([id]) => app === id || app.startsWith(`${id}.`));
+  if (!browser) return '';
+  try {
+    const b = Application(browser[0]);
+    if (!b.running()) return '';
+    const found = [];
+    for (const w of b.windows()) {
+      for (const t of w.tabs()) {
+        const m = YOUTUBE_WATCH.exec(String(t.url() || ''));
+        if (m) found.push({ id: m[1], name: String(t[browser[1]]() || '').toLowerCase() });
+      }
+    }
+    // Con varias pestañas de YouTube, la que tiene el título de la canción.
+    const hit = found.find((f) => title && f.name.includes(title.toLowerCase())) || (found.length === 1 ? found[0] : null);
+    return hit ? hit.id : '';
+  } catch (e) {
+    return ''; // sin permiso o navegador sin AppleScript: sin video
+  }
+}
+
+const videoIds = {}; // "app\ncanción" → id ('' = no se encontró, tras unos intentos)
+const videoTries = {};
+
+function videoIdFor(app, title, videoFlag) {
+  if (!videoFlag || !$.NSFileManager.defaultManager.fileExistsAtPath(videoFlag)) return '';
+  const key = `${app}\n${title}`;
+  if (videoIds[key]) return videoIds[key];
+  if ((videoTries[key] || 0) >= 3) return ''; // la dirección cambia un instante después del título
+  videoTries[key] = (videoTries[key] || 0) + 1;
+  const id = youtubeVideoId(app, title);
+  if (id) videoIds[key] = id;
+  return id;
+}
+
+function watch(videoFlag) {
   if (!loadMediaRemote()) {
     emit({ error: 'No se pudo cargar MediaRemote de macOS.' });
     return 2;
@@ -184,6 +239,8 @@ function watch() {
             tries = 0;
           }
         }
+        const videoId = videoIdFor(app, entry.title, videoFlag);
+        if (videoId) entry.videoId = videoId;
         emit({ sessions: [entry] });
       }
       failures = 0;
@@ -202,7 +259,23 @@ function testArtwork(title, artist) {
   return 0;
 }
 
+// Para probar el modo video con lo que suena ahora: ... media/macos.js video
+function testVideo() {
+  if (!loadMediaRemote()) return 2;
+  const Request = $.NSClassFromString('MRNowPlayingRequest');
+  const info = Request.localNowPlayingItem.nowPlayingInfo;
+  const title = ObjC.unwrap(info.objectForKey('kMRMediaRemoteNowPlayingInfoTitle')) || '';
+  const app = ObjC.unwrap(Request.localNowPlayingPlayerPath.client.bundleIdentifier) || '';
+  emit({ app, title, videoId: youtubeVideoId(app, title) });
+  return 0;
+}
+
 function run(argv) {
-  const code = argv[0] === 'command' ? sendCommand(argv[1]) : argv[0] === 'artwork' ? testArtwork(argv[1], argv[2]) : watch();
+  const mode = argv[0];
+  const code =
+    mode === 'command' ? sendCommand(argv[1])
+    : mode === 'artwork' ? testArtwork(argv[1], argv[2])
+    : mode === 'video' ? testVideo()
+    : watch(mode === 'watch' ? argv[1] : ''); // watch <archivo>: el plugin pide modo video
   if (code) $.exit(code);
 }

@@ -72,6 +72,13 @@
   }
   [data-blur] .backdrop.ready { opacity: 0.55; }
 
+  /* Modo video: el reproductor de YouTube ocupa el lugar de la carátula. En horizontal
+     se recorta a cuadrado; en vertical va en 16:9. No se muestra hasta que reproduce. */
+  .video { position: relative; overflow: hidden; background: #000; }
+  .video iframe { position: absolute; top: 0; left: -39%; width: 178% !important; height: 100% !important; border: 0; pointer-events: none; }
+  [data-layout="vertical"] .video { aspect-ratio: 16 / 9; }
+  [data-layout="vertical"] .video iframe { left: 0; width: 100% !important; }
+
   /* Diseño vertical: carátula arriba, cuadrada y a todo el ancho; textos centrados.
      La altura sale del ancho de la fuente (carátula cuadrada + textos). */
   [data-layout="vertical"] .card {
@@ -169,6 +176,7 @@
 <div class="card" id="card">
   <div class="backdrop" id="backdrop"></div>
   <img class="art" id="art" alt="">
+  <div class="art video" id="videoBox" hidden><div id="player"></div></div>
   <div class="meta">
     <div class="label" id="label"><span class="eq"><i></i><i></i><i></i></span><span id="labelText">Escuchando</span></div>
     <div class="line title" id="title"><span></span></div>
@@ -191,7 +199,7 @@
   };
 
   let config = {
-    theme: 'dark', layout: 'horizontal', style: 'solid', opacity: 85, art: 'normal', colors: true, blur: false, progress: true, label: true, preview: false,
+    theme: 'dark', layout: 'horizontal', style: 'solid', opacity: 85, art: 'normal', media: 'art', colors: true, blur: false, progress: true, label: true, preview: false,
   };
   let lastColors = null; // colores de la carátula actual, para recalcular al cambiar estilo u opacidad
   let configKey = '';
@@ -267,8 +275,90 @@
     if (track) setPalette(track, null);
   });
 
+  // ---- Modo video (YouTube / YouTube Music) ----------------------------------------
+  // Se carga el reproductor oficial de YouTube solo cuando hace falta, sin sonido, y se
+  // mantiene en el mismo segundo que la canción.
+  const video = { player: null, ready: false, apiLoading: false, id: '', failed: new Set(), lastSync: 0 };
+
+  function loadYouTubeApi() {
+    if (video.apiLoading) return;
+    video.apiLoading = true;
+    window.onYouTubeIframeAPIReady = () => {
+      video.player = new YT.Player('player', {
+        host: 'https://www.youtube-nocookie.com',
+        playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, playsinline: 1, rel: 0 },
+        events: {
+          onReady: () => {
+            video.ready = true;
+            video.player.mute();
+            if (video.id) startVideo(video.id);
+          },
+          onStateChange: (e) => {
+            if (e.data === YT.PlayerState.PLAYING) showVideo(true);
+            if (e.data === YT.PlayerState.ENDED) showVideo(false);
+          },
+          // 2, 5, 100, 101, 150, 153: video inválido, borrado o que no se deja insertar.
+          onError: () => {
+            video.failed.add(video.id);
+            video.id = '';
+            showVideo(false);
+          },
+        },
+      });
+    };
+    const script = document.createElement('script');
+    script.src = 'https://www.youtube.com/iframe_api';
+    script.onerror = () => { video.apiLoading = false; }; // sin internet: se reintenta luego
+    document.head.appendChild(script);
+  }
+
+  function expectedSeconds() {
+    return track ? Math.min(track.durationMs || Infinity, track.progressMs + (track.isPlaying ? Date.now() - track.receivedAt : 0)) / 1000 : 0;
+  }
+
+  function startVideo(id) {
+    if (!video.ready) return;
+    video.player.loadVideoById({ videoId: id, startSeconds: expectedSeconds() });
+    video.player.mute();
+    video.lastSync = Date.now();
+  }
+
+  function showVideo(on) {
+    $('videoBox').hidden = !on;
+    $('art').hidden = on || config.art === 'hidden' || !$('art').getAttribute('src');
+  }
+
+  // Llamado con cada evento: decide si hay video y lo mantiene sincronizado.
+  function updateVideo(t) {
+    const wanted = config.media === 'video' && config.art !== 'hidden' && t && t.videoId && !video.failed.has(t.videoId) ? t.videoId : '';
+    if (!wanted) {
+      if (video.id) {
+        video.id = '';
+        if (video.ready) video.player.stopVideo();
+        showVideo(false);
+      }
+      return;
+    }
+    if (!video.player) loadYouTubeApi();
+    if (wanted !== video.id) {
+      video.id = wanted;
+      showVideo(false); // la carátula hasta que el video arranque
+      startVideo(wanted);
+      return;
+    }
+    if (!video.ready || Date.now() - video.lastSync < 3000) return;
+    video.lastSync = Date.now();
+    const state = video.player.getPlayerState();
+    if (!t.isPlaying && state === YT.PlayerState.PLAYING) video.player.pauseVideo();
+    if (t.isPlaying && state === YT.PlayerState.PAUSED) video.player.playVideo();
+    const drift = Math.abs(video.player.getCurrentTime() - expectedSeconds());
+    if (t.isPlaying && drift > 1.5) video.player.seekTo(expectedSeconds(), true);
+    video.player.mute();
+  }
+
   function render(t) {
     track = t;
+    updateVideo(t);
     if (!t) {
       $('card').classList.remove('visible');
       key = '';
@@ -286,7 +376,7 @@
       fitLine($('artist'), t.artist);
       $('backdrop').classList.remove('ready');
       if (art) {
-        $('art').hidden = config.art === 'hidden';
+        $('art').hidden = config.art === 'hidden' || !$('videoBox').hidden;
         // Al cargar toma sus colores (también si está oculta). Si es la misma imagen,
         // el navegador no la vuelve a cargar: se recalculan con el tema nuevo aquí.
         if ($('art').getAttribute('src') === art && $('art').complete) onArtLoaded();

@@ -9,11 +9,14 @@
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMetaObject>
 
 #include <algorithm>
 #include <cstring>
 #include <mutex>
 #include <set>
+
+void syncVideoWanted(); // abajo, junto a push_now_playing_sources()
 
 namespace {
 
@@ -47,6 +50,7 @@ QJsonObject trackJson(const Track &track, bool withArtwork)
 		{"progressMs", track.progressNow(MediaWatcher::now())},
 		{"durationMs", track.durationMs},
 		{"hasArtwork", !track.artwork.isEmpty()},
+		{"videoId", track.videoId},
 	};
 	if (withArtwork)
 		json.insert("artwork", track.artwork);
@@ -121,6 +125,7 @@ void readSettings(NowPlayingSource *s, obs_data_t *settings)
 		{"style", obs_data_get_string(settings, "style")},
 		{"opacity", (int)obs_data_get_int(settings, "opacity")},
 		{"art", obs_data_get_string(settings, "art")},
+		{"media", obs_data_get_string(settings, "media")},
 		{"colors", obs_data_get_bool(settings, "colors")},
 		{"blur", obs_data_get_bool(settings, "blur")},
 		{"progress", obs_data_get_bool(settings, "progress")},
@@ -164,6 +169,7 @@ void *np_create(obs_data_t *settings, obs_source_t *source)
 
 	std::lock_guard<std::mutex> lock(sourcesMutex);
 	sources.insert(s);
+	syncVideoWanted();
 	push(s);
 	return s;
 }
@@ -174,6 +180,7 @@ void np_destroy(void *data)
 	{
 		std::lock_guard<std::mutex> lock(sourcesMutex);
 		sources.erase(s);
+		syncVideoWanted();
 	}
 	obs_source_release(s->browser);
 	delete s;
@@ -190,6 +197,7 @@ void np_update(void *data, obs_data_t *settings)
 		obs_data_release(bs);
 	}
 	s->sentArtKey.clear();
+	syncVideoWanted();
 	push(s);
 }
 
@@ -202,6 +210,7 @@ void np_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "style", "solid");
 	obs_data_set_default_int(settings, "opacity", 85);
 	obs_data_set_default_string(settings, "art", "normal");
+	obs_data_set_default_string(settings, "media", "art");
 	obs_data_set_default_bool(settings, "colors", true);
 	obs_data_set_default_bool(settings, "blur", false);
 	obs_data_set_default_bool(settings, "progress", true);
@@ -254,6 +263,12 @@ obs_properties_t *np_properties(void *)
 	obs_property_list_add_string(art, obs_module_text("NowPlaying.Art.Normal"), "normal");
 	obs_property_list_add_string(art, obs_module_text("NowPlaying.Art.Big"), "big");
 	obs_property_list_add_string(art, obs_module_text("NowPlaying.Art.Hidden"), "hidden");
+
+	obs_property_t *media = obs_properties_add_list(props, "media", obs_module_text("NowPlaying.Media"),
+							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(media, obs_module_text("NowPlaying.Media.Art"), "art");
+	obs_property_list_add_string(media, obs_module_text("NowPlaying.Media.Video"), "video");
+	obs_property_set_long_description(media, obs_module_text("NowPlaying.Media.Help"));
 
 	QString filter = QString("%1 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)").arg(obs_module_text("NowPlaying.Images"));
 	obs_property_t *fallback = obs_properties_add_path(props, "fallback_image", obs_module_text("NowPlaying.Fallback"),
@@ -322,6 +337,16 @@ void np_enum_sources(void *data, obs_source_enum_proc_t enum_callback, void *par
 }
 
 } // namespace
+
+// El lector lee pestañas del navegador solo si alguna fuente tiene "Video si es posible".
+void syncVideoWanted()
+{
+	bool wanted = false;
+	for (NowPlayingSource *s : sources)
+		wanted = wanted || s->config.value("media").toString() == "video";
+	QMetaObject::invokeMethod(&MediaWatcher::instance(),
+				  [wanted] { MediaWatcher::instance().setVideoWanted(wanted); });
+}
 
 void push_now_playing_sources()
 {
