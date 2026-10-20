@@ -15,11 +15,23 @@ const config = {
 };
 
 (async () => {
-  const browser = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+  // El Chromium completo (no el "headless shell"): más parecido al navegador de OBS.
+  const browser = await chromium.launch({ channel: 'chromium', args: ['--autoplay-policy=no-user-gesture-required'] });
   try {
     for (const layout of ['horizontal', 'vertical']) {
       const page = await browser.newPage({ viewport: layout === 'vertical' ? { width: 320, height: 420 } : { width: 480, height: 150 } });
       page.on('pageerror', (e) => console.log('error JS:', e.message));
+      page.on('console', (m) => ['error', 'warning'].includes(m.type()) && console.log(`consola (${m.type()}):`, m.text().slice(0, 200)));
+      page.on('requestfailed', (r) => /youtube|ytimg|googlevideo/.test(r.url()) && console.log('falló:', r.url().slice(0, 120), r.failure()?.errorText));
+      const state = () =>
+        page.evaluate(() => ({
+          api: typeof YT !== 'undefined' && Boolean(YT.Player),
+          ready: video.ready,
+          id: video.id,
+          playerState: video.ready ? video.player.getPlayerState() : null,
+          failed: [...video.failed],
+          visible: !document.getElementById('videoBox').hidden,
+        }));
       await page.goto(url);
 
       const start = Date.now();
@@ -39,6 +51,13 @@ const config = {
         await beat(VIDEO_ID);
         await page.waitForTimeout(1000);
         visible = await page.evaluate(() => !document.getElementById('videoBox').hidden);
+        if (i % 5 === 4) console.log(`${layout} a los ${i + 1} s:`, await state());
+      }
+      if (!visible) {
+        await page.screenshot({ path: `${outDir}/video-${layout}-fallo.png` });
+        // Lo que muestra el reproductor por dentro (p. ej. "confirma que no eres un bot").
+        const frame = page.frames().find((f) => /youtube/.test(f.url()));
+        if (frame) console.log('texto del reproductor:', (await frame.evaluate(() => document.body.innerText).catch(() => '')).slice(0, 300));
       }
       assert.ok(visible, `${layout}: el video no apareció en 40 s`);
 

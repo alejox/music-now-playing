@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: 22
       - name: Playwright + Chromium
-        run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium
+        run: npm install --no-save playwright@1.56.1 && npx playwright install --with-deps chromium chromium-headless-shell
       - name: El video aparece, va sincronizado y sin sonido
         run: |
           python3 -m http.server 8000 --directory obs-plugin/data/overlay >/dev/null 2>&1 &
