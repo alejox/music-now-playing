@@ -94,7 +94,7 @@ QString installedRoot()
 }
 
 // Copia un árbol de carpetas encima de otro (crea lo que falte, pisa lo que exista).
-bool copyTree(const QString &from, const QString &to)
+bool copyTree(const QString &from, const QString &to, QString *problem)
 {
 	QDir source(from);
 	QDirIterator it(from, QDir::Files | QDir::NoDotAndDotDot | QDir::Hidden, QDirIterator::Subdirectories);
@@ -102,10 +102,17 @@ bool copyTree(const QString &from, const QString &to)
 		QString file = it.next();
 		QString target = QDir(to).filePath(source.relativeFilePath(file));
 		QDir().mkpath(QFileInfo(target).absolutePath());
-		if (QFile::exists(target) && !QFile::remove(target))
+		QFile existing(target);
+		if (existing.exists() && !existing.remove()) {
+			*problem = QString("No se pudo reemplazar %1: %2")
+					   .arg(QDir::toNativeSeparators(target), existing.errorString());
 			return false;
-		if (!QFile::copy(file, target))
+		}
+		QFile copy(file);
+		if (!copy.copy(target)) {
+			*problem = QString("No se pudo copiar %1: %2").arg(QDir::toNativeSeparators(target), copy.errorString());
 			return false;
+		}
 	}
 	return true;
 }
@@ -157,7 +164,8 @@ void Updater::check(bool manual)
 		if (code != 0) {
 			obs_log(LOG_INFO, "no se pudo revisar si hay actualizaciones (curl %d)", code);
 			if (manual)
-				fail(text("NowPlaying.Update.CheckFailed"), kReleasesPage);
+				fail(text("NowPlaying.Update.CheckFailed"), kReleasesPage,
+				     QString("curl %1: %2").arg(code).arg(QString::fromUtf8(curl->readAllStandardError()).trimmed()));
 			return;
 		}
 		handleRelease(json, manual);
@@ -168,7 +176,7 @@ void Updater::check(bool manual)
 		curl->deleteLater();
 		busy_ = false;
 		if (manual)
-			fail(text("NowPlaying.Update.CheckFailed"), kReleasesPage);
+			fail(text("NowPlaying.Update.CheckFailed"), kReleasesPage, curl->errorString());
 	});
 	curl->start(systemTool("curl"), {"-fsSL", "--max-time", "20", "-H", "Accept: application/vnd.github+json",
 					 QString::fromUtf8(kLatestRelease)});
@@ -195,7 +203,9 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 
 	if (version.isEmpty() || !url.startsWith("https://github.com/")) {
 		if (manual)
-			fail(text("NowPlaying.Update.CheckFailed"), pageUrl);
+			fail(text("NowPlaying.Update.CheckFailed"), pageUrl,
+			     release.contains("message") ? "GitHub: " + release.value("message").toString()
+							 : QString("La Release no trae obs-now-playing-plugin-…-%1.zip").arg(kPlatform));
 		return;
 	}
 	if (compareVersions(version, QString::fromUtf8(PLUGIN_VERSION)) <= 0) {
@@ -247,7 +257,8 @@ void Updater::download(const QString &version, const QString &url)
 	connect(curl, &QProcess::finished, this, [this, curl, version, zip](int code, QProcess::ExitStatus) {
 		curl->deleteLater();
 		if (code != 0 || QFileInfo(zip).size() == 0) {
-			fail(text("NowPlaying.Update.DownloadFailed"), kReleasesPage);
+			fail(text("NowPlaying.Update.DownloadFailed"), kReleasesPage,
+			     QString("curl %1: %2").arg(code).arg(QString::fromUtf8(curl->readAllStandardError()).trimmed()));
 			return;
 		}
 		install(version, zip);
@@ -270,7 +281,8 @@ void Updater::install(const QString &version, const QString &zipPath)
 	QString newRoot = QDir(extracted).filePath("obs-now-playing.plugin");
 #endif
 	if (unzip != 0 || !QFileInfo(newRoot).isDir()) {
-		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage);
+		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage,
+		     QString("No se pudo descomprimir %1 (código %2)").arg(QDir::toNativeSeparators(zipPath)).arg(unzip));
 		return;
 	}
 
@@ -284,16 +296,23 @@ void Updater::install(const QString &version, const QString &zipPath)
 #endif
 	if (!ownFolder) {
 		obs_log(LOG_WARNING, "plugin fuera de su carpeta (%s): no se actualiza solo", root.toUtf8().constData());
-		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage);
+		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage,
+		     QString("El plugin no está en su propia carpeta: %1").arg(QDir::toNativeSeparators(root)));
 		return;
 	}
 	bool ok = false;
+	QString problem;
 #ifdef _WIN32
 	// El .dll cargado no se puede pisar, pero sí renombrar: queda como .old y se borra en el
 	// próximo arranque. Si el plugin está en Archivos de programa sin permisos, falla aquí.
 	QString dll = QDir(root).filePath("bin/64bit/obs-now-playing.dll");
 	QString old = dll + "." + QString::number(QDateTime::currentSecsSinceEpoch()) + ".old";
-	ok = QFile::rename(dll, old) && copyTree(newRoot, root);
+	QFile loaded(dll);
+	if (!loaded.rename(old))
+		problem = QString("No se pudo renombrar %1: %2").arg(QDir::toNativeSeparators(dll), loaded.errorString());
+	else if (!copyTree(newRoot, root, &problem))
+		problem = problem.isEmpty() ? QString("No se pudo copiar a %1").arg(QDir::toNativeSeparators(root)) : problem;
+	ok = problem.isEmpty();
 	if (!ok && QFile::exists(old) && !QFile::exists(dll))
 		QFile::rename(old, dll); // deja el plugin como estaba
 #else
@@ -301,7 +320,7 @@ void Updater::install(const QString &version, const QString &zipPath)
 	QString backup = root + ".old";
 	QDir(backup).removeRecursively();
 	if (QDir().rename(root, backup)) {
-		ok = QDir().rename(newRoot, root) || copyTree(newRoot, root);
+		ok = QDir().rename(newRoot, root) || copyTree(newRoot, root, &problem);
 		if (ok) {
 			QDir(backup).removeRecursively();
 			// Por si acaso: sin la marca de "descargado de internet" macOS no lo bloquea.
@@ -310,6 +329,8 @@ void Updater::install(const QString &version, const QString &zipPath)
 			QDir(root).removeRecursively();
 			QDir().rename(backup, root); // deja el plugin como estaba
 		}
+	} else {
+		problem = QString("No se pudo mover %1").arg(root);
 	}
 #endif
 
@@ -321,15 +342,18 @@ void Updater::install(const QString &version, const QString &zipPath)
 	if (!ok) {
 		obs_log(LOG_WARNING, "no se pudo instalar la versión %s en %s", version.toUtf8().constData(),
 			root.toUtf8().constData());
-		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage);
+		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage, problem);
 		return;
 	}
 	obs_log(LOG_INFO, "versión %s instalada; se usa al reiniciar OBS", version.toUtf8().constData());
 	QMessageBox::information(mainWindow(), text("NowPlaying.Update.Title"), text("NowPlaying.Update.Done").arg(version));
 }
 
-void Updater::fail(const QString &message, const QString &pageUrl)
+void Updater::fail(const QString &message, const QString &pageUrl, const QString &detail)
 {
+	// El motivo va en el aviso y en el registro de OBS: sin él no se sabe qué falló.
+	if (!detail.isEmpty())
+		obs_log(LOG_WARNING, "actualización: %s", detail.toUtf8().constData());
 	if (progress_) {
 		progress_->close();
 		progress_->deleteLater();
@@ -339,6 +363,8 @@ void Updater::fail(const QString &message, const QString &pageUrl)
 	box.setWindowTitle(text("NowPlaying.Update.Title"));
 	box.setIcon(QMessageBox::Warning);
 	box.setText(message);
+	if (!detail.isEmpty())
+		box.setInformativeText(detail);
 	QPushButton *open = box.addButton(text("NowPlaying.Update.OpenPage"), QMessageBox::AcceptRole);
 	box.addButton(QMessageBox::Close);
 	box.exec();
