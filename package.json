@@ -1,0 +1,13 @@
+{
+  "name": "obs-now-playing",
+  "version": "2.0.0",
+  "description": "Overlay de OBS que muestra lo que suena en tu computador (Spotify, YouTube Music, Apple Music…) en macOS y Windows.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/smoke.js",
+    "build": "./build/build.sh"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}

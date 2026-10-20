@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Now Playing</title>
+<!--
+  Overlay para la Fuente de navegador de OBS. Opciones por URL (combinables):
+    ?theme=light        tema claro (por defecto: oscuro)
+    ?pos=br             esquina: bl (abajo izq., por defecto), br, tl, tr
+    ?art=0              ocultar carátula
+    ?progress=0         ocultar barra de progreso
+    ?label=0            ocultar la línea "Escuchando en …"
+    ?width=480          ancho de la tarjeta en px
+    ?accent=ff00aa      color de acento fijo (hex sin #); por defecto, el de cada app
+    ?preview=1          muestra una canción de ejemplo cuando no suena nada
+-->
+<style>
+  :root {
+    --bg: rgba(16, 17, 22, 0.82);
+    --fg: #ffffff;
+    --muted: rgba(255, 255, 255, 0.68);
+    --track: rgba(255, 255, 255, 0.18);
+    --accent: #1ed760;
+    --width: 420px;
+  }
+  :root[data-theme="light"] {
+    --bg: rgba(255, 255, 255, 0.9);
+    --fg: #111216;
+    --muted: rgba(17, 18, 22, 0.62);
+    --track: rgba(17, 18, 22, 0.14);
+  }
+  html, body {
+    margin: 0;
+    background: transparent;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  .card {
+    position: fixed;
+    left: 24px;
+    bottom: 24px;
+    box-sizing: border-box;
+    width: var(--width);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px;
+    background: var(--bg);
+    color: var(--fg);
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(14px);
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.45s ease, transform 0.45s ease;
+  }
+  .card.visible { opacity: 1; transform: none; }
+  [data-pos="br"] .card { left: auto; right: 24px; }
+  [data-pos="tl"] .card { bottom: auto; top: 24px; transform: translateY(-14px); }
+  [data-pos="tr"] .card { bottom: auto; top: 24px; left: auto; right: 24px; transform: translateY(-14px); }
+  [data-pos] .card.visible { transform: none; }
+
+  .art {
+    flex: none;
+    width: 72px;
+    height: 72px;
+    border-radius: 10px;
+    object-fit: cover;
+    background: var(--track);
+  }
+  .meta { flex: 1; min-width: 0; }
+  .label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 10px; }
+  .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 0.9s ease-in-out infinite; }
+  .eq i:nth-child(2) { animation-delay: -0.3s; }
+  .eq i:nth-child(3) { animation-delay: -0.6s; }
+  @keyframes eq { 0%, 100% { height: 3px; } 50% { height: 10px; } }
+
+  .line { overflow: hidden; white-space: nowrap; }
+  .line span { display: inline-block; }
+  .line.scroll span { animation: marquee var(--dur, 8s) ease-in-out infinite alternate; }
+  @keyframes marquee { 0%, 15% { transform: translateX(0); } 85%, 100% { transform: translateX(var(--shift)); } }
+  .title { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .artist { font-size: 14px; color: var(--muted); margin-top: 1px; }
+
+  .progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar { flex: 1; height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.25s linear; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <img class="art" id="art" alt="">
+  <div class="meta">
+    <div class="label" id="label"><span class="eq"><i></i><i></i><i></i></span><span id="labelText">Escuchando</span></div>
+    <div class="line title" id="title"><span></span></div>
+    <div class="line artist" id="artist"><span></span></div>
+    <div class="progress" id="progress">
+      <span id="elapsed">0:00</span><div class="bar"><div id="bar"></div></div><span id="duration">0:00</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  const params = new URLSearchParams(location.search);
+  const root = document.documentElement;
+  const $ = (id) => document.getElementById(id);
+  const ACCENTS = { spotify: '#1ed760', ytmusic: '#ff0033', applemusic: '#fa2d48', browser: '#8b8cff', other: '#8b8cff' };
+  const fixedAccent = /^[0-9a-f]{3,8}$/i.test(params.get('accent') || '') ? `#${params.get('accent')}` : null;
+
+  if (params.get('theme') === 'light') root.dataset.theme = 'light';
+  if (['br', 'tl', 'tr'].includes(params.get('pos'))) root.dataset.pos = params.get('pos');
+  if (Number(params.get('width')) > 0) root.style.setProperty('--width', `${Number(params.get('width'))}px`);
+  const showArt = params.get('art') !== '0';
+  $('progress').hidden = params.get('progress') === '0';
+  $('label').hidden = params.get('label') === '0';
+
+  const PREVIEW = {
+    kind: 'spotify', sourceLabel: 'Spotify', title: 'Canción de ejemplo con un título bastante largo',
+    artist: 'Artista de prueba', artwork: '', isPlaying: true, progressMs: 42000, durationMs: 215000, updatedAt: Date.now(),
+  };
+
+  let track = null;
+  let key = '';
+
+  const fmt = (ms) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = String(s % 60).padStart(2, '0');
+    return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
+  };
+
+  // Desplaza el texto de lado a lado solo si no cabe.
+  function fitLine(el, text) {
+    const span = el.firstElementChild;
+    span.textContent = text;
+    el.classList.remove('scroll');
+    requestAnimationFrame(() => {
+      const overflow = span.scrollWidth - el.clientWidth;
+      if (overflow > 0) {
+        el.style.setProperty('--shift', `${-overflow}px`);
+        el.style.setProperty('--dur', `${Math.max(6, overflow / 25)}s`);
+        el.classList.add('scroll');
+      }
+    });
+  }
+
+  function render(t) {
+    track = t;
+    if (!t) {
+      $('card').classList.remove('visible');
+      key = '';
+      return;
+    }
+    const nextKey = `${t.kind}|${t.title}|${t.artist}|${t.artwork}`;
+    if (nextKey !== key) {
+      key = nextKey;
+      root.style.setProperty('--accent', fixedAccent || ACCENTS[t.kind] || ACCENTS.other);
+      $('labelText').textContent = t.sourceLabel ? `Escuchando en ${t.sourceLabel}` : 'Escuchando ahora';
+      fitLine($('title'), t.title);
+      fitLine($('artist'), t.artist);
+      const art = $('art');
+      art.hidden = !showArt || !t.artwork;
+      if (!art.hidden) art.src = t.artwork;
+    }
+    $('card').classList.add('visible');
+    tick();
+  }
+
+  function tick() {
+    if (!track || !track.durationMs) {
+      $('progress').style.visibility = 'hidden';
+      return;
+    }
+    $('progress').style.visibility = '';
+    const elapsed = Math.min(track.durationMs, track.progressMs + (track.isPlaying ? Date.now() - track.updatedAt : 0));
+    $('bar').style.width = `${(elapsed / track.durationMs) * 100}%`;
+    $('elapsed').textContent = fmt(elapsed);
+    $('duration').textContent = fmt(track.durationMs);
+  }
+
+  $('art').addEventListener('error', () => { $('art').hidden = true; });
+
+  async function poll() {
+    try {
+      const res = await fetch('/api/now-playing', { cache: 'no-store' });
+      const data = await res.json();
+      // El servidor ya mandó el progreso de este instante: desde aquí lo avanza tick().
+      if (data.track) data.track.updatedAt = Date.now();
+      render(data.track || (params.get('preview') === '1' ? { ...PREVIEW, updatedAt: track?.updatedAt || Date.now() } : null));
+    } catch {
+      render(null);
+    }
+    setTimeout(poll, 1000);
+  }
+
+  setInterval(tick, 250);
+  poll();
+</script>
+</body>
+</html>

@@ -1,0 +1,51 @@
+name: Release
+
+# Publicar una versión: sube la versión en package.json, haz commit y
+#   git tag v2.0.0 && git push origin v2.0.0
+# Esto genera los instaladores y los adjunta a la Release del tag.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+      - name: Herramientas (NSIS y Pillow)
+        run: sudo apt-get update && sudo apt-get install -y nsis python3-pil
+      - name: La versión del tag coincide con package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          expected="v$(node -p "require('./package.json').version")"
+          [ "$GITHUB_REF_NAME" = "$expected" ] || { echo "El tag es $GITHUB_REF_NAME pero package.json dice $expected"; exit 1; }
+      - name: Prueba de humo
+        run: npm test
+      - name: Instaladores
+        run: ./build/build.sh
+      - name: Guardar como artefacto (ejecución manual)
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: instaladores
+          path: dist/*
+      - name: Publicar Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          body: |
+            ## Descargas
+            - **Windows 10/11:** `OBS-Now-Playing-Setup-….exe`
+            - **Mac con chip Apple (M1/M2/M3/M4…):** `OBS-Now-Playing-…-mac-apple.zip`
+            - **Mac con Intel:** `OBS-Now-Playing-…-mac-intel.zip`
+
+            Cómo instalar y qué hacer con los avisos de Windows/macOS: [README](${{ github.server_url }}/${{ github.repository }}#1-instalar).
