@@ -133,6 +133,7 @@ void readSettings(NowPlayingSource *s, obs_data_t *settings)
 	s->config = QJsonObject{
 		{"theme", obs_data_get_string(settings, "theme")},
 		{"layout", obs_data_get_string(settings, "layout")},
+		{"anchor", obs_data_get_string(settings, "anchor")},
 		{"style", obs_data_get_string(settings, "style")},
 		{"opacity", (int)obs_data_get_int(settings, "opacity")},
 		{"art", obs_data_get_string(settings, "art")},
@@ -221,6 +222,7 @@ void np_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "sized_for", "horizontal/normal");
 	obs_data_set_default_string(settings, "theme", "dark");
 	obs_data_set_default_string(settings, "layout", "horizontal");
+	obs_data_set_default_string(settings, "anchor", "top");
 	obs_data_set_default_string(settings, "style", "solid");
 	obs_data_set_default_int(settings, "opacity", 85);
 	obs_data_set_default_string(settings, "art", "normal");
@@ -270,6 +272,12 @@ obs_properties_t *np_properties(void *)
 	obs_property_list_add_string(layout, obs_module_text("NowPlaying.Layout.Vertical"), "vertical");
 	obs_property_set_long_description(layout, obs_module_text("NowPlaying.Layout.Help"));
 	obs_property_set_modified_callback(layout, np_size_modified);
+
+	obs_property_t *anchor = obs_properties_add_list(props, "anchor", obs_module_text("NowPlaying.Anchor"),
+							 OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(anchor, obs_module_text("NowPlaying.Anchor.Top"), "top");
+	obs_property_list_add_string(anchor, obs_module_text("NowPlaying.Anchor.Bottom"), "bottom");
+	obs_property_set_long_description(anchor, obs_module_text("NowPlaying.Anchor.Help"));
 
 	obs_property_t *style = obs_properties_add_list(props, "style", obs_module_text("NowPlaying.Style"),
 							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);

@@ -34,7 +34,7 @@
   /* La tarjeta ocupa la fuente entera menos el margen para la sombra: en OBS se ubica y
      escala moviendo la fuente. El margen tiene que ser mayor que lo que se esparce la
      sombra (desenfoque + desplazamiento); si no, OBS la corta en línea recta en el borde. */
-  :root { --shadow: 0 6px 18px rgba(0, 0, 0, 0.32); --gap-x: 22px; --gap-top: 14px; }
+  :root { --shadow: 0 6px 18px rgba(0, 0, 0, 0.32); --gap-x: 22px; --gap-top: 14px; --gap-bottom: 26px; }
   .card {
     position: fixed;
     left: var(--gap-x);
@@ -57,6 +57,10 @@
     transition: opacity 0.45s ease, transform 0.45s ease, background-color 0.8s ease;
   }
   .card.visible { opacity: 1; transform: none; }
+  /* "Mantener fijo el borde inferior": si la tarjeta es más chica que la fuente (p. ej.
+     con el video ajustado a 16:9), se apoya abajo y se achica de arriba hacia abajo.
+     --gap-bottom deja lugar a la sombra (6 px de desplazamiento + 18 de desenfoque). */
+  [data-anchor="bottom"] .card { top: auto; bottom: var(--gap-bottom); }
   .card.paused { opacity: 0.75; }
 
   /* ?blur=1: la carátula difuminada detrás de todo */
@@ -220,7 +224,7 @@
   };
 
   let config = {
-    theme: 'dark', layout: 'horizontal', style: 'solid', opacity: 85, art: 'normal', media: 'art', videoFit: 'square', colors: true, blur: false, progress: true, label: true, preview: false,
+    theme: 'dark', layout: 'horizontal', style: 'solid', opacity: 85, art: 'normal', media: 'art', videoFit: 'square', anchor: 'top', colors: true, blur: false, progress: true, label: true, preview: false,
   };
   let lastColors = null; // colores de la carátula actual, para recalcular al cambiar estilo u opacidad
   let configKey = '';
@@ -242,6 +246,7 @@
     root.dataset.style = config.style === 'glass' ? 'glass' : 'solid';
     root.dataset.layout = config.layout === 'vertical' ? 'vertical' : 'horizontal';
     root.dataset.videoFit = config.videoFit === 'wide' ? 'wide' : 'square';
+    root.dataset.anchor = config.anchor === 'bottom' ? 'bottom' : 'top';
     $('progress').hidden = !config.progress;
     $('label').hidden = !config.label;
     key = ''; // vuelve a pintar con la configuración nueva
