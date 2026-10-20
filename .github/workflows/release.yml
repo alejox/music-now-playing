@@ -1,12 +1,18 @@
 name: Release
 
-# Publicar una versión: sube la versión en package.json, haz commit y
-#   git tag v2.0.0 && git push origin v2.0.0
-# Esto genera los instaladores y los adjunta a la Release del tag.
+# Publicar una versión: sube la versión en package.json, haz commit y luego
+#   - empuja un tag:  git tag v2.0.1 && git push origin v2.0.1
+#   - o en GitHub: Actions → Release → Run workflow (crea el tag v<versión> solo).
+# Esto genera los instaladores y los adjunta a la Release de ese tag.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publicar la Release v<versión de package.json> (si no, solo deja los instaladores como artefacto)'
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -21,25 +27,31 @@ jobs:
           node-version: 22
       - name: Herramientas (NSIS, Pillow, clang y lld)
         run: sudo apt-get update && sudo apt-get install -y nsis python3-pil clang lld
-      - name: La versión del tag coincide con package.json
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Versión
+        id: version
         run: |
-          expected="v$(node -p "require('./package.json').version")"
-          [ "$GITHUB_REF_NAME" = "$expected" ] || { echo "El tag es $GITHUB_REF_NAME pero package.json dice $expected"; exit 1; }
+          tag="v$(node -p "require('./package.json').version")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "$tag" ]]; then
+            echo "El tag es $GITHUB_REF_NAME pero package.json dice $tag"; exit 1
+          fi
       - name: Prueba de humo
         run: npm test
       - name: Instaladores
         run: ./build/build.sh
-      - name: Guardar como artefacto (ejecución manual)
-        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+      - name: Guardar como artefacto
+        if: ${{ !startsWith(github.ref, 'refs/tags/') && !inputs.publish }}
         uses: actions/upload-artifact@v4
         with:
           name: instaladores
           path: dist/*
       - name: Publicar Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish }}
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: OBS Now Playing ${{ steps.version.outputs.tag }}
           files: dist/*
           generate_release_notes: true
           body: |
