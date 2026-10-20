@@ -24,6 +24,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QTimer>
 
 #include "media-watcher.hpp"
+#include "music-channel.hpp"
 #include "now-playing-dock.hpp"
 #include "now-playing-source.hpp"
 #include "updater.hpp"
@@ -39,8 +40,12 @@ void on_frontend_event(enum obs_frontend_event event, void *)
 	if (event == OBS_FRONTEND_EVENT_EXIT)
 		MediaWatcher::instance().stop();
 	// Con OBS ya abierto, revisa si hay una versión nueva (sin apurar el arranque).
-	if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING)
+	if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
 		QTimer::singleShot(5000, &Updater::instance(), [] { Updater::instance().check(false); });
+		// Con las escenas ya cargadas, el canal de música sigue a la app que suena.
+		QObject::connect(&MediaWatcher::instance(), &MediaWatcher::updated, &MediaWatcher::instance(),
+				 &follow_music_channel, Qt::UniqueConnection);
+	}
 }
 
 } // namespace

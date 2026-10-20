@@ -31,7 +31,7 @@ Funciona con **Spotify** (app o web), **YouTube Music**, **Apple Music** y cualq
 | 🎬 **Modo video** | Con YouTube Music / YouTube, el video en vez de la carátula (sin sonido y sincronizado). |
 | 🖼️ **Tu logo** | Una imagen tuya para las canciones sin carátula. |
 | ⏯️ **Dock de control** | Anterior / pausa / siguiente y un **buscador de canciones**, dentro de OBS y fuera del stream. |
-| 🔊 **Canal de música** | Con un clic, un canal en el Mezclador de audio solo con el sonido del reproductor. |
+| 🔊 **Canal de música** | Con un clic, un canal en el Mezclador de audio solo con el sonido del reproductor; te sigue si cambias de reproductor. |
 | 🔄 **Actualizaciones** | OBS te avisa cuando hay una versión nueva y la instala por ti. |
 
 ## 📦 Instalar el plugin

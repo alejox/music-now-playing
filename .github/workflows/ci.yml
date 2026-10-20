@@ -93,7 +93,7 @@ jobs:
           grep -q '"found":false' art3.txt || { echo "Aceptó una carátula para algo que no es una canción"; exit 1; }
           echo "--- teclas de música (se arman sin enviarlas) y permiso de Accesibilidad"
           osascript -l JavaScript media/macos.js selftest | tee selftest.txt
-          grep -q '"mediaKeyEvent":true' selftest.txt && grep -q '"cgEventPost":true' selftest.txt || { echo "No se pudo armar la tecla de música"; exit 1; }
+          grep -q '"mediaKeyEvent":true' selftest.txt && grep -q '"cgEventPost":true' selftest.txt && grep -q '"workspace":true' selftest.txt || { echo "No se pudo armar la tecla de música o abrir enlaces"; exit 1; }
           echo "--- comando (sin nada sonando puede fallar, solo se muestra)"
           osascript -l JavaScript media/macos.js command playpause || true
           node -e "

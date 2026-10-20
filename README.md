@@ -31,7 +31,7 @@ Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any 
 | 🎬 **Video mode** | With YouTube Music / YouTube, the music video instead of the cover (muted and in sync). |
 | 🖼️ **Your logo** | An image of your own for songs without a cover. |
 | ⏯️ **Control dock** | Previous / pause / next and a **song search box**, inside OBS and off-stream. |
-| 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound. |
+| 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound; it follows you when you switch players. |
 | 🔄 **Updates** | OBS tells you when there's a new version and installs it for you. |
 
 ## 📦 Install the plugin

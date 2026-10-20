@@ -7,3 +7,7 @@ class QWidget;
 // para manejar su volumen aparte en el Mezclador. Avisa con un mensaje sobre parent.
 // Se llama desde el dock, las Propiedades de la fuente y el menú Herramientas.
 void create_music_channel(QWidget *parent);
+
+// Si el canal ya existe, lo reapunta en silencio a la app que está sonando ahora (al pasar
+// de Spotify a YouTube Music, el canal sigue a la música). Se llama con cada lectura.
+void follow_music_channel();

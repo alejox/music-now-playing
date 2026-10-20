@@ -80,8 +80,11 @@ function pressMediaKey(code) {
 function selfTest() {
   const event = mediaKeyEvent(MEDIA_KEYS.next, true);
   const ok = Boolean(event && !event.isNil() && event.CGEvent);
-  emit({ mediaKeyEvent: ok, accessibilityAllowed: Boolean(accessibilityAllowed(false)), cgEventPost: typeof $.CGEventPost === 'function' });
-  return ok ? 0 : 1;
+  // El buscador abre spotify:search: con NSWorkspace (necesita AppKit).
+  ObjC.import('AppKit');
+  const workspace = Boolean($.NSWorkspace && $.NSWorkspace.sharedWorkspace && !$.NSWorkspace.sharedWorkspace.isNil());
+  emit({ mediaKeyEvent: ok, accessibilityAllowed: Boolean(accessibilityAllowed(false)), cgEventPost: typeof $.CGEventPost === 'function', workspace });
+  return ok && workspace ? 0 : 1;
 }
 
 // YouTube Music / YouTube en un navegador: se pulsa el botón de la propia página, en la
@@ -196,7 +199,8 @@ function sendCommand(action) {
 const YTM_PAGE = /^https:\/\/music\.youtube\.com\//;
 
 function openUrl(url) {
-  return $.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(url));
+  ObjC.import('AppKit'); // NSWorkspace (Foundation solo no la trae)
+  if (!$.NSWorkspace.sharedWorkspace.openURL($.NSURL.URLWithString(url))) throw new Error(`no se pudo abrir ${url}`);
 }
 
 // Pone el primer resultado de la búsqueda (la canción del "Mejor resultado" o la
