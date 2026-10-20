@@ -72,12 +72,14 @@
   }
   [data-blur] .backdrop.ready { opacity: 0.55; }
 
-  /* Modo video: el reproductor de YouTube ocupa el lugar de la carátula. En horizontal
-     se recorta a cuadrado; en vertical va en 16:9. No se muestra hasta que reproduce. */
+  /* Modo video: el reproductor de YouTube ocupa el lugar de la carátula (en vertical, en
+     16:9). No se recorta ni se tapa nada del reproductor (las reglas de YouTube lo
+     prohíben): se carga a tamaño de escritorio y se muestra reducido con transform. Con un
+     reproductor chico YouTube usa su interfaz compacta, que deja un botón de pausa fijo
+     en el centro. No se muestra hasta que reproduce. */
   .video { position: relative; overflow: hidden; background: #000; }
-  .video iframe { position: absolute; top: 0; left: -39%; width: 178% !important; height: 100% !important; border: 0; pointer-events: none; }
-  [data-layout="vertical"] .video { aspect-ratio: 16 / 9; }
-  [data-layout="vertical"] .video iframe { left: 0; width: 100% !important; }
+  .video iframe { position: absolute; top: 0; left: 0; border: 0; transform-origin: 0 0; pointer-events: none; }
+  [data-layout="vertical"] .art.video { aspect-ratio: 16 / 9; }
 
   /* Diseño vertical: carátula arriba, cuadrada y a todo el ancho; textos centrados.
      La altura sale del ancho de la fuente (carátula cuadrada + textos). */
@@ -323,9 +325,23 @@
     video.lastSync = Date.now();
   }
 
+  // El reproductor se arma a 480 px de ancho como mínimo (interfaz de escritorio) y se
+  // reduce al tamaño del recuadro.
+  const VIDEO_RENDER_WIDTH = 480;
+  function fitVideo() {
+    const box = $('videoBox');
+    const frame = video.ready && video.player.getIframe();
+    if (!frame || box.hidden || !box.clientWidth) return;
+    const k = Math.max(1, VIDEO_RENDER_WIDTH / box.clientWidth);
+    frame.style.width = `${box.clientWidth * k}px`;
+    frame.style.height = `${box.clientHeight * k}px`;
+    frame.style.transform = `scale(${1 / k})`;
+  }
+
   function showVideo(on) {
     $('videoBox').hidden = !on;
     $('art').hidden = on || config.art === 'hidden' || !$('art').getAttribute('src');
+    if (on) fitVideo();
   }
 
   // Llamado con cada evento: decide si hay video y lo mantiene sincronizado.
@@ -348,6 +364,7 @@
     }
     if (!video.ready || Date.now() - video.lastSync < 3000) return;
     video.lastSync = Date.now();
+    fitVideo(); // por si cambió el diseño o el tamaño de la fuente
     const state = video.player.getPlayerState();
     if (!t.isPlaying && state === YT.PlayerState.PLAYING) video.player.pauseVideo();
     if (t.isPlaying && state === YT.PlayerState.PAUSED) video.player.playVideo();
