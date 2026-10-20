@@ -12,7 +12,7 @@ const os = require('node:os');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 
-const VERSION = '2.4.13';
+const VERSION = '2.4.14';
 const ARGS = new Set(process.argv.slice(2));
 
 // Archivos de la app (overlay, lectores del sistema, userscript): junto a este

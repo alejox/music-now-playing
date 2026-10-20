@@ -1,0 +1,2 @@
+# Windows solo ejecuta bien los .cmd con fin de línea CRLF.
+*.cmd text eol=crlf

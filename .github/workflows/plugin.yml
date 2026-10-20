@@ -94,9 +94,23 @@ jobs:
       - name: Empaquetar
         run: |
           cmake --install build_x64 --prefix release --config RelWithDebInfo
+          # Instalar.cmd copia el plugin a %ProgramData%\obs-studio\plugins desde donde se
+          # haya descomprimido (al "Extraer todo", Windows agrega una carpeta con el nombre del zip).
+          Copy-Item packaging/windows/Instalar.cmd release/
           Get-ChildItem -Recurse release | Select-Object -ExpandProperty FullName
           New-Item -ItemType Directory -Force ../dist | Out-Null
           Compress-Archive -Path release/* -DestinationPath "../dist/obs-now-playing-plugin-${{ steps.version.outputs.v }}-windows-x64.zip"
+      # Como lo haría alguien: "Extraer todo" (carpeta con el nombre del zip) y abrir Instalar.cmd.
+      - name: El zip se instala con Instalar.cmd
+        run: |
+          $zip = Get-Item "../dist/obs-now-playing-plugin-*-windows-x64.zip"
+          $dir = Join-Path $env:RUNNER_TEMP $zip.BaseName
+          Expand-Archive $zip.FullName -DestinationPath $dir
+          '' | & "$dir\Instalar.cmd"  # sin teclado, "pause" sigue de largo
+          $dll = "$env:ProgramData\obs-studio\plugins\obs-now-playing\bin\64bit\obs-now-playing.dll"
+          if (-not (Test-Path $dll)) { throw "Instalar.cmd no dejó $dll" }
+          if (-not (Test-Path "$env:ProgramData\obs-studio\plugins\obs-now-playing\data\media\windows.ps1")) { throw 'Faltan los datos del plugin' }
+          Remove-Item -Recurse -Force "$env:ProgramData\obs-studio\plugins\obs-now-playing"
       - uses: actions/upload-artifact@v4
         with:
           name: plugin-windows

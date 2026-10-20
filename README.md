@@ -41,8 +41,8 @@ Download the zip for your system from **[Releases](../../releases/latest)** and 
 | | macOS (OBS 31+) | Windows (OBS 31+) |
 |---|---|---|
 | **File** | `obs-now-playing-plugin-<version>-macos.zip` | `obs-now-playing-plugin-<version>-windows-x64.zip` |
-| **1** | Unzip it: you get `obs-now-playing.plugin` | Unzip it into `C:\ProgramData\obs-studio\plugins\` |
-| **2** | Copy it to `~/Library/Application Support/obs-studio/plugins/` | — |
+| **1** | Unzip it: you get `obs-now-playing.plugin` | Close OBS and unzip it anywhere (right click → Extract All) |
+| **2** | Copy it to `~/Library/Application Support/obs-studio/plugins/` | Open `Instalar.cmd`: it copies the plugin to `C:\ProgramData\obs-studio\plugins\obs-now-playing` |
 | **3** | Run the Terminal command below (once) | — |
 | **4** | Open OBS | Open OBS |
 
@@ -83,7 +83,7 @@ The plugin's interface is in Spanish, with English strings included.
 <details>
 <summary><b>The cover art doesn't show</b></summary>
 
-On recent macOS versions the system no longer passes the image. The plugin asks the Spotify app for it (macOS asks if OBS can control Spotify: allow it) and, for other players, looks it up in Apple's public catalog by artist and title.
+On recent macOS versions the system no longer passes the image. The plugin asks the Spotify app for it (macOS asks if OBS can control Spotify: allow it) and, for other players, looks it up in Apple's public catalog by artist and title. On Windows, when the player sends no image (browsers often don't), it does the same lookup and, for YouTube in the browser, uses the video thumbnail.
 </details>
 
 <details>
@@ -177,7 +177,7 @@ URL options (combine with `&`):
 ## 🔒 Privacy
 
 - Everything runs on your computer; there's no server of ours.
-- The plugin only goes online to check for updates on GitHub, to look up missing cover art in Apple's public catalog (song title and artist) and, in video mode, to load the YouTube player.
+- The plugin only goes online to check for updates on GitHub, to look up missing cover art in Apple's public catalog (song title and artist), on Windows to find the YouTube video that is playing when the address bar can't be read (video title and channel) and, in video mode, to load the YouTube player.
 - The app only listens on `127.0.0.1` and doesn't let other web pages read what you listen to.
 
 ## 🛠️ For developers

@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   test:
@@ -72,6 +73,25 @@ jobs:
           if ($first.error) { throw "El lector falló: $($first.error)" }
           if ($null -eq $first.sessions) { throw 'Salida inesperada' }
           if (Test-Path $cmdFile) { throw 'El lector no leyó el archivo de comandos' }
+
+      # Carátulas de respaldo (catálogo de Apple, miniatura de YouTube) y el id del video:
+      # la barra de direcciones se lee de un Chrome de verdad con un video de YouTube.
+      - name: Carátulas de respaldo y video de YouTube en Windows
+        shell: pwsh
+        run: |
+          $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($chrome) {
+            Start-Process $chrome -ArgumentList '--no-first-run', '--no-default-browser-check', "--user-data-dir=$env:RUNNER_TEMP\chrome", 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+            Start-Sleep -Seconds 20
+          }
+          powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File media\windows.ps1 -SelfTest | Tee-Object -Variable out
+          $result = ($out | Select-Object -Last 1) | ConvertFrom-Json
+          if ($chrome) { Get-Process chrome -ErrorAction SilentlyContinue | Stop-Process -Force }
+          if (-not $result.catalogArtwork) { throw 'No encontró la carátula en el catálogo de Apple' }
+          if ($result.searchVideoId -notmatch '^[A-Za-z0-9_-]{11}$') { throw "La búsqueda en YouTube no dio un video: $($result.searchVideoId)" }
+          if (-not $result.thumbnail) { throw 'No descargó la miniatura del video' }
+          # La barra de direcciones depende de que Chrome muestre la ventana en el runner: se informa.
+          if (-not ($result.youtubeWindows | Where-Object { $_.id -eq 'dQw4w9WgXcQ' })) { Write-Warning "No se leyó la barra de direcciones de Chrome: $($result.youtubeWindows | ConvertTo-Json -Compress)" }
 
   mac-reader:
     runs-on: macos-15

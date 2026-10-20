@@ -8,9 +8,14 @@
 # Es un archivo y no la entrada estándar a propósito: en Windows PowerShell 5.1 leer
 # la entrada sin bloquear el bucle no es confiable, y un lector bloqueado congela el overlay.
 #
+# Carátula: la que entrega el reproductor. Si no trae (navegadores, algunas apps), se busca
+# por artista y canción en el catálogo público de Apple (iTunes Search, igual que en macOS)
+# y, para YouTube en el navegador, se usa la miniatura del video.
+#
 # Modo video (plugin de OBS): mientras exista el archivo -VideoFlag, para lo que suena en
 # un navegador se agrega "videoId", el id del video de YouTube / YouTube Music leído de la
-# barra de direcciones (UI Automation). Solo sirve si esa pestaña es la visible de su ventana.
+# barra de direcciones (UI Automation) de la ventana cuya pestaña visible es YouTube. Si la
+# barra no se puede leer, se busca el video por su título en YouTube.
 #
 #   {"sessions":[{"app":"Spotify.exe","title":"…","artist":"…","album":"…",
 #                 "isPlaying":true,"current":true,"progressMs":1234,"durationMs":5678,
@@ -19,7 +24,7 @@
 #
 # Usa solo lo que trae Windows PowerShell 5.1 (Windows 10/11): sin módulos extra.
 
-param([string]$CommandFile = '', [string]$VideoFlag = '')
+param([string]$CommandFile = '', [string]$VideoFlag = '', [switch]$SelfTest)
 
 $ErrorActionPreference = 'Stop'
 $stdout = New-Object System.IO.StreamWriter ([Console]::OpenStandardOutput()), (New-Object System.Text.UTF8Encoding $false)
@@ -87,52 +92,197 @@ function Read-Thumbnail($reference) {
   }
 }
 
-# Modo video: el id del video de YouTube que suena, leído de la barra de direcciones de
-# las ventanas del navegador (la de la pestaña visible). Una ventana sirve si su título
-# (el de la pestaña) dice YouTube o trae el nombre de la canción.
+# Descargas (carátulas y búsquedas): Windows PowerShell 5.1 no siempre trae TLS 1.2 activado.
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch {}
+
+function Get-WebBytes($url) {
+  $request = [System.Net.HttpWebRequest]::Create($url)
+  $request.Timeout = 5000
+  $request.ReadWriteTimeout = 5000
+  $request.UserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'
+  $request.Headers.Add('Accept-Language', 'en-US,en;q=0.8')
+  # Sin esta cookie, en Europa YouTube responde con la página de consentimiento.
+  $request.Headers.Add('Cookie', 'SOCS=CAI; CONSENT=YES+')
+  $response = $request.GetResponse()
+  try {
+    $memory = New-Object System.IO.MemoryStream
+    $response.GetResponseStream().CopyTo($memory)
+    $memory.ToArray()
+  } finally {
+    $response.Dispose()
+  }
+}
+
+function Get-WebImage($url) {
+  $bytes = $null
+  try { $bytes = Get-WebBytes $url } catch { return $null }
+  if (-not $bytes -or $bytes.Length -lt 1000) { return $null }
+  @{
+    url  = 'data:image/jpeg;base64,' + [Convert]::ToBase64String($bytes)
+    hash = [BitConverter]::ToString($md5.ComputeHash($bytes))
+  }
+}
+
+# "Canción (Official Video)" o "Artista - Topic" son cosas de YouTube, no del disco.
+function Clean-Name($s) { (("$s" -replace '\s*[\(\[][^\)\]]*[\)\]]', '') -replace '\s+-\s+topic$', '').Trim() }
+function Normalize-Name($s) {
+  $plain = "$s".ToLowerInvariant().Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', ''
+  $plain -replace '[^a-z0-9]', ''
+}
+
+# Carátula del catálogo público de Apple (iTunes Search, sin cuenta ni clave). Solo se
+# acepta si artista y título coinciden, para no mostrar una carátula equivocada.
+$lookups = @{} # "artista`ncanción" → carátula ($null = no se encontró), una búsqueda por canción
+function Find-CatalogArtwork($title, $artist) {
+  $key = "$artist`n$title"
+  if ($lookups.ContainsKey($key)) { return $lookups[$key] }
+  $lookups[$key] = $null
+  $a = Normalize-Name (Clean-Name $artist)
+  $t = Normalize-Name (Clean-Name $title)
+  if (-not $a -or -not $t) { return $null }
+  try {
+    $term = [Uri]::EscapeDataString("$(Clean-Name $artist) $(Clean-Name $title)")
+    $json = [Text.Encoding]::UTF8.GetString((Get-WebBytes "https://itunes.apple.com/search?media=music&entity=song&limit=10&term=$term")) | ConvertFrom-Json
+    $hit = $json.results | Where-Object {
+      $ra = Normalize-Name $_.artistName
+      $rt = Normalize-Name $_.trackName
+      $ra -and $rt -and ($ra.Contains($a) -or $a.Contains($ra)) -and ($rt.Contains($t) -or $t.Contains($rt))
+    } | Select-Object -First 1
+    if ($hit -and $hit.artworkUrl100) {
+      $lookups[$key] = Get-WebImage ($hit.artworkUrl100 -replace '/\d+x\d+bb\.', '/600x600bb.')
+    }
+  } catch {}
+  $lookups[$key]
+}
+
+# Miniatura de un video de YouTube (la grande si existe; si no, la mediana, sin franjas).
+$thumbnails = @{}
+function Find-VideoThumbnail($id) {
+  if (-not $thumbnails.ContainsKey($id)) {
+    $art = Get-WebImage "https://i.ytimg.com/vi/$id/maxresdefault.jpg"
+    if (-not $art) { $art = Get-WebImage "https://i.ytimg.com/vi/$id/mqdefault.jpg" }
+    $thumbnails[$id] = $art
+  }
+  $thumbnails[$id]
+}
+
+# El id del video de YouTube que suena en un navegador, leído de la barra de direcciones de
+# sus ventanas (la de la pestaña visible). Una ventana sirve si su título (el de la pestaña)
+# dice YouTube o trae el nombre de la canción.
 $browserApps = 'chrome|msedge|brave|vivaldi|opera|firefox'
 $youtubeWatch = '^(?:https?://)?(?:music\.|www\.|m\.)?youtube\.com/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})'
 $videoIds = @{}   # "app`ncanción" → id
 $videoTries = @{}
 $uiaReady = $false
 
-function Find-YouTubeVideoId($title) {
+# La barra de direcciones está en la parte del navegador, no en la página: se recorre el
+# árbol por niveles sin entrar a la página (Document), que es enorme y tiene sus propios
+# cuadros de texto (el buscador de YouTube).
+function Read-AddressBar($window) {
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $editType = [System.Windows.Automation.ControlType]::Edit
+  $documentType = [System.Windows.Automation.ControlType]::Document
+  $queue = New-Object System.Collections.Queue
+  $queue.Enqueue($window)
+  $visited = 0
+  while ($queue.Count -gt 0 -and $visited -lt 400) {
+    $child = $walker.GetFirstChild($queue.Dequeue())
+    while ($child -and $visited -lt 400) {
+      $visited++
+      $type = $child.Current.ControlType
+      if ($type -eq $editType) {
+        $value = ''
+        try { $value = "$($child.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value)" } catch {}
+        if ($value -match $youtubeWatch) { return $Matches[1] }
+      } elseif ($type -ne $documentType) {
+        $queue.Enqueue($child)
+      }
+      $child = $walker.GetNextSibling($child)
+    }
+  }
+  ''
+}
+
+# Si la barra no se puede leer, se busca el video en YouTube por título y canal: el primer
+# resultado con ese mismo título (o el primero, si ninguno coincide).
+function Search-YouTubeVideoId($title, $artist) {
+  $query = [Uri]::EscapeDataString("$title $artist".Trim())
+  $html = [Text.Encoding]::UTF8.GetString((Get-WebBytes "https://www.youtube.com/results?search_query=$query"))
+  $pattern = '"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})".{0,4000}?"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"'
+  $results = [regex]::Matches($html, $pattern)
+  if ($results.Count -eq 0) { return '' }
+  $wanted = Normalize-Name $title
+  foreach ($result in ($results | Select-Object -First 5)) {
+    $name = $result.Groups[2].Value
+    try { $name = ConvertFrom-Json ('"' + $name + '"') } catch {}
+    if ((Normalize-Name $name) -eq $wanted) { return $result.Groups[1].Value }
+  }
+  $results[0].Groups[1].Value
+}
+
+# Las ventanas cuya pestaña visible es YouTube: { id = video de su barra ('' si no se pudo
+# leer); name = título de la ventana }.
+function Read-YouTubeWindows {
   if (-not $script:uiaReady) {
     Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
     $script:uiaReady = $true
   }
   $auto = [System.Windows.Automation.AutomationElement]
-  $scope = [System.Windows.Automation.TreeScope]
-  $byType = { param($type) New-Object System.Windows.Automation.PropertyCondition($auto::ControlTypeProperty, $type) }
-  $found = New-Object System.Collections.ArrayList
-  $windows = $auto::RootElement.FindAll($scope::Children, (& $byType ([System.Windows.Automation.ControlType]::Window)))
-  foreach ($window in $windows) {
-    $name = "$($window.Current.Name)"
-    if ($name -notmatch 'YouTube' -and -not ($title -and $name.ToLower().Contains($title.ToLower()))) { continue }
-    # La barra de direcciones es el primer cuadro de texto (la página viene después):
-    # FindFirst no recorre la página entera.
-    $edit = $window.FindFirst($scope::Descendants, (& $byType ([System.Windows.Automation.ControlType]::Edit)))
-    if (-not $edit) { continue }
-    $value = ''
-    try { $value = "$($edit.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value)" } catch { continue }
-    if ($value -match $youtubeWatch) { [void]$found.Add(@{ id = $Matches[1]; name = $name.ToLower() }) }
+  $condition = New-Object System.Windows.Automation.PropertyCondition($auto::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)
+  $windows = New-Object System.Collections.ArrayList
+  foreach ($window in $auto::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)) {
+    $name = "$($window.Current.Name)".ToLower()
+    if ($name -notmatch 'youtube') { continue }
+    $id = ''
+    try { $id = Read-AddressBar $window } catch {}
+    [void]$windows.Add(@{ id = $id; name = $name })
   }
-  # Con varias ventanas de YouTube, la que tiene el título de la canción.
-  $hit = $found | Where-Object { $title -and $_.name.Contains($title.ToLower()) } | Select-Object -First 1
-  if (-not $hit -and $found.Count -eq 1) { $hit = $found[0] }
-  if ($hit) { $hit.id } else { '' }
+  , $windows
 }
 
-function Get-VideoId($app, $title) {
-  if (-not $VideoFlag -or $app -notmatch $browserApps -or -not [System.IO.File]::Exists($VideoFlag)) { return '' }
+function Find-YouTubeVideoId($title, $artist) {
+  $windows = Read-YouTubeWindows
+  $found = @($windows | Where-Object { $_.id })
+  # Con varias ventanas de YouTube, la que tiene el título de la canción.
+  $lower = "$title".ToLower()
+  $hit = $found | Where-Object { $lower -and $_.name.Contains($lower) } | Select-Object -First 1
+  if (-not $hit -and $found.Count -eq 1) { $hit = $found[0] }
+  if ($hit) { return $hit.id }
+  if ($windows.Count -gt 0) { return Search-YouTubeVideoId $title $artist }
+  ''
+}
+
+function Get-VideoId($app, $title, $artist) {
+  if ($app -notmatch $browserApps) { return '' }
   $key = "$app`n$title"
   if ($videoIds[$key]) { return $videoIds[$key] }
   if ([int]$videoTries[$key] -ge 3) { return '' } # la dirección cambia un instante después del título
   $videoTries[$key] = 1 + [int]$videoTries[$key]
   $id = ''
-  try { $id = Find-YouTubeVideoId $title } catch { $id = '' }
+  try { $id = Find-YouTubeVideoId $title $artist } catch { $id = '' }
   if ($id) { $videoIds[$key] = $id }
   $id
+}
+
+function Test-VideoWanted {
+  $VideoFlag -and [System.IO.File]::Exists($VideoFlag)
+}
+
+# Prueba (CI): las búsquedas de carátula y de video y la lectura de la barra de direcciones
+# funcionan en Windows PowerShell 5.1 de verdad.
+if ($SelfTest) {
+  $art = Find-CatalogArtwork 'Blinding Lights' 'The Weeknd'
+  $id = ''
+  try { $id = Search-YouTubeVideoId 'Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)' 'Rick Astley' } catch { $id = "error: $($_.Exception.Message)" }
+  $thumb = if ($id -match '^[A-Za-z0-9_-]{11}$') { Find-VideoThumbnail $id } else { $null }
+  $windows = Read-YouTubeWindows
+  Emit ([ordered]@{
+    catalogArtwork = [bool]$art
+    searchVideoId  = $id
+    thumbnail      = [bool]$thumb
+    youtubeWindows = @($windows | ForEach-Object { [ordered]@{ name = $_.name; id = $_.id } })
+  })
+  exit 0
 }
 
 try {
@@ -192,6 +342,15 @@ for ($i = 0; $i -lt 1800; $i++) {
         if ($props.Thumbnail) {
           try { $art = Read-Thumbnail $props.Thumbnail } catch { $art = $null }
         }
+        # Sin carátula del reproductor (tras unos segundos, por si llega tarde): la del
+        # catálogo de Apple o, en el navegador, la miniatura del video de YouTube.
+        if (-not $art -and $tries[$app] -ge 3) {
+          $art = Find-CatalogArtwork $props.Title $props.Artist
+          if (-not $art) {
+            $id = Get-VideoId $app $props.Title $props.Artist
+            if ($id) { $art = Find-VideoThumbnail $id }
+          }
+        }
         $fresh = $art -and $art.hash -ne $sentHash[$app]
         if ($fresh -or $tries[$app] -ge 5) {
           $entry.artwork = if ($art) { $art.url } else { '' }
@@ -200,8 +359,10 @@ for ($i = 0; $i -lt 1800; $i++) {
           $tries[$app] = 0
         }
       }
-      $videoId = Get-VideoId $app $props.Title
-      if ($videoId) { $entry.videoId = $videoId }
+      if (Test-VideoWanted) {
+        $videoId = Get-VideoId $app $props.Title $props.Artist
+        if ($videoId) { $entry.videoId = $videoId }
+      }
       [void]$sessions.Add($entry)
     }
 

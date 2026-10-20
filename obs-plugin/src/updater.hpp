@@ -33,7 +33,7 @@ private:
 	void askToUpdate(const QString &version, const QString &url, const QString &pageUrl);
 	void download(const QString &version, const QString &url);
 	void install(const QString &version, const QString &zipPath);
-	void fail(const QString &message, const QString &pageUrl);
+	void fail(const QString &message, const QString &pageUrl, const QString &detail = QString());
 
 	bool busy_ = false;
 	QProgressDialog *progress_ = nullptr;
