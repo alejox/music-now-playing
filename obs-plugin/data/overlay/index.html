@@ -78,15 +78,20 @@
      reproductor chico YouTube usa su interfaz compacta, que deja un botón de pausa fijo
      en el centro. No se muestra hasta que reproduce. */
   /* El recuadro es el mismo que el de la carátula (la tarjeta no cambia de tamaño): el
-     video va completo en 16:9 y centrado, y el espacio de arriba y abajo lo llena la
-     carátula difuminada, por detrás del reproductor (no lo tapa ni lo recorta). */
+     video va completo en 16:9 y centrado y, como en un celular, arriba y abajo se ve el
+     video difuminado: un cuadro del video (su miniatura de YouTube), ampliado y
+     desenfocado, por detrás del reproductor (no lo tapa ni lo recorta). Si la miniatura
+     no carga, queda la carátula difuminada. */
   .video { position: relative; overflow: hidden; background: #000; }
   .video::before {
     content: "";
     position: absolute;
     inset: -20px;
-    background: var(--cover, none) center / cover no-repeat;
-    filter: blur(18px) saturate(1.3) brightness(0.75);
+    background-image: var(--cover, none);
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    filter: blur(16px) saturate(1.4) brightness(0.8);
   }
   .video iframe { position: absolute; left: 0; border: 0; transform-origin: 0 0; pointer-events: none; z-index: 1; }
 
@@ -365,8 +370,12 @@
     frame.style.height = `${height * k}px`;
     frame.style.top = `${(box.clientHeight - height) / 2}px`;
     frame.style.transform = `scale(${1 / k})`;
+    // mqdefault es 16:9 sin franjas negras (hqdefault las trae) y existe en todo video.
+    const layers = [];
+    if (video.id) layers.push(`url("https://i.ytimg.com/vi/${video.id}/mqdefault.jpg")`);
     const art = $('art').getAttribute('src');
-    box.style.setProperty('--cover', art ? `url("${art}")` : 'none');
+    if (art) layers.push(`url("${art}")`);
+    box.style.setProperty('--cover', layers.join(', ') || 'none');
   }
 
   function showVideo(on) {
