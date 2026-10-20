@@ -20,10 +20,21 @@ void syncVideoWanted(); // abajo, junto a push_now_playing_sources()
 
 namespace {
 
-// Tamaños sugeridos de cada diseño. Al cambiar de diseño, si la fuente tiene el tamaño
-// sugerido del otro, se pasa al de este; si el usuario puso uno a mano, no se toca.
-constexpr long long kHorizontalSize[2] = {480, 150};
-constexpr long long kVerticalSize[2] = {320, 420};
+// Tamaño de la fuente para cada diseño y carátula: el justo para la tarjeta y su sombra
+// (medido con la tarjeta real). Se aplica solo al cambiar de diseño o de carátula.
+struct Size {
+	long long width, height;
+};
+
+Size suggestedSize(const char *layout, const char *art)
+{
+	bool vertical = strcmp(layout, "vertical") == 0;
+	bool hidden = strcmp(art, "hidden") == 0;
+	bool big = strcmp(art, "big") == 0;
+	if (vertical)
+		return hidden ? Size{320, 160} : Size{320, 420};
+	return big ? Size{520, 180} : Size{480, 150};
+}
 
 struct NowPlayingSource {
 	obs_source_t *self = nullptr;
@@ -203,8 +214,10 @@ void np_update(void *data, obs_data_t *settings)
 
 void np_defaults(obs_data_t *settings)
 {
-	obs_data_set_default_int(settings, "width", kHorizontalSize[0]);
-	obs_data_set_default_int(settings, "height", kHorizontalSize[1]);
+	Size size = suggestedSize("horizontal", "normal");
+	obs_data_set_default_int(settings, "width", size.width);
+	obs_data_set_default_int(settings, "height", size.height);
+	obs_data_set_default_string(settings, "sized_for", "horizontal/normal");
 	obs_data_set_default_string(settings, "theme", "dark");
 	obs_data_set_default_string(settings, "layout", "horizontal");
 	obs_data_set_default_string(settings, "style", "solid");
@@ -218,15 +231,23 @@ void np_defaults(obs_data_t *settings)
 	obs_data_set_default_bool(settings, "preview", false);
 }
 
-bool np_layout_modified(obs_properties_t *, obs_property_t *, obs_data_t *settings)
+// OBS llama a esto también al abrir las Propiedades, no solo al cambiar la opción: por
+// eso se guarda para qué diseño y carátula se ajustó el tamaño ("sized_for") y solo se
+// cambia cuando de verdad cambian. Una fuente vieja sin "sized_for" conserva su tamaño.
+bool np_size_modified(obs_properties_t *, obs_property_t *, obs_data_t *settings)
 {
-	bool vertical = strcmp(obs_data_get_string(settings, "layout"), "vertical") == 0;
-	const long long *from = vertical ? kHorizontalSize : kVerticalSize;
-	const long long *to = vertical ? kVerticalSize : kHorizontalSize;
-	if (obs_data_get_int(settings, "width") == from[0] && obs_data_get_int(settings, "height") == from[1]) {
-		obs_data_set_int(settings, "width", to[0]);
-		obs_data_set_int(settings, "height", to[1]);
+	const char *layout = obs_data_get_string(settings, "layout");
+	const char *art = obs_data_get_string(settings, "art");
+	QString current = QString("%1/%2").arg(layout, art);
+	QString sizedFor = QString::fromUtf8(obs_data_get_string(settings, "sized_for"));
+	if (sizedFor == current)
+		return false;
+	if (!sizedFor.isEmpty()) {
+		Size size = suggestedSize(layout, art);
+		obs_data_set_int(settings, "width", size.width);
+		obs_data_set_int(settings, "height", size.height);
 	}
+	obs_data_set_string(settings, "sized_for", current.toUtf8().constData());
 	return true;
 }
 
@@ -246,7 +267,7 @@ obs_properties_t *np_properties(void *)
 	obs_property_list_add_string(layout, obs_module_text("NowPlaying.Layout.Horizontal"), "horizontal");
 	obs_property_list_add_string(layout, obs_module_text("NowPlaying.Layout.Vertical"), "vertical");
 	obs_property_set_long_description(layout, obs_module_text("NowPlaying.Layout.Help"));
-	obs_property_set_modified_callback(layout, np_layout_modified);
+	obs_property_set_modified_callback(layout, np_size_modified);
 
 	obs_property_t *style = obs_properties_add_list(props, "style", obs_module_text("NowPlaying.Style"),
 							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
@@ -263,6 +284,7 @@ obs_properties_t *np_properties(void *)
 	obs_property_list_add_string(art, obs_module_text("NowPlaying.Art.Normal"), "normal");
 	obs_property_list_add_string(art, obs_module_text("NowPlaying.Art.Big"), "big");
 	obs_property_list_add_string(art, obs_module_text("NowPlaying.Art.Hidden"), "hidden");
+	obs_property_set_modified_callback(art, np_size_modified);
 
 	obs_property_t *media = obs_properties_add_list(props, "media", obs_module_text("NowPlaying.Media"),
 							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
