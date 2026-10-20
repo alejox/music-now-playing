@@ -107,7 +107,11 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: OBS Now Playing ${{ steps.version.outputs.tag }}
-          files: dist/*
+          # Solo los instaladores y los zips: los demás artefactos (capturas de las
+          # pruebas del modo video) no son descargas.
+          files: |
+            dist/*.exe
+            dist/*.zip
           generate_release_notes: true
           body: |
             ## Descargas
