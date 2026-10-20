@@ -28,7 +28,7 @@ Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any 
 | 🎨 **Cover art colors** | The card takes the colors of each song's cover, with a smooth transition. |
 | 🪟 **Solid or glass** | A solid card or a translucent "glass" one, with adjustable opacity. Light or dark theme. |
 | 📐 **Horizontal or vertical** | A bar or a vertical card; the source size adjusts itself. |
-| 🎬 **Video mode** | With YouTube Music / YouTube, the music video instead of the cover (muted and in sync). |
+| 🎬 **Video mode** | With YouTube Music / YouTube, the music video instead of the cover (muted and in sync), on Mac and Windows. |
 | 🖼️ **Your logo** | An image of your own for songs without a cover. |
 | ⏯️ **Control dock** | Previous / pause / next and a **song search box**, inside OBS and off-stream. |
 | 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound; it follows you when you switch players. |
