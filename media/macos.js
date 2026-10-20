@@ -39,6 +39,26 @@ function sendCommand(action) {
   return 0;
 }
 
+// macOS nuevos (visto en macOS 27) ya no mandan la imagen en "Ahora suena": solo un
+// identificador y su tamaño. A la app de Spotify se la pedimos directamente: da el
+// enlace de la carátula de la canción que suena. La primera vez macOS pregunta si OBS
+// (o la app) puede controlar Spotify; si se le dice que no, simplemente no hay carátula.
+function spotifyArtwork(title) {
+  try {
+    const spotify = Application('com.spotify.client');
+    if (!spotify.running()) return '';
+    const track = spotify.currentTrack;
+    if (String(track.name()) !== title) return ''; // Spotify aún no cambió: se reintenta
+    const url = String(track.artworkUrl() || '');
+    if (!/^https:\/\//.test(url)) return '';
+    const data = $.NSData.dataWithContentsOfURL($.NSURL.URLWithString(url));
+    if (!data || data.isNil() || !data.length) return '';
+    return `data:image/jpeg;base64,${ObjC.unwrap(data.base64EncodedStringWithOptions(0))}`;
+  } catch (e) {
+    return '';
+  }
+}
+
 function watch() {
   if (!loadMediaRemote()) {
     emit({ error: 'No se pudo cargar MediaRemote de macOS.' });
@@ -112,6 +132,9 @@ function watch() {
             const mime = value('kMRMediaRemoteNowPlayingInfoArtworkMIMEType') || 'image/jpeg';
             art = `data:${mime};base64,${b64}`;
             hash = `${b64.length}:${b64.slice(-96)}`;
+          } else if (app === 'com.spotify.client') {
+            art = spotifyArtwork(entry.title);
+            hash = art ? `${art.length}:${art.slice(-96)}` : '';
           }
           if ((art && hash !== sentHash) || tries >= 5) {
             entry.artwork = art;
