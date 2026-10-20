@@ -115,4 +115,4 @@ jobs:
 
             Cómo instalarlo: [obs-plugin/README](${{ github.server_url }}/${{ github.repository }}/tree/main/obs-plugin#instalar).
 
-            Cómo instalar y qué hacer con los avisos de Windows/macOS: [README](${{ github.server_url }}/${{ github.repository }}/blob/main/README.es.md#1-instalar-la-app).
+            Cómo instalar y qué hacer con los avisos de Windows/macOS: [README](${{ github.server_url }}/${{ github.repository }}/blob/main/README.es.md).

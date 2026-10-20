@@ -1,42 +1,118 @@
+<div align="center">
+
 # 🎵 OBS Now Playing
+
+**Show the song you're listening to on your stream — with its cover art, its colors and buttons to control it.**
+
+[![Latest release](https://img.shields.io/github/v/release/alejox/obs-music-player?label=release&color=1db954)](../../releases/latest)
+![macOS](https://img.shields.io/badge/macOS-12%2B-000000?logo=apple&logoColor=white)
+![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white)
+![OBS](https://img.shields.io/badge/OBS-31%2B-302E31?logo=obsstudio&logoColor=white)
 
 **English** · [Español](README.es.md)
 
-Shows the song playing on your computer in OBS: cover art, title, artist and a progress bar, using the **cover art colors**, plus **buttons to skip songs**. Works on **Windows and macOS** with the **Spotify** app, **YouTube Music** or Spotify in the browser, **Apple Music** and any player the system recognizes. No accounts, no API keys and no extensions.
+![Now Playing overlay](docs/overlay.png)
 
-![Overlay](docs/overlay.png)
+[**⬇️ Download**](../../releases/latest) &nbsp;·&nbsp; [Install](#-install-the-plugin) &nbsp;·&nbsp; [Features](#-features) &nbsp;·&nbsp; [FAQ](#-faq)
 
-## Plugin or app?
+</div>
 
-There are two ways to use it, with the same readers inside:
+---
 
-- **OBS plugin** (recommended): adds the **Now Playing (música)** source and the **Música** dock right inside OBS, configured from the source Properties. See below and **[obs-plugin/](obs-plugin/)**.
-- **App**: runs on its own and serves the overlay by URL. Also useful for other streaming programs, or to use a Text source.
+Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any player your system recognizes. No accounts, no API keys, no browser extensions.
 
-## OBS plugin
+## ✨ Features
 
-- **"Now Playing (música)" source**: horizontal or vertical layout (the size adjusts itself), light/dark theme, solid or **glass** style with adjustable opacity, normal/large/hidden cover art, your **logo** when a song has no cover, and the YouTube Music / YouTube **video** (muted and in sync) instead of the cover.
-- **"Música" dock**: cover art and **previous / pause / next** buttons, inside OBS and off-stream.
-- **Create music channel** (in the source Properties): a channel in the Audio Mixer with only the player's sound, so you can control its volume separately.
-- **Updates** offered with a prompt when OBS starts.
+| | |
+|---|---|
+| 🎨 **Cover art colors** | The card takes the colors of each song's cover, with a smooth transition. |
+| 🪟 **Solid or glass** | A solid card or a translucent "glass" one, with adjustable opacity. Light or dark theme. |
+| 📐 **Horizontal or vertical** | A bar or a vertical card; the source size adjusts itself. |
+| 🎬 **Video mode** | With YouTube Music / YouTube, the music video instead of the cover (muted and in sync). |
+| 🖼️ **Your logo** | An image of your own for songs without a cover. |
+| ⏯️ **Control dock** | Previous / pause / next and a **song search box**, inside OBS and off-stream. |
+| 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound. |
+| 🔄 **Updates** | OBS tells you when there's a new version and installs it for you. |
 
-The plugin's interface is in Spanish (with English strings included).
+## 📦 Install the plugin
 
-### Install the plugin
+Download the zip for your system from **[Releases](../../releases/latest)** and **close OBS first**.
 
-Download `obs-now-playing-plugin-<version>-macos.zip` or `-windows-x64.zip` from **[Releases](../../releases/latest)** and close OBS first.
+| | macOS (OBS 31+) | Windows (OBS 31+) |
+|---|---|---|
+| **File** | `obs-now-playing-plugin-<version>-macos.zip` | `obs-now-playing-plugin-<version>-windows-x64.zip` |
+| **1** | Unzip it: you get `obs-now-playing.plugin` | Unzip it into `C:\ProgramData\obs-studio\plugins\` |
+| **2** | Copy it to `~/Library/Application Support/obs-studio/plugins/` | — |
+| **3** | Run the Terminal command below (once) | — |
+| **4** | Open OBS | Open OBS |
 
-- **macOS** (OBS 31+): unzip, copy `obs-now-playing.plugin` to `~/Library/Application Support/obs-studio/plugins/` and run in Terminal:
-  `xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin`
-- **Windows** (OBS 31+): unzip into `C:\ProgramData\obs-studio\plugins\`.
+```bash
+xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin
+```
 
-Then: **Sources → + → Now Playing (música)** and **Docks → Música**. More details (in Spanish) in **[obs-plugin/README.md](obs-plugin/README.md)**.
+> [!TIP]
+> In Finder, use **Go → Go to Folder…** and paste the path. Create the `plugins` folder if it doesn't exist.
 
-## App
+## 🎛️ Use it
+
+1. **Sources → + → Now Playing (música)** to add the card. Open its **Properties** to change the style.
+2. **Docks → Música** for the buttons and the search box.
+3. Optional: in the source Properties, **Crear canal de música** (Create music channel) to control the music volume separately.
+
+### 🔍 Song search (dock)
+
+Type a song or an artist and press **Enter**. What happens depends on the player:
+
+| Player | What the search does |
+|---|---|
+| YouTube Music in the browser (Mac) | Searches in its tab and **plays the first result** |
+| Spotify | Opens the search in the Spotify app, you pick the song |
+| Apple Music | Plays the first match from your library |
+| Windows / others | Opens the search in Spotify or YouTube Music |
+
+> [!NOTE]
+> On Mac, for the YouTube Music buttons and search to work, turn on once in Chrome: **View → Developer → Allow JavaScript from Apple Events**.
+
+The plugin's interface is in Spanish, with English strings included.
+
+## ❓ FAQ
+
+<details>
+<summary><b>The cover art doesn't show</b></summary>
+
+On recent macOS versions the system no longer passes the image. The plugin asks the Spotify app for it (macOS asks if OBS can control Spotify: allow it) and, for other players, looks it up in Apple's public catalog by artist and title.
+</details>
+
+<details>
+<summary><b>The previous / next buttons don't work</b></summary>
+
+- **YouTube Music (Mac):** enable *Allow JavaScript from Apple Events* (see above).
+- **Others (Mac):** media keys are simulated, which needs **System Settings → Privacy & Security → Accessibility → OBS**.
+- The dock shows a message under the buttons explaining what's missing.
+</details>
+
+<details>
+<summary><b>The dock says the system reader doesn't work</b></summary>
+
+The message says why. The OBS log (**Help → Log Files**) has the `[obs-now-playing]` lines.
+</details>
+
+<details>
+<summary><b>macOS says the plugin is damaged or blocks it</b></summary>
+
+Run the `xattr -cr …` command from the install steps. The plugin isn't signed with a paid Apple developer account.
+</details>
+
+## 🖥️ Standalone app (optional)
+
+Besides the plugin there's an app that runs on its own and serves the overlay as a web page, for other streaming programs or for a Text source. Most people only need the plugin.
+
+<details>
+<summary><b>How the app works and how to install it</b></summary>
 
 ### How it works
 
-Windows and macOS already know what's playing: it's what the Windows volume flyout and the Mac's Control Center "Now Playing" show. The app reads that information and serves it as a page that OBS displays with a **Browser source**.
+Windows and macOS already know what's playing: it's what the Windows volume flyout and the Mac's Control Center "Now Playing" show. The app reads that and serves it as a page that OBS displays with a **Browser source**.
 
 ```
 Spotify / YouTube Music / Apple Music…
@@ -47,108 +123,71 @@ macOS:   "Now Playing" (MediaRemote) ─ osascript ┼─► local app (127.0.0.
 Plan B:  Tampermonkey script in the browser ─────┘                             └─► now-playing.txt (Text source)
 ```
 
-The idea of reading the system media controls comes from [SMTC Bridge](https://github.com/nuttylmao/smtc-bridge) (Windows only); this app brings it to macOS too, ships its own overlay and doesn't expose what you listen to to other web pages.
+The idea of reading the system media controls comes from [SMTC Bridge](https://github.com/nuttylmao/smtc-bridge) (Windows only); this app brings it to macOS too.
 
-### 1. Install the app
+### Install
 
-Download the app installer from **[Releases](../../releases/latest)**. You don't need Node.js or the terminal: each installer includes everything.
+Download the installer from **[Releases](../../releases/latest)**. No Node.js or terminal needed.
 
-#### Windows 10/11
+**Windows 10/11:** open `OBS-Now-Playing-Setup-<version>.exe`. If **"Windows protected your PC"** appears, click **More info → Run anyway**. By default it starts with Windows.
 
-1. Download `OBS-Now-Playing-Setup-<version>.exe` and open it.
-2. If **"Windows protected your PC"** appears, click **More info → Run anyway** (this happens with any app without a paid code-signing certificate).
-3. Follow the wizard. By default the app **starts with Windows** in the background, so the overlay is ready when you open OBS.
+**macOS 11+:** download `…-mac-apple.zip` (Apple chip) or `…-mac-intel.zip` (Intel), unzip, drag **OBS Now Playing** to Applications and open it. If it's blocked: **System Settings → Privacy & Security → Open Anyway**. If it says *"is damaged"*:
 
-It installs for your user, without administrator rights. To remove it: **Settings → Apps → OBS Now Playing → Uninstall**.
+```bash
+xattr -cr "/Applications/OBS Now Playing.app" && open "/Applications/OBS Now Playing.app"
+```
 
-#### macOS 11 or later
+The app has no window: opening it opens its **panel** at **http://127.0.0.1:8787/** (what's playing, detected apps, the URL for OBS).
 
-1. Download the zip for your Mac ( menu → **About This Mac**):
-   - **Apple M1/M2/M3/M4… chip** → `OBS-Now-Playing-<version>-mac-apple.zip`
-   - **Intel processor** → `OBS-Now-Playing-<version>-mac-intel.zip`
-2. Unzip it and **drag `OBS Now Playing` to Applications**.
-3. Open it. The first time, macOS blocks it because it isn't signed with an Apple developer account:
-   - Click **OK / Done** on the warning.
-   - Go to **System Settings → Privacy & Security**, scroll to *"OBS Now Playing was blocked"* and click **Open Anyway**. Confirm with your password.
-   - This only happens once.
+### Add it to OBS
 
-   If it says **"is damaged and can't be opened"** instead (some macOS versions do this with apps not signed by Apple), it isn't damaged: open Terminal and paste
-   `xattr -cr "/Applications/OBS Now Playing.app" && open "/Applications/OBS Now Playing.app"`
-4. To start it automatically: **System Settings → General → Login Items → +** and choose the app.
+**Sources → + → Browser**, URL `http://127.0.0.1:8787/overlay`, width `640`, height `200`. Buttons: **Docks → Custom Browser Docks**, URL `http://127.0.0.1:8787/controls`.
 
-The app has no window or Dock icon: opening it opens its **panel** in the browser. If you close that tab it keeps running; open the app again to get back to the panel.
-
-### 2. The panel
-
-At **http://127.0.0.1:8787/** you see what's playing, whether the system reader works, the **detected apps** (you can hide the ones you don't want, e.g. the browser if you also watch videos), the URL for OBS and the **Close OBS Now Playing** button. The panel is in Spanish.
-
-### 3. Add it to OBS
-
-1. In **Sources**, click **+** and choose **Browser**.
-2. URL: `http://127.0.0.1:8787/overlay`
-3. Width `640`, height `200` (or your canvas size, if you use `pos=`).
-
-Options you can add to the URL (combine them with `&`):
+URL options (combine with `&`):
 
 | Parameter | Effect |
 |---|---|
 | `theme=light` | Light theme |
-| `pos=br` | Corner: `bl` (bottom left, default), `br`, `tl`, `tr` |
+| `pos=br` | Corner: `bl` (default), `br`, `tl`, `tr` |
 | `art=0` / `art=big` | No cover / large cover |
-| `colors=0` | Don't use the cover colors (uses each app's color) |
-| `blur=1` | Card background with the blurred cover |
-| `controls=1` | Previous / pause / next buttons **on the overlay** (visible on stream; in OBS click them via right click → **Interact**) |
+| `colors=0` | Don't use the cover colors |
+| `blur=1` | Blurred cover as the background |
+| `controls=1` | Buttons on the overlay (visible on stream; click via **Interact**) |
 | `progress=0` | No progress bar |
-| `label=0` | No "Escuchando en …" (Listening on …) line |
+| `label=0` | No "Listening on …" line |
 | `width=480` | Card width in px |
-| `accent=ff00aa` | Fixed accent color (default: from the cover) |
-| `preview=1` | Sample song when nothing is playing (to position it) |
+| `accent=ff00aa` | Fixed accent color |
+| `preview=1` | Sample song when nothing is playing |
 
-Example: `http://127.0.0.1:8787/overlay?pos=br&art=big&blur=1`
+**Plain text:** a **Text source** reading `now-playing.txt` (the panel shows the path; format in `textFormat` of `config.json`).
 
-By default the overlay takes the most vivid color of the cover for the accents (bar, label) and a dark shade of the dominant color for the background, and changes them with a smooth transition on every song.
+**Plan B:** if the system reader doesn't work, install [Tampermonkey](https://www.tampermonkey.net/) and click **Install script** in the panel.
 
-### Buttons to change songs
+### Troubleshooting
 
-The recommended way is an OBS **dock**: a panel with the cover and the previous / pause / next buttons that lives inside OBS, next to your scenes, and **doesn't show on stream**.
+- **Nothing in OBS:** open the panel; if it doesn't load, the app is closed. Try `?preview=1`.
+- **A YouTube video shows instead of the music:** hide the browser under **Detected apps**.
+- **Port 8787 is taken:** change `port` in `config.json` (and `ENDPOINT` in the Tampermonkey script).
+- **Log:** `log.txt` in `%APPDATA%\OBS Now Playing` (Windows) or `~/Library/Application Support/OBS Now Playing` (macOS).
+</details>
 
-1. In OBS: **Docks → Custom Browser Docks**.
-2. Name: `Música`; URL: `http://127.0.0.1:8787/controls`. Apply and place the panel wherever you like.
+## 🔒 Privacy
 
-The buttons control the app the overlay shows: on Windows through the system media controls, on macOS with the same commands as the media keys, and with plan B by clicking the buttons on the YouTube Music or Spotify page (reinstall the script from the panel if you had it before).
+- Everything runs on your computer; there's no server of ours.
+- The plugin only goes online to check for updates on GitHub, to look up missing cover art in Apple's public catalog (song title and artist) and, in video mode, to load the YouTube player.
+- The app only listens on `127.0.0.1` and doesn't let other web pages read what you listen to.
 
-**Prefer plain text?** Use a **Text source** with "Read from file" pointing to `now-playing.txt` (the panel shows the exact path and has an **Open folder** button). Change the format with `textFormat` in `config.json`, in that same folder.
+## 🛠️ For developers
 
-### Plan B: browser script
+<details>
+<summary><b>Build and project layout</b></summary>
 
-If the system reader doesn't work on your computer (the panel says so), install [Tampermonkey](https://www.tampermonkey.net/) and click **Install script** in the panel. It reads YouTube Music and Spotify web directly from the tab. On recent Chrome/Edge you need to turn on **Developer mode** in `chrome://extensions` (or "Allow user scripts" in the extension details).
+- **Plugin:** CMake from `obs-plugin/` (`cmake --preset macos` → Xcode, `cmake --preset windows-x64` → Visual Studio 2022). See [obs-plugin/README.md](obs-plugin/README.md).
+- **App:** `npm start` (Node 18+); `OBS_NOW_PLAYING_DATA=/other/path` changes the data folder. Installers: `./build/build.sh [all|windows|mac]`.
+- **System readers:** `media/windows.ps1` (PowerShell 5.1 + WinRT) and `media/macos.js` (JavaScript for Automation). Both write one JSON line per second. On macOS 15.4+ only system programs can read "Now Playing", so the reader runs in `osascript`.
+- **Releases:** the **Release** workflow in GitHub Actions builds everything and publishes it.
+</details>
 
-## Troubleshooting
-
-- **Nothing shows in OBS:** open the panel (http://127.0.0.1:8787/). If it doesn't load, the app is closed: open it. Also try the URL with `?preview=1`.
-- **A YouTube video shows instead of the music:** in the panel, hide the browser under **Detected apps**.
-- **The browser shows as "Escuchando ahora" instead of "YouTube Music":** the system only knows the sound comes from Chrome/Edge, not which page. If you install YouTube Music as an app (browser menu → *Install YouTube Music*), it shows with its own name and color.
-- **Port 8787 is used by another program:** change `port` in `config.json` (data folder) **and** `ENDPOINT` in the Tampermonkey script if you use it.
-- **Something fails and I don't know what:** the log is `log.txt`, in the data folder:
-  - Windows: `%APPDATA%\OBS Now Playing`
-  - macOS: `~/Library/Application Support/OBS Now Playing`
-- **Plugin:** if the dock says the system reader doesn't work, the message explains why; the OBS log (**Help → Log Files**) has the `[obs-now-playing]` lines.
-
-## Privacy
-
-The app runs entirely on your computer and nothing goes to the internet. The server only listens on `127.0.0.1`, rejects requests with another `Host` and sends no CORS headers, so the web pages you visit can't read what you listen to.
-
-The plugin doesn't use any servers of its own either. It only goes online to check for updates on GitHub, to look up the cover art in Apple's public catalog when the player doesn't provide it (it sends the song title and artist), and, if you choose video mode, to load the YouTube player.
-
-## For developers
-
-- Run from source: `npm start` (Node 18+). It uses the same data folder as the installed app; `OBS_NOW_PLAYING_DATA=/other/path` changes it.
-- System readers: `media/windows.ps1` (Windows PowerShell 5.1 + WinRT) and `media/macos.js` (JavaScript for Automation). Both write one JSON line per second; the protocol is described at the top of `media/windows.ps1`. Buttons reach Windows through the `.command` file in the data folder, macOS through `osascript media/macos.js command next`, and the userscript in the response to its heartbeat. To test without Windows or a Mac, `OBS_NOW_PLAYING_HELPER=fake-reader.js` makes the server use a Node script that writes the same protocol.
-- On macOS 15.4+ Apple only lets system programs read "Now Playing"; that's why the reader runs in `osascript` and not in Node.
-- Build the installers: `./build/build.sh [all|windows|mac]` (requires `python3` with Pillow; Windows: `makensis`/NSIS; Mac: preferably on a Mac, the only place the whole app gets signed, or on Linux with `clang` and `lld`, unsigned). It downloads the official Node.js, verifies its SHA-256 and puts everything in `dist/`. The **Release** workflow in GitHub Actions does the same and uploads the files to Releases.
-- The plugin is built with CMake from `obs-plugin/` (Xcode on macOS, Visual Studio 2022 on Windows); see [obs-plugin/README.md](obs-plugin/README.md).
-- The Mac app uses the unmodified official Node binary (signed and notarized by Node.js); what macOS can't verify is the `.app` bundle. Removing the warning entirely requires signing and notarizing with an Apple Developer account (USD 99/year). On Windows, the equivalent is a code-signing certificate.
-
-## License
+## 📄 License
 
 MIT — see [LICENSE](LICENSE). The OBS plugin is GPL-2.0 or later (like every plugin that links against libobs), see `obs-plugin/LICENSE`.
