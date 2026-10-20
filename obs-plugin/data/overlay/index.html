@@ -298,7 +298,8 @@
     window.onYouTubeIframeAPIReady = () => {
       video.player = new YT.Player('player', {
         host: 'https://www.youtube-nocookie.com',
-        playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, playsinline: 1, rel: 0 },
+        // cc_load_policy 0: sin subtítulos (iv_load_policy 3: sin anotaciones).
+        playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, cc_load_policy: 0, playsinline: 1, rel: 0 },
         events: {
           onReady: () => {
             video.ready = true;
@@ -306,7 +307,10 @@
             if (video.id) startVideo(video.id);
           },
           onStateChange: (e) => {
-            if (e.data === YT.PlayerState.PLAYING) showVideo(true);
+            if (e.data === YT.PlayerState.PLAYING) {
+              hideCaptions();
+              showVideo(true);
+            }
             if (e.data === YT.PlayerState.ENDED) showVideo(false);
           },
           // 2, 5, 100, 101, 150, 153: video inválido, borrado o que no se deja insertar.
@@ -322,6 +326,18 @@
     script.src = 'https://www.youtube.com/iframe_api';
     script.onerror = () => { video.apiLoading = false; }; // sin internet: se reintenta luego
     document.head.appendChild(script);
+  }
+
+  // Algunos videos traen los subtítulos activados (o el usuario los tiene activados en
+  // YouTube): sin el módulo de subtítulos no se muestran.
+  function hideCaptions() {
+    for (const module of ['captions', 'cc']) {
+      try {
+        video.player.unloadModule(module);
+      } catch (e) {
+        // versión del reproductor sin ese módulo
+      }
+    }
   }
 
   function expectedSeconds() {
