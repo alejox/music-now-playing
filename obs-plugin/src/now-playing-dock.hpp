@@ -3,6 +3,7 @@
 #include <QWidget>
 
 class QLabel;
+class QPushButton;
 class QProgressBar;
 class QToolButton;
 
@@ -18,6 +19,7 @@ private:
 	void refresh();
 	void tick();
 	void applyAccent(const QColor &accent);
+	void createMusicChannel();
 
 	QLabel *art_ = nullptr;
 	QLabel *title_ = nullptr;
@@ -30,5 +32,6 @@ private:
 	QToolButton *previous_ = nullptr;
 	QToolButton *playPause_ = nullptr;
 	QToolButton *next_ = nullptr;
+	QPushButton *channel_ = nullptr;
 	QString artKey_;
 };
