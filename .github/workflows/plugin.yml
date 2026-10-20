@@ -1,0 +1,80 @@
+name: Plugin de OBS
+
+# Compila el plugin nativo (obs-plugin/) en un Mac con Xcode y en un Windows con
+# Visual Studio. Release lo reutiliza para adjuntar los zips a la Release.
+on:
+  push:
+    branches: [main]
+    paths: ['obs-plugin/**', 'media/**', 'ui.js', '.github/workflows/plugin.yml']
+  pull_request:
+    paths: ['obs-plugin/**', 'media/**', 'ui.js', '.github/workflows/plugin.yml']
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  # El plugin lleva copias de los lectores y de ui.js: tienen que ser iguales a las de la app.
+  sync:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Copias al día
+        run: |
+          cmp media/windows.ps1 obs-plugin/data/media/windows.ps1
+          cmp media/macos.js obs-plugin/data/media/macos.js
+          cmp ui.js obs-plugin/data/overlay/ui.js
+
+  macos:
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: obs-plugin
+    steps:
+      - uses: actions/checkout@v5
+      - name: Versión
+        id: version
+        run: echo "v=$(python3 -c "import json;print(json.load(open('buildspec.json'))['version'])")" >> "$GITHUB_OUTPUT"
+      - name: Configurar (descarga OBS, obs-deps y Qt)
+        run: |
+          xcodebuild -version
+          cmake --preset macos
+      - name: Compilar con Xcode
+        run: cmake --build --preset macos
+      - name: Empaquetar
+        run: |
+          plugin="$(find build_macos -type d -name 'obs-now-playing.plugin' -path '*RelWithDebInfo*' | head -1)"
+          echo "plugin: $plugin"
+          codesign --verify --deep --strict --verbose=2 "$plugin"
+          codesign -dv "$plugin" 2>&1 | grep -E "Identifier|Signature|Format"
+          ls "$plugin/Contents/Resources" "$plugin/Contents/Resources/media"
+          mkdir -p ../dist
+          ditto -c -k --keepParent "$plugin" "../dist/obs-now-playing-plugin-${{ steps.version.outputs.v }}-macos.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-macos
+          path: dist/*
+
+  windows:
+    runs-on: windows-2022
+    defaults:
+      run:
+        working-directory: obs-plugin
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v5
+      - name: Versión
+        id: version
+        run: '"v=$((Get-Content buildspec.json | ConvertFrom-Json).version)" >> $env:GITHUB_OUTPUT'
+      - name: Configurar (descarga OBS, obs-deps y Qt)
+        run: cmake --preset windows-x64
+      - name: Compilar con Visual Studio
+        run: cmake --build --preset windows-x64
+      - name: Empaquetar
+        run: |
+          cmake --install build_x64 --prefix release --config RelWithDebInfo
+          Get-ChildItem -Recurse release | Select-Object -ExpandProperty FullName
+          New-Item -ItemType Directory -Force ../dist | Out-Null
+          Compress-Archive -Path release/* -DestinationPath "../dist/obs-now-playing-plugin-${{ steps.version.outputs.v }}-windows-x64.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-windows
+          path: dist/*

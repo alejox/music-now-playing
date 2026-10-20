@@ -1,0 +1,57 @@
+# Now Playing — plugin para OBS Studio
+
+Plugin nativo para OBS Studio (macOS y Windows) que agrega:
+
+- Una fuente **Now Playing (música)**: la tarjeta con la canción que suena (carátula, título, artista, barra de progreso) con los colores de la carátula. Se agrega a la escena como cualquier fuente y se configura en sus **Propiedades**: tema claro/oscuro, carátula normal/grande/oculta, colores de la carátula, fondo difuminado, barra de progreso y la línea "Escuchando en …".
+- Un dock **Música** (menú **Docks**): la canción con los botones **anterior / pausa / siguiente**. Vive dentro de OBS y no sale en el stream.
+
+Lee la música del sistema, como la app: en Windows los controles multimedia (SMTC) y en macOS el "Ahora suena". Funciona con la app de Spotify, YouTube Music o Spotify en el navegador, Apple Music y cualquier reproductor que el sistema reconozca. No necesita la app OBS Now Playing ni ninguna cuenta.
+
+Está basado en la plantilla oficial `obs-plugintemplate` de OBS Project, igual que *Alejox Theme Panel*.
+
+## Instalar
+
+Descarga el zip de tu sistema desde **[Releases](../../../releases/latest)** (`obs-now-playing-plugin-…`). Cierra OBS antes.
+
+### macOS (OBS 31+, macOS 12+)
+
+1. Descomprime el zip: queda `obs-now-playing.plugin`.
+2. Cópialo a `~/Library/Application Support/obs-studio/plugins/` (crea `plugins` si no existe; en Finder: **Ir → Ir a la carpeta…** y pega la ruta).
+3. Quita la marca de "descargado de internet" (si no, macOS lo bloquea por no estar firmado por Apple):
+   ```bash
+   xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin
+   ```
+4. Abre OBS.
+
+### Windows (OBS 31+, Windows 10/11)
+
+1. Descomprime el zip en `C:\ProgramData\obs-studio\plugins\` (queda `C:\ProgramData\obs-studio\plugins\obs-now-playing\bin\64bit\obs-now-playing.dll`).
+2. Abre OBS.
+
+## Usar
+
+1. **Fuentes → + → Now Playing (música)**. Ubícala y escálala como cualquier fuente; el tamaño de la tarjeta se cambia en sus Propiedades (ancho y alto).
+2. **Docks → Música** para los botones.
+
+Si en el dock aparece "El lector del sistema no funciona", el mensaje dice por qué. El registro de OBS (**Ayuda → Archivos de registro**) tiene las líneas `[obs-now-playing]`.
+
+## Compilar en Xcode (macOS)
+
+Requisitos: Xcode 16+, CMake 3.28+.
+
+```bash
+cd obs-plugin
+cmake --preset macos
+```
+
+Descarga las fuentes de OBS Studio y las dependencias (obs-deps, Qt6) la primera vez. Después abre `build_macos/obs-now-playing.xcodeproj` en Xcode y compila (Cmd+B). El plugin queda en `build_macos/RelWithDebInfo/obs-now-playing.plugin`.
+
+En Windows: `cmake --preset windows-x64` y abre `build_x64/obs-now-playing.sln` en Visual Studio 2022. GitHub Actions compila los dos en cada cambio (`.github/workflows/plugin.yml`).
+
+## Cómo funciona
+
+- `src/media-watcher.cpp` arranca el lector del sistema con `QProcess`: `data/media/windows.ps1` (PowerShell) o `data/media/macos.js` (`osascript`; desde macOS 15.4 solo programas del sistema pueden leer "Ahora suena", así que no se puede hacer desde dentro de OBS). Son los mismos lectores de la app, probados en Windows y macOS reales (`.github/workflows/ci.yml`); el flujo de CI verifica que las copias sigan iguales.
+- `src/now-playing-source.cpp` es la fuente: por dentro, una fuente de navegador privada con `data/overlay/index.html`, a la que el plugin le manda la canción una vez por segundo con el evento JavaScript `obs-now-playing` (`javascript_event` de obs-browser). Sin servidor local.
+- `src/now-playing-dock.cpp` es el dock en Qt.
+
+Licencia: GPL-2.0 o posterior (como todo plugin que enlaza con libobs), ver `LICENSE`. El resto del repositorio es MIT.

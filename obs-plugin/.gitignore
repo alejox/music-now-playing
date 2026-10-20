@@ -1,0 +1,5 @@
+/build_*/
+/release/
+*.lock.json
+.DS_Store
+/cmake/.CMakeBuildNumber

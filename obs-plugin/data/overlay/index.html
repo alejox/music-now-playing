@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Now Playing</title>
+<!--
+  Tarjeta de la fuente "Now Playing" del plugin. La carga una fuente de navegador
+  privada y el plugin le manda, una vez por segundo, el evento "obs-now-playing" con
+  { config: {theme, art, colors, blur, progress, label, preview}, track: {...} | null }.
+  La carátula (pesada) llega en track.artwork solo cuando cambia y cada 5 segundos.
+-->
+<style>
+  :root {
+    --bg: rgba(16, 17, 22, 0.82);
+    --fg: #ffffff;
+    --muted: rgba(255, 255, 255, 0.68);
+    --track: rgba(255, 255, 255, 0.18);
+    --accent: #1ed760;
+    --art: 72px;
+  }
+  :root[data-theme="light"] {
+    --bg: rgba(255, 255, 255, 0.9);
+    --fg: #111216;
+    --muted: rgba(17, 18, 22, 0.62);
+    --track: rgba(17, 18, 22, 0.14);
+  }
+  :root[data-art="big"] { --art: 112px; }
+  html, body {
+    margin: 0;
+    background: transparent;
+    overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  /* La tarjeta ocupa la fuente entera (menos el margen para la sombra): en OBS se
+     ubica y escala moviendo la fuente. */
+  .card {
+    position: fixed;
+    left: 14px;
+    top: 14px;
+    box-sizing: border-box;
+    width: calc(100vw - 28px);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px;
+    overflow: hidden;
+    isolation: isolate;
+    background-color: var(--bg);
+    color: var(--fg);
+    border-radius: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(14px);
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 0.45s ease, transform 0.45s ease, background-color 0.8s ease;
+  }
+  .card.visible { opacity: 1; transform: none; }
+  .card.paused { opacity: 0.75; }
+
+  /* ?blur=1: la carátula difuminada detrás de todo */
+  .backdrop {
+    position: absolute;
+    inset: -30px;
+    z-index: -1;
+    background-size: cover;
+    background-position: center;
+    filter: blur(28px) saturate(1.4);
+    opacity: 0;
+    transition: opacity 0.8s ease;
+  }
+  [data-blur] .backdrop.ready { opacity: 0.55; }
+
+  .art {
+    flex: none;
+    width: var(--art);
+    height: var(--art);
+    border-radius: 10px;
+    object-fit: cover;
+    background: var(--track);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  }
+  .meta { flex: 1; min-width: 0; }
+  .label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    transition: color 0.8s ease;
+  }
+  .eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 10px; }
+  .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 0.9s ease-in-out infinite; transition: background 0.8s ease; }
+  .eq i:nth-child(2) { animation-delay: -0.3s; }
+  .eq i:nth-child(3) { animation-delay: -0.6s; }
+  .paused .eq i { animation-play-state: paused; }
+  @keyframes eq { 0%, 100% { height: 3px; } 50% { height: 10px; } }
+
+  .line { overflow: hidden; white-space: nowrap; }
+  .line span { display: inline-block; }
+  .line.scroll span { animation: marquee var(--dur, 8s) ease-in-out infinite alternate; }
+  @keyframes marquee { 0%, 15% { transform: translateX(0); } 85%, 100% { transform: translateX(var(--shift)); } }
+  .title { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .artist { font-size: 14px; color: var(--muted); margin-top: 1px; }
+
+  .progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar { flex: 1; height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.25s linear, background 0.8s ease; }
+
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="backdrop" id="backdrop"></div>
+  <img class="art" id="art" alt="">
+  <div class="meta">
+    <div class="label" id="label"><span class="eq"><i></i><i></i><i></i></span><span id="labelText">Escuchando</span></div>
+    <div class="line title" id="title"><span></span></div>
+    <div class="line artist" id="artist"><span></span></div>
+    <div class="progress" id="progress">
+      <span id="elapsed">0:00</span><div class="bar"><div id="bar"></div></div><span id="duration">0:00</span>
+    </div>
+  </div>
+</div>
+
+<script src="ui.js"></script>
+<script>
+  const { extractColors, fmt } = NowPlayingUI;
+  const root = document.documentElement;
+  const $ = (id) => document.getElementById(id);
+  const ACCENTS = { spotify: '#1ed760', ytmusic: '#ff0033', applemusic: '#fa2d48', browser: '#8b8cff', other: '#8b8cff' };
+  const PREVIEW = {
+    kind: 'spotify', sourceLabel: 'Spotify', title: 'Canción de ejemplo con un título bastante largo',
+    artist: 'Artista de prueba', isPlaying: true, progressMs: 42000, durationMs: 215000,
+  };
+
+  let config = { theme: 'dark', art: 'normal', colors: true, blur: false, progress: true, label: true, preview: false };
+  let configKey = '';
+  let track = null;
+  let key = '';
+  let artwork = { key: '', url: '' };
+
+  function applyConfig(next) {
+    const nextKey = JSON.stringify(next);
+    if (nextKey === configKey) return;
+    configKey = nextKey;
+    config = { ...config, ...next };
+    if (config.theme === 'light') root.dataset.theme = 'light';
+    else delete root.dataset.theme;
+    if (config.art === 'big') root.dataset.art = 'big';
+    else delete root.dataset.art;
+    if (config.blur) root.dataset.blur = '';
+    else delete root.dataset.blur;
+    $('progress').hidden = !config.progress;
+    $('label').hidden = !config.label;
+    key = ''; // vuelve a pintar con la configuración nueva
+  }
+
+  function setPalette(t, colors) {
+    root.style.setProperty('--accent', colors?.accent || ACCENTS[t.kind] || ACCENTS.other);
+    if (colors) {
+      root.style.setProperty('--bg', colors.background);
+      root.style.setProperty('--track', colors.track);
+    } else {
+      root.style.removeProperty('--bg');
+      root.style.removeProperty('--track');
+    }
+  }
+
+  // Desplaza el texto de lado a lado solo si no cabe.
+  function fitLine(el, text) {
+    const span = el.firstElementChild;
+    span.textContent = text;
+    el.classList.remove('scroll');
+    requestAnimationFrame(() => {
+      const overflow = span.scrollWidth - el.clientWidth;
+      if (overflow > 0) {
+        el.style.setProperty('--shift', `${-overflow}px`);
+        el.style.setProperty('--dur', `${Math.max(6, overflow / 25)}s`);
+        el.classList.add('scroll');
+      }
+    });
+  }
+
+  $('art').addEventListener('load', () => {
+    if (!track) return;
+    let colors = null;
+    try {
+      if (config.colors) colors = extractColors($('art'), config.theme);
+    } catch {}
+    setPalette(track, colors);
+    $('backdrop').style.backgroundImage = `url("${$('art').src}")`;
+    $('backdrop').classList.add('ready');
+  });
+  $('art').addEventListener('error', () => {
+    $('art').hidden = true;
+    if (track) setPalette(track, null);
+  });
+
+  function render(t) {
+    track = t;
+    if (!t) {
+      $('card').classList.remove('visible');
+      key = '';
+      return;
+    }
+    const trackKey = `${t.kind}|${t.title}|${t.artist}`;
+    // La carátula no viene en todos los eventos: se guarda con su canción.
+    if (t.artwork !== undefined) artwork = { key: trackKey, url: t.artwork || '' };
+    const art = artwork.key === trackKey ? artwork.url : '';
+    const nextKey = `${trackKey}|${art.length}`;
+    if (nextKey !== key) {
+      key = nextKey;
+      $('labelText').textContent = t.sourceLabel ? `Escuchando en ${t.sourceLabel}` : 'Escuchando ahora';
+      fitLine($('title'), t.title);
+      fitLine($('artist'), t.artist);
+      $('backdrop').classList.remove('ready');
+      if (art) {
+        $('art').hidden = config.art === 'hidden';
+        $('art').src = art; // al cargar, toma sus colores (también si está oculta)
+      } else {
+        $('art').hidden = true;
+        $('art').removeAttribute('src');
+        setPalette(t, null);
+      }
+    }
+    $('card').classList.toggle('paused', !t.isPlaying);
+    $('card').classList.add('visible');
+    tick();
+  }
+
+  function tick() {
+    if (!track || !track.durationMs) {
+      $('progress').style.visibility = 'hidden';
+      return;
+    }
+    $('progress').style.visibility = '';
+    const elapsed = Math.min(track.durationMs, track.progressMs + (track.isPlaying ? Date.now() - track.receivedAt : 0));
+    $('bar').style.width = `${(elapsed / track.durationMs) * 100}%`;
+    $('elapsed').textContent = fmt(elapsed);
+    $('duration').textContent = fmt(track.durationMs);
+  }
+
+  window.addEventListener('obs-now-playing', (event) => {
+    const { config: next, track: t } = event.detail || {};
+    if (next) applyConfig(next);
+    if (t) t.receivedAt = Date.now();
+    render(t || (config.preview ? { ...PREVIEW, receivedAt: track?.receivedAt || Date.now() } : null));
+  });
+
+  setInterval(tick, 250);
+</script>
+</body>
+</html>
