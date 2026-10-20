@@ -212,8 +212,9 @@ void MediaWatcher::handleLine(const QByteArray &line)
 
 	qint64 t = now();
 	QSet<QString> seen;
-	for (const QJsonValue &value : msg.value("sessions").toArray()) {
-		QJsonObject s = value.toObject();
+	const QJsonArray sessions = msg.value("sessions").toArray();
+	for (qsizetype i = 0; i < sessions.size(); ++i) {
+		QJsonObject s = sessions.at(i).toObject();
 		QString app = s.value("app").toString().left(200);
 		QString title = s.value("title").toString().trimmed().left(300);
 		if (app.isEmpty() || title.isEmpty())

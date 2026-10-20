@@ -38,7 +38,9 @@ jobs:
           xcodebuild -version
           cmake --preset macos
       - name: Compilar con Xcode
-        run: cmake --build --preset macos
+        run: |
+          set -o pipefail
+          cmake --build --preset macos 2>&1 | tee build.log || { echo "--- errores"; grep -E "error:|warning:" build.log | sort -u; exit 1; }
       - name: Empaquetar
         run: |
           plugin="$(find build_macos -type d -name 'obs-now-playing.plugin' -path '*RelWithDebInfo*' | head -1)"

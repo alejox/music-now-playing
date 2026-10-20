@@ -85,7 +85,7 @@ QColor accentFrom(const QImage &source)
 
 QPixmap pixmapFromDataUrl(const QString &dataUrl)
 {
-	int comma = dataUrl.indexOf(',');
+	qsizetype comma = dataUrl.indexOf(',');
 	if (!dataUrl.startsWith("data:image/") || comma < 0)
 		return QPixmap();
 	QPixmap pixmap;
