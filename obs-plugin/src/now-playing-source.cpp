@@ -4,6 +4,9 @@
 #include <obs-module.h>
 #include <plugin-support.h>
 
+#include <QFile>
+#include <QFileInfo>
+#include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
 
@@ -27,6 +30,8 @@ struct NowPlayingSource {
 	uint32_t height = 140;
 	QString sentArtKey; // canción cuya carátula ya le mandamos a la página
 	int beats = 0;
+	QString fallbackPath; // imagen del usuario (su logo) para cuando no hay carátula
+	QString fallbackArt;  // esa imagen como data:image/…;base64,…
 };
 
 QJsonObject trackJson(const Track &track, bool withArtwork)
@@ -60,12 +65,19 @@ void push(NowPlayingSource *s)
 	if (!s->browser)
 		return;
 	Track track = MediaWatcher::instance().current();
-	QString artKey = track.app + '\n' + track.title + '\n' + track.artist + '\n' + QString::number(track.artwork.size());
+	// Sin carátula, va el logo del usuario (si eligió uno).
+	if (track.valid() && track.artwork.isEmpty())
+		track.artwork = s->fallbackArt;
+	QString artKey = track.app + '\n' + track.title + '\n' + track.artist + '\n' + QString::number(track.artwork.size()) +
+			 '\n' + QString::number(s->fallbackArt.size());
 	bool withArtwork = artKey != s->sentArtKey || ++s->beats % 5 == 0;
 	s->sentArtKey = artKey;
 
 	QJsonObject payload{{"config", s->config}};
 	payload.insert("track", track.valid() ? QJsonValue(trackJson(track, withArtwork)) : QJsonValue());
+	// La canción de ejemplo también muestra el logo, para ubicar la tarjeta.
+	if (!track.valid() && withArtwork)
+		payload.insert("previewArtwork", s->fallbackArt);
 	QByteArray json = QJsonDocument(payload).toJson(QJsonDocument::Compact);
 
 	calldata_t cd;
@@ -76,8 +88,31 @@ void push(NowPlayingSource *s)
 	calldata_free(&cd);
 }
 
+// Lee la imagen elegida y la convierte en data URL (una sola vez, al cambiar de archivo).
+QString loadImage(const QString &path)
+{
+	static const QHash<QString, QString> types = {
+		{"png", "image/png"},   {"jpg", "image/jpeg"}, {"jpeg", "image/jpeg"},
+		{"gif", "image/gif"},   {"webp", "image/webp"}, {"bmp", "image/bmp"},
+	};
+	QString mime = types.value(QFileInfo(path).suffix().toLower());
+	QFile file(path);
+	if (path.isEmpty() || mime.isEmpty() || !file.open(QIODevice::ReadOnly))
+		return QString();
+	if (file.size() > 8 * 1024 * 1024) {
+		obs_log(LOG_WARNING, "la imagen de respaldo pesa más de 8 MB: no se usa");
+		return QString();
+	}
+	return "data:" + mime + ";base64," + QString::fromLatin1(file.readAll().toBase64());
+}
+
 void readSettings(NowPlayingSource *s, obs_data_t *settings)
 {
+	QString fallbackPath = QString::fromUtf8(obs_data_get_string(settings, "fallback_image"));
+	if (fallbackPath != s->fallbackPath) {
+		s->fallbackPath = fallbackPath;
+		s->fallbackArt = loadImage(fallbackPath);
+	}
 	s->width = (uint32_t)std::max<long long>(100, obs_data_get_int(settings, "width"));
 	s->height = (uint32_t)std::max<long long>(60, obs_data_get_int(settings, "height"));
 	s->config = QJsonObject{
@@ -219,6 +254,11 @@ obs_properties_t *np_properties(void *)
 	obs_property_list_add_string(art, obs_module_text("NowPlaying.Art.Normal"), "normal");
 	obs_property_list_add_string(art, obs_module_text("NowPlaying.Art.Big"), "big");
 	obs_property_list_add_string(art, obs_module_text("NowPlaying.Art.Hidden"), "hidden");
+
+	QString filter = QString("%1 (*.png *.jpg *.jpeg *.gif *.webp *.bmp)").arg(obs_module_text("NowPlaying.Images"));
+	obs_property_t *fallback = obs_properties_add_path(props, "fallback_image", obs_module_text("NowPlaying.Fallback"),
+							   OBS_PATH_FILE, filter.toUtf8().constData(), nullptr);
+	obs_property_set_long_description(fallback, obs_module_text("NowPlaying.Fallback.Help"));
 
 	obs_properties_add_bool(props, "colors", obs_module_text("NowPlaying.Colors"));
 	obs_properties_add_bool(props, "blur", obs_module_text("NowPlaying.Blur"));

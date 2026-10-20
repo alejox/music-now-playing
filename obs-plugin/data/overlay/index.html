@@ -315,10 +315,13 @@
   }
 
   window.addEventListener('obs-now-playing', (event) => {
-    const { config: next, track: t } = event.detail || {};
+    const { config: next, track: t, previewArtwork } = event.detail || {};
     if (next) applyConfig(next);
     if (t) t.receivedAt = Date.now();
-    render(t || (config.preview ? { ...PREVIEW, receivedAt: track?.receivedAt || Date.now() } : null));
+    // La canción de ejemplo usa el logo del usuario (llega como previewArtwork, no siempre).
+    const preview = { ...PREVIEW, receivedAt: track?.receivedAt || Date.now() };
+    if (previewArtwork !== undefined) preview.artwork = previewArtwork;
+    render(t || (config.preview ? preview : null));
   });
 
   setInterval(tick, 250);
