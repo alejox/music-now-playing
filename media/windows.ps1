@@ -1,6 +1,12 @@
 # Lee "lo que está sonando" en Windows: los System Media Transport Controls (SMTC),
 # la misma información que muestra el control de volumen. Escribe una línea JSON
-# por segundo en la salida estándar; server.js la lee.
+# por segundo en la salida estándar; server.js la lee. Los comandos llegan en el
+# archivo -CommandFile (server.js lo escribe y aquí se borra al leerlo):
+#
+#   {"cmd":"next","app":"Spotify.exe"}      cmd: previous | playpause | next
+#
+# Es un archivo y no la entrada estándar a propósito: en Windows PowerShell 5.1 leer
+# la entrada sin bloquear el bucle no es confiable, y un lector bloqueado congela el overlay.
 #
 #   {"sessions":[{"app":"Spotify.exe","title":"…","artist":"…","album":"…",
 #                 "isPlaying":true,"current":true,"progressMs":1234,"durationMs":5678,
@@ -8,6 +14,8 @@
 #   {"error":"…"}
 #
 # Usa solo lo que trae Windows PowerShell 5.1 (Windows 10/11): sin módulos extra.
+
+param([string]$CommandFile = '')
 
 $ErrorActionPreference = 'Stop'
 $stdout = New-Object System.IO.StreamWriter ([Console]::OpenStandardOutput()), (New-Object System.Text.UTF8Encoding $false)
@@ -38,6 +46,24 @@ function Await($operation, [Type]$resultType) {
 }
 
 $mediaPropsType = [Windows.Media.Control.GlobalSystemMediaTransportControlsSessionMediaProperties]
+
+# Ejecuta un comando sobre la sesión de esa app (o la actual de Windows si ya no está).
+function Send-MediaCommand($line) {
+  $msg = $line | ConvertFrom-Json
+  $target = $null
+  foreach ($s in $manager.GetSessions()) {
+    if ($s.SourceAppUserModelId -eq $msg.app) { $target = $s }
+  }
+  if (-not $target) { $target = $manager.GetCurrentSession() }
+  if (-not $target) { return }
+  $operation = switch ($msg.cmd) {
+    'previous' { $target.TrySkipPreviousAsync() }
+    'playpause' { $target.TryTogglePlayPauseAsync() }
+    'next' { $target.TrySkipNextAsync() }
+  }
+  if ($operation) { $null = Await $operation ([bool]) }
+}
+
 $md5 = [System.Security.Cryptography.MD5]::Create()
 
 function Read-Thumbnail($reference) {
@@ -132,6 +158,21 @@ for ($i = 0; $i -lt 1800; $i++) {
     $failures++
     if ($failures -ge 5) { exit 4 }
   }
-  Start-Sleep -Milliseconds 1000
+  # Espera ~1 s, pero atiende al instante los comandos que lleguen.
+  for ($wait = 0; $wait -lt 10; $wait++) {
+    if ($CommandFile -and [System.IO.File]::Exists($CommandFile)) {
+      $line = ''
+      try {
+        $line = [System.IO.File]::ReadAllText($CommandFile)
+        [System.IO.File]::Delete($CommandFile)
+      } catch {}
+      if ($line) {
+        try { Send-MediaCommand $line } catch { Emit @{ error = "No se pudo controlar el reproductor: $($_.Exception.Message)" } }
+        Start-Sleep -Milliseconds 300 # que la app alcance a cambiar de canción antes de leerla
+        break
+      }
+    }
+    Start-Sleep -Milliseconds 100
+  }
 }
 exit 0

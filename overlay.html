@@ -7,11 +7,16 @@
   Overlay para la Fuente de navegador de OBS. Opciones por URL (combinables):
     ?theme=light        tema claro (por defecto: oscuro)
     ?pos=br             esquina: bl (abajo izq., por defecto), br, tl, tr
-    ?art=0              ocultar carátula
+    ?art=0              ocultar carátula        ?art=big   carátula grande
+    ?colors=0           no tomar los colores de la carátula (usa el color de cada app)
+    ?blur=1             fondo de la tarjeta con la carátula difuminada
     ?progress=0         ocultar barra de progreso
     ?label=0            ocultar la línea "Escuchando en …"
+    ?controls=1         botones anterior / pausa / siguiente (se ven en el stream; en OBS
+                        se usan con clic derecho → Interactuar). Para controlar sin que se
+                        vea, mejor el panel /controls como dock de OBS.
     ?width=480          ancho de la tarjeta en px
-    ?accent=ff00aa      color de acento fijo (hex sin #); por defecto, el de cada app
+    ?accent=ff00aa      color de acento fijo (hex sin #)
     ?preview=1          muestra una canción de ejemplo cuando no suena nada
 -->
 <style>
@@ -22,6 +27,7 @@
     --track: rgba(255, 255, 255, 0.18);
     --accent: #1ed760;
     --width: 420px;
+    --art: 72px;
   }
   :root[data-theme="light"] {
     --bg: rgba(255, 255, 255, 0.9);
@@ -29,6 +35,7 @@
     --muted: rgba(17, 18, 22, 0.62);
     --track: rgba(17, 18, 22, 0.14);
   }
+  :root[data-art="big"] { --art: 112px; }
   html, body {
     margin: 0;
     background: transparent;
@@ -45,28 +52,45 @@
     align-items: center;
     gap: 14px;
     padding: 12px;
-    background: var(--bg);
+    overflow: hidden;
+    isolation: isolate;
+    background-color: var(--bg);
     color: var(--fg);
     border-radius: 16px;
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     backdrop-filter: blur(14px);
     opacity: 0;
     transform: translateY(14px);
-    transition: opacity 0.45s ease, transform 0.45s ease;
+    transition: opacity 0.45s ease, transform 0.45s ease, background-color 0.8s ease;
   }
   .card.visible { opacity: 1; transform: none; }
+  .card.paused { opacity: 0.75; }
   [data-pos="br"] .card { left: auto; right: 24px; }
   [data-pos="tl"] .card { bottom: auto; top: 24px; transform: translateY(-14px); }
   [data-pos="tr"] .card { bottom: auto; top: 24px; left: auto; right: 24px; transform: translateY(-14px); }
   [data-pos] .card.visible { transform: none; }
 
+  /* ?blur=1: la carátula difuminada detrás de todo */
+  .backdrop {
+    position: absolute;
+    inset: -30px;
+    z-index: -1;
+    background-size: cover;
+    background-position: center;
+    filter: blur(28px) saturate(1.4);
+    opacity: 0;
+    transition: opacity 0.8s ease;
+  }
+  [data-blur] .backdrop.ready { opacity: 0.55; }
+
   .art {
     flex: none;
-    width: 72px;
-    height: 72px;
+    width: var(--art);
+    height: var(--art);
     border-radius: 10px;
     object-fit: cover;
     background: var(--track);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
   }
   .meta { flex: 1; min-width: 0; }
   .label {
@@ -78,11 +102,13 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--accent);
+    transition: color 0.8s ease;
   }
   .eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 10px; }
-  .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 0.9s ease-in-out infinite; }
+  .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 0.9s ease-in-out infinite; transition: background 0.8s ease; }
   .eq i:nth-child(2) { animation-delay: -0.3s; }
   .eq i:nth-child(3) { animation-delay: -0.6s; }
+  .paused .eq i { animation-play-state: paused; }
   @keyframes eq { 0%, 100% { height: 3px; } 50% { height: 10px; } }
 
   .line { overflow: hidden; white-space: nowrap; }
@@ -94,12 +120,23 @@
 
   .progress { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .bar { flex: 1; height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
-  .bar div { height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.25s linear; }
+  .bar div { height: 100%; width: 0; background: var(--accent); border-radius: 2px; transition: width 0.25s linear, background 0.8s ease; }
+
+  .controls { display: flex; justify-content: center; gap: 6px; margin-top: 6px; }
+  .controls button {
+    width: 34px; height: 34px; padding: 7px;
+    border: 0; border-radius: 50%;
+    background: transparent; color: var(--fg); cursor: pointer;
+  }
+  .controls button:hover { background: var(--track); }
+  .controls button.main { background: var(--accent); color: #000; }
+  .controls svg { width: 100%; height: 100%; fill: currentColor; display: block; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <div class="card" id="card">
+  <div class="backdrop" id="backdrop"></div>
   <img class="art" id="art" alt="">
   <div class="meta">
     <div class="label" id="label"><span class="eq"><i></i><i></i><i></i></span><span id="labelText">Escuchando</span></div>
@@ -108,22 +145,41 @@
     <div class="progress" id="progress">
       <span id="elapsed">0:00</span><div class="bar"><div id="bar"></div></div><span id="duration">0:00</span>
     </div>
+    <div class="controls" id="controls" hidden>
+      <button type="button" data-action="previous" aria-label="Anterior"></button>
+      <button type="button" data-action="playpause" class="main" aria-label="Pausa"></button>
+      <button type="button" data-action="next" aria-label="Siguiente"></button>
+    </div>
   </div>
 </div>
 
+<script src="/ui.js"></script>
 <script>
+  const { extractColors, fmt, control, ICONS } = NowPlayingUI;
   const params = new URLSearchParams(location.search);
   const root = document.documentElement;
   const $ = (id) => document.getElementById(id);
   const ACCENTS = { spotify: '#1ed760', ytmusic: '#ff0033', applemusic: '#fa2d48', browser: '#8b8cff', other: '#8b8cff' };
   const fixedAccent = /^[0-9a-f]{3,8}$/i.test(params.get('accent') || '') ? `#${params.get('accent')}` : null;
+  const theme = params.get('theme') === 'light' ? 'light' : 'dark';
+  const useColors = params.get('colors') !== '0';
+  const showControls = params.get('controls') === '1';
 
-  if (params.get('theme') === 'light') root.dataset.theme = 'light';
+  if (theme === 'light') root.dataset.theme = 'light';
   if (['br', 'tl', 'tr'].includes(params.get('pos'))) root.dataset.pos = params.get('pos');
   if (Number(params.get('width')) > 0) root.style.setProperty('--width', `${Number(params.get('width'))}px`);
+  if (params.get('art') === 'big') root.dataset.art = 'big';
+  if (params.get('blur') === '1') root.dataset.blur = '';
   const showArt = params.get('art') !== '0';
   $('progress').hidden = params.get('progress') === '0';
   $('label').hidden = params.get('label') === '0';
+
+  // Botones opcionales. Con ellos, una canción en pausa sigue a la vista para poder reanudarla.
+  $('controls').hidden = !showControls;
+  for (const btn of $('controls').querySelectorAll('button')) {
+    btn.innerHTML = ICONS[btn.dataset.action === 'playpause' ? 'pause' : btn.dataset.action];
+    btn.addEventListener('click', () => control(btn.dataset.action).then(() => setTimeout(poll, 400)).catch(() => {}));
+  }
 
   const PREVIEW = {
     kind: 'spotify', sourceLabel: 'Spotify', title: 'Canción de ejemplo con un título bastante largo',
@@ -132,14 +188,19 @@
 
   let track = null;
   let key = '';
+  let pollTimer = null;
 
-  const fmt = (ms) => {
-    const s = Math.max(0, Math.floor(ms / 1000));
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const sec = String(s % 60).padStart(2, '0');
-    return h ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
-  };
+  function setPalette(t, colors) {
+    const accent = fixedAccent || colors?.accent || ACCENTS[t.kind] || ACCENTS.other;
+    root.style.setProperty('--accent', accent);
+    if (colors) {
+      root.style.setProperty('--bg', colors.background);
+      root.style.setProperty('--track', colors.track);
+    } else {
+      root.style.removeProperty('--bg');
+      root.style.removeProperty('--track');
+    }
+  }
 
   // Desplaza el texto de lado a lado solo si no cabe.
   function fitLine(el, text) {
@@ -156,6 +217,23 @@
     });
   }
 
+  $('art').addEventListener('load', () => {
+    if (!track) return;
+    let colors = null;
+    try {
+      if (useColors) colors = extractColors($('art'), theme);
+    } catch {
+      // carátula de otro origen (no debería pasar: todas pasan por /artwork/)
+    }
+    setPalette(track, colors);
+    $('backdrop').style.backgroundImage = `url("${$('art').src}")`;
+    $('backdrop').classList.add('ready');
+  });
+  $('art').addEventListener('error', () => {
+    $('art').hidden = true;
+    if (track) setPalette(track, null);
+  });
+
   function render(t) {
     track = t;
     if (!t) {
@@ -166,14 +244,24 @@
     const nextKey = `${t.kind}|${t.title}|${t.artist}|${t.artwork}`;
     if (nextKey !== key) {
       key = nextKey;
-      root.style.setProperty('--accent', fixedAccent || ACCENTS[t.kind] || ACCENTS.other);
       $('labelText').textContent = t.sourceLabel ? `Escuchando en ${t.sourceLabel}` : 'Escuchando ahora';
       fitLine($('title'), t.title);
       fitLine($('artist'), t.artist);
       const art = $('art');
-      art.hidden = !showArt || !t.artwork;
-      if (!art.hidden) art.src = t.artwork;
+      $('backdrop').classList.remove('ready');
+      if (t.artwork) {
+        art.hidden = !showArt;
+        art.src = t.artwork; // al cargar, toma sus colores (también si está oculta)
+      } else {
+        art.hidden = true;
+        art.removeAttribute('src');
+        setPalette(t, null);
+      }
     }
+    $('card').classList.toggle('paused', !t.isPlaying);
+    const pp = $('controls').querySelector('[data-action="playpause"]');
+    pp.innerHTML = ICONS[t.isPlaying ? 'pause' : 'play'];
+    pp.setAttribute('aria-label', t.isPlaying ? 'Pausa' : 'Reproducir');
     $('card').classList.add('visible');
     tick();
   }
@@ -190,11 +278,10 @@
     $('duration').textContent = fmt(track.durationMs);
   }
 
-  $('art').addEventListener('error', () => { $('art').hidden = true; });
-
   async function poll() {
+    clearTimeout(pollTimer);
     try {
-      const res = await fetch('/api/now-playing', { cache: 'no-store' });
+      const res = await fetch(`/api/now-playing${showControls ? '?paused=1' : ''}`, { cache: 'no-store' });
       const data = await res.json();
       // El servidor ya mandó el progreso de este instante: desde aquí lo avanza tick().
       if (data.track) data.track.updatedAt = Date.now();
@@ -202,7 +289,7 @@
     } catch {
       render(null);
     }
-    setTimeout(poll, 1000);
+    pollTimer = setTimeout(poll, 1000);
   }
 
   setInterval(tick, 250);

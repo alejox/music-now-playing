@@ -30,7 +30,7 @@ python3 build/make-icons.py "$STAGE/icons"
 # 3. Windows: lanzador sin consola + instalador.
 W="$STAGE/win"
 mkdir -p "$W/app/media"
-cp server.js overlay.html now-playing.user.js "$W/app/"
+cp server.js overlay.html controls.html ui.js now-playing.user.js "$W/app/"
 cp media/windows.ps1 "$W/app/media/"
 cp "$STAGE/icons/icon.ico" "$W/"
 python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); open(sys.argv[2],'wb').write(z.read(next(n for n in z.namelist() if n.endswith('/node.exe'))))" \

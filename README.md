@@ -1,6 +1,6 @@
 # 🎵 OBS Now Playing
 
-Muestra en OBS la canción que suena en tu computador: carátula, título, artista y barra de progreso. Funciona en **Windows y macOS** con la app de **Spotify**, **YouTube Music** o Spotify en el navegador, **Apple Music** y cualquier reproductor que el sistema reconozca. Sin cuentas, sin claves de API y sin extensiones.
+Muestra en OBS la canción que suena en tu computador: carátula, título, artista y barra de progreso, con los **colores de la carátula**, y con **botones para cambiar de canción**. Funciona en **Windows y macOS** con la app de **Spotify**, **YouTube Music** o Spotify en el navegador, **Apple Music** y cualquier reproductor que el sistema reconozca. Sin cuentas, sin claves de API y sin extensiones.
 
 ![Overlay](docs/overlay.png)
 
@@ -63,14 +63,28 @@ Opciones que puedes añadir a la URL (se combinan con `&`):
 |---|---|
 | `theme=light` | Tema claro |
 | `pos=br` | Esquina: `bl` (abajo izq., por defecto), `br`, `tl`, `tr` |
-| `art=0` | Sin carátula |
+| `art=0` / `art=big` | Sin carátula / carátula grande |
+| `colors=0` | No usar los colores de la carátula (usa el color de cada app) |
+| `blur=1` | Fondo de la tarjeta con la carátula difuminada |
+| `controls=1` | Botones anterior / pausa / siguiente **en el overlay** (se ven en el stream; en OBS se pulsan con clic derecho → **Interactuar**) |
 | `progress=0` | Sin barra de progreso |
 | `label=0` | Sin la línea "Escuchando en …" |
 | `width=480` | Ancho de la tarjeta en px |
-| `accent=ff00aa` | Color de acento fijo (por defecto, el de cada app) |
+| `accent=ff00aa` | Color de acento fijo (por defecto, el de la carátula) |
 | `preview=1` | Canción de ejemplo cuando no suena nada (para ubicarla) |
 
-Ejemplo: `http://127.0.0.1:8787/overlay?pos=br&theme=light`
+Ejemplo: `http://127.0.0.1:8787/overlay?pos=br&art=big&blur=1`
+
+Por defecto el overlay toma de la carátula su color más vivo para los acentos (barra, etiqueta) y un tono oscuro del color dominante para el fondo, y los cambia con una transición suave en cada canción.
+
+## Botones para cambiar de canción
+
+Lo recomendado es un **dock** de OBS: un panel con la carátula y los botones anterior / pausa / siguiente que vive dentro de OBS, junto a tus escenas, y **no sale en el stream**.
+
+1. En OBS: **Docks → Docks de navegador personalizados**.
+2. Nombre: `Música`; URL: `http://127.0.0.1:8787/controls`. Aplica y acomoda el panel donde quieras.
+
+Los botones controlan la app que muestra el overlay: en Windows con los controles multimedia del sistema, en macOS con los mismos comandos de las teclas de música, y con el plan B pulsando los botones de la página de YouTube Music o Spotify (reinstala el script desde el panel si lo tenías de antes).
 
 **¿Prefieres solo texto?** Usa una **Fuente de texto** con "Leer desde archivo" apuntando a `now-playing.txt` (el panel muestra la ruta exacta y tiene un botón **Abrir carpeta**). El formato se cambia en `textFormat` de `config.json`, en esa misma carpeta.
 
@@ -95,7 +109,7 @@ Todo corre en tu computador y nada sale a internet. El servidor solo escucha en 
 ## Para desarrolladores
 
 - Correr desde el código: `npm start` (Node 18+). Usa la misma carpeta de datos que la app instalada; `OBS_NOW_PLAYING_DATA=/otra/ruta` la cambia.
-- Lectores del sistema: `media/windows.ps1` (Windows PowerShell 5.1 + WinRT) y `media/macos.js` (JavaScript for Automation). Ambos escriben una línea JSON por segundo; el protocolo está al inicio de `media/windows.ps1`. Para probar sin Windows ni Mac, `OBS_NOW_PLAYING_HELPER=lector-falso.js` hace que el servidor use un script de Node que escriba ese mismo protocolo.
+- Lectores del sistema: `media/windows.ps1` (Windows PowerShell 5.1 + WinRT) y `media/macos.js` (JavaScript for Automation). Ambos escriben una línea JSON por segundo; el protocolo está al inicio de `media/windows.ps1`. Los botones llegan a Windows por el archivo `.command` de la carpeta de datos, a macOS con `osascript media/macos.js command next` y al userscript en la respuesta de su latido. Para probar sin Windows ni Mac, `OBS_NOW_PLAYING_HELPER=lector-falso.js` hace que el servidor use un script de Node que escriba ese mismo protocolo.
 - En macOS 15.4+ Apple solo deja leer "Ahora suena" a programas del sistema; por eso el lector corre en `osascript` y no en Node.
 - Generar los instaladores: `./build/build.sh` (Linux o WSL; requiere `python3` con Pillow, `makensis`/NSIS, `clang` y `lld`). Descarga el Node.js oficial, verifica su SHA-256 y deja todo en `dist/`. Publicar un tag `v*` en GitHub hace lo mismo en Actions y sube los archivos a Releases.
 - La app de Mac usa el binario oficial de Node sin modificar (firmado y notarizado por Node.js); lo que macOS no puede verificar es el paquete `.app`. Quitar el aviso del todo requiere firmar y notarizar con una cuenta de Apple Developer (USD 99/año). En Windows, el equivalente es un certificado de firma de código.

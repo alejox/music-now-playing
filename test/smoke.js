@@ -63,6 +63,22 @@ async function main() {
     assert.equal((await get('/apps', { method: 'POST', body: 'app=Spotify.exe' })).status, 403);
     assert.equal((await get('/api/browser', { method: 'POST', body: '{}', headers: { 'Content-Type': 'text/plain' } })).status, 415);
 
+    // Controles: siguiente, pausa y reanudar llegan al lector.
+    const control = (action, type = 'application/json') =>
+      get('/api/control', { method: 'POST', headers: { 'Content-Type': type }, body: JSON.stringify({ action }) });
+    assert.equal((await control('next', 'text/plain')).status, 415, 'otras páginas no pueden mandar comandos');
+    assert.equal((await control('borrar')).status, 400);
+    assert.equal((await control('next')).status, 200);
+    await waitFor(async () => (await nowPlaying())?.title === 'La Bachata', 'que "siguiente" cambie la canción');
+    await control('playpause');
+    await waitFor(async () => (await nowPlaying()) === null, 'que la pausa oculte el overlay');
+    const paused = (await (await get('/api/now-playing?paused=1')).json()).track;
+    assert.equal(paused.title, 'La Bachata', 'el panel de controles sigue viendo la canción en pausa');
+    assert.equal(paused.isPlaying, false);
+    await control('playpause');
+    await waitFor(async () => (await nowPlaying())?.isPlaying === true, 'que "reproducir" la reanude');
+    for (const page of ['/controls', '/ui.js', '/overlay']) assert.equal((await get(page)).status, 200, page);
+
     // Ocultar una app desde el panel la saca del overlay.
     const token = fs.readFileSync(path.join(data, '.control'), 'utf8');
     const form = { method: 'POST', redirect: 'manual', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } };
@@ -77,6 +93,15 @@ async function main() {
       body: JSON.stringify({ source: 'ytmusic', title: 'Ojitos Lindos', artist: 'Bad Bunny', isPlaying: true }),
     });
     assert.equal((await nowPlaying()).sourceLabel, 'YouTube Music');
+
+    // ...y los botones le llegan al userscript en la respuesta de su siguiente latido.
+    assert.equal((await control('next')).status, 200);
+    const beat = await get('/api/browser', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source: 'ytmusic', title: 'Ojitos Lindos', artist: 'Bad Bunny', isPlaying: true }),
+    });
+    assert.deepEqual(await beat.json(), { cmd: 'next' });
 
     // --stop cierra la app (lo usan instalador y desinstalador).
     const stop = spawn(process.execPath, [path.join(ROOT, 'server.js'), '--stop'], { env, stdio: 'inherit' });

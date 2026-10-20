@@ -3,18 +3,43 @@
 // protocolo que media/windows.ps1.
 //
 // Corre con: /usr/bin/osascript -l JavaScript media/macos.js
+// Para controlar el reproductor: ... media/macos.js command next   (previous | playpause | next)
 //
 // Desde macOS 15.4 Apple solo deja leer MediaRemote a programas del propio sistema;
 // osascript lo es, por eso esto va en JavaScript for Automation y no en Node.
 ObjC.import('Foundation');
 ObjC.import('stdlib');
 
-function main() {
-  const stdout = $.NSFileHandle.fileHandleWithStandardOutput;
-  const emit = (obj) => stdout.writeData($(JSON.stringify(obj) + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
+const stdout = $.NSFileHandle.fileHandleWithStandardOutput;
+const emit = (obj) => stdout.writeData($(JSON.stringify(obj) + '\n').dataUsingEncoding($.NSUTF8StringEncoding));
 
-  const bundle = $.NSBundle.bundleWithPath('/System/Library/PrivateFrameworks/MediaRemote.framework/');
-  if (!bundle.load) {
+function loadMediaRemote() {
+  return $.NSBundle.bundleWithPath('/System/Library/PrivateFrameworks/MediaRemote.framework/').load;
+}
+
+// Códigos de MRMediaRemoteSendCommand: el mismo comando que mandan las teclas multimedia.
+const COMMANDS = { playpause: 2, next: 4, previous: 5 };
+
+function sendCommand(action) {
+  if (!(action in COMMANDS)) {
+    emit({ error: `Comando desconocido: ${action}` });
+    return 2;
+  }
+  if (!loadMediaRemote()) {
+    emit({ error: 'No se pudo cargar MediaRemote de macOS.' });
+    return 3;
+  }
+  ObjC.bindFunction('MRMediaRemoteSendCommand', ['bool', ['int', 'id']]);
+  if (!$.MRMediaRemoteSendCommand(COMMANDS[action], null)) {
+    emit({ error: 'macOS no aceptó el comando (¿no hay nada sonando?).' });
+    return 1;
+  }
+  emit({ ok: true });
+  return 0;
+}
+
+function watch() {
+  if (!loadMediaRemote()) {
     emit({ error: 'No se pudo cargar MediaRemote de macOS.' });
     return 2;
   }
@@ -106,5 +131,7 @@ function main() {
   return 0;
 }
 
-const code = main();
-if (code) $.exit(code);
+function run(argv) {
+  const code = argv[0] === 'command' ? sendCommand(argv[1]) : watch();
+  if (code) $.exit(code);
+}

@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Música</title>
+<!--
+  Control remoto para OBS: agrégalo como dock en OBS → Docks → Docks de navegador
+  personalizados, con la URL http://127.0.0.1:8787/controls. Vive dentro de OBS y
+  no sale en el stream.
+-->
+<style>
+  :root {
+    --bg: #14161c;
+    --fg: #f3f4f7;
+    --muted: rgba(243, 244, 247, 0.62);
+    --track: rgba(255, 255, 255, 0.16);
+    --accent: #8b8cff;
+  }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px;
+    box-sizing: border-box;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    transition: background-color 0.8s ease;
+    overflow: hidden;
+  }
+  .art {
+    width: min(200px, 60vw, 38vh);
+    aspect-ratio: 1;
+    border-radius: 12px;
+    object-fit: cover;
+    background: var(--track);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  }
+  .meta { width: 100%; text-align: center; min-width: 0; }
+  .title, .artist { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .title { font-weight: 700; font-size: 16px; }
+  .artist { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .source { color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; margin-top: 6px; }
+  .progress { display: flex; align-items: center; gap: 8px; width: 100%; font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .bar { flex: 1; height: 4px; background: var(--track); border-radius: 2px; overflow: hidden; }
+  .bar div { height: 100%; width: 0; background: var(--accent); transition: width 0.25s linear; }
+  .controls { display: flex; align-items: center; gap: 14px; }
+  button {
+    width: 44px; height: 44px; padding: 10px;
+    border: 0; border-radius: 50%;
+    background: transparent; color: var(--fg); cursor: pointer;
+  }
+  button:hover { background: var(--track); }
+  button.main { width: 56px; height: 56px; padding: 14px; background: var(--accent); color: #000; }
+  button:disabled { opacity: 0.4; cursor: default; }
+  svg { width: 100%; height: 100%; fill: currentColor; display: block; }
+  .error { min-height: 1.2em; font-size: 12px; color: #fca5a5; text-align: center; }
+  .empty { color: var(--muted); font-size: 14px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+  <img class="art" id="art" alt="" hidden>
+  <div class="meta">
+    <div class="title" id="title">—</div>
+    <div class="artist" id="artist"></div>
+    <div class="source" id="source"></div>
+  </div>
+  <div class="progress" id="progress"><span id="elapsed">0:00</span><div class="bar"><div id="bar"></div></div><span id="duration">0:00</span></div>
+  <div class="controls">
+    <button type="button" data-action="previous" aria-label="Anterior"></button>
+    <button type="button" data-action="playpause" class="main" aria-label="Reproducir o pausar"></button>
+    <button type="button" data-action="next" aria-label="Siguiente"></button>
+  </div>
+  <div class="error" id="error"></div>
+
+<script src="/ui.js"></script>
+<script>
+  const { extractColors, fmt, control, ICONS } = NowPlayingUI;
+  const $ = (id) => document.getElementById(id);
+  const root = document.documentElement;
+  let track = null;
+  let artUrl = '';
+  let timer = null;
+
+  for (const btn of document.querySelectorAll('button')) {
+    btn.innerHTML = ICONS[btn.dataset.action === 'playpause' ? 'play' : btn.dataset.action];
+    btn.addEventListener('click', async () => {
+      $('error').textContent = '';
+      try {
+        await control(btn.dataset.action);
+        setTimeout(poll, 400);
+      } catch (err) {
+        $('error').textContent = err.message;
+      }
+    });
+  }
+
+  $('art').addEventListener('load', () => {
+    try {
+      const colors = extractColors($('art'));
+      if (!colors) return;
+      root.style.setProperty('--accent', colors.accent);
+      root.style.setProperty('--bg', colors.background.replace(/[\d.]+\)$/, '1)'));
+      root.style.setProperty('--track', colors.track);
+    } catch {}
+  });
+
+  function render(t) {
+    track = t;
+    for (const b of document.querySelectorAll('button')) b.disabled = !t;
+    if (!t) {
+      $('title').textContent = 'Nada sonando';
+      $('artist').textContent = 'Dale play en tu reproductor';
+      $('source').textContent = '';
+      $('art').hidden = true;
+      artUrl = '';
+      $('progress').style.visibility = 'hidden';
+      return;
+    }
+    $('title').textContent = t.title;
+    $('artist').textContent = t.artist;
+    $('source').textContent = t.sourceLabel || 'Navegador';
+    if (t.artwork !== artUrl) {
+      artUrl = t.artwork;
+      $('art').hidden = !artUrl;
+      if (artUrl) $('art').src = artUrl;
+    }
+    const pp = document.querySelector('[data-action="playpause"]');
+    pp.innerHTML = ICONS[t.isPlaying ? 'pause' : 'play'];
+    pp.setAttribute('aria-label', t.isPlaying ? 'Pausa' : 'Reproducir');
+    tick();
+  }
+
+  function tick() {
+    if (!track || !track.durationMs) {
+      $('progress').style.visibility = 'hidden';
+      return;
+    }
+    $('progress').style.visibility = '';
+    const elapsed = Math.min(track.durationMs, track.progressMs + (track.isPlaying ? Date.now() - track.updatedAt : 0));
+    $('bar').style.width = `${(elapsed / track.durationMs) * 100}%`;
+    $('elapsed').textContent = fmt(elapsed);
+    $('duration').textContent = fmt(track.durationMs);
+  }
+
+  async function poll() {
+    clearTimeout(timer);
+    try {
+      const data = await (await fetch('/api/now-playing?paused=1', { cache: 'no-store' })).json();
+      if (data.track) data.track.updatedAt = Date.now();
+      if ($('error').dataset.offline) $('error').textContent = $('error').dataset.offline = '';
+      render(data.track);
+    } catch {
+      render(null);
+      $('error').textContent = $('error').dataset.offline = 'La app OBS Now Playing está cerrada.';
+    }
+    timer = setTimeout(poll, 1000);
+  }
+
+  setInterval(tick, 250);
+  poll();
+</script>
+</body>
+</html>

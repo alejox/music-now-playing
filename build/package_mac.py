@@ -54,7 +54,7 @@ with zipfile.ZipFile(out_zip, "w", compresslevel=9) as zf:
     add(zf, "Contents/MacOS/OBS Now Playing", Path(launcher).read_bytes(), 0o755)
     add(zf, "Contents/Resources/AppIcon.icns", Path(icns).read_bytes())
     add(zf, "Contents/Resources/node", node_binary, 0o755)
-    for f in ("server.js", "overlay.html", "now-playing.user.js"):
+    for f in ("server.js", "overlay.html", "controls.html", "ui.js", "now-playing.user.js"):
         add(zf, f"Contents/Resources/app/{f}", (ROOT / f).read_bytes())
     add(zf, "Contents/Resources/app/media/macos.js", (ROOT / "media" / "macos.js").read_bytes())
 

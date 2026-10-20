@@ -18,6 +18,7 @@ jobs:
           node --check server.js
           node --check media/macos.js
           node --check now-playing.user.js
+          node --check ui.js
       - name: Sintaxis del lector de Windows
         shell: pwsh
         run: |

@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         OBS Now Playing (YouTube Music + Spotify Web)
 // @namespace    obs-now-playing
-// @version      1.0.0
-// @description  Envía la canción que suena en YouTube Music o en el reproductor web de Spotify al overlay de OBS.
+// @version      1.1.0
+// @description  Envía la canción que suena en YouTube Music o en el reproductor web de Spotify al overlay de OBS, y recibe anterior / pausa / siguiente.
 // @match        https://music.youtube.com/*
 // @match        https://open.spotify.com/*
 // @grant        GM_xmlhttpRequest
@@ -68,6 +68,32 @@
     };
   }
 
+  // Botones de cada reproductor para los comandos del panel de controles.
+  const BUTTONS = {
+    ytmusic: {
+      previous: 'ytmusic-player-bar .previous-button',
+      playpause: 'ytmusic-player-bar #play-pause-button',
+      next: 'ytmusic-player-bar .next-button',
+    },
+    spotify: {
+      previous: '[data-testid="control-button-skip-back"]',
+      playpause: '[data-testid="control-button-playpause"]',
+      next: '[data-testid="control-button-skip-forward"]',
+    },
+  };
+
+  function runCommand(cmd) {
+    const selector = BUTTONS[SOURCE][cmd];
+    const button = selector && document.querySelector(selector);
+    if (button) {
+      button.click();
+      return;
+    }
+    // Respaldo si cambian los botones: pausa/reanuda el audio directamente.
+    const media = mediaElement();
+    if (cmd === 'playpause' && media) media.paused ? media.play() : media.pause();
+  }
+
   function send() {
     const data = snapshot();
     if (!data) return;
@@ -77,6 +103,14 @@
       headers: { 'Content-Type': 'application/json' },
       data: JSON.stringify(data),
       timeout: 2000,
+      onload(res) {
+        try {
+          const { cmd } = JSON.parse(res.responseText || '{}');
+          if (cmd) runCommand(cmd);
+        } catch (e) {
+          // respuesta vacía o de una versión vieja del servidor
+        }
+      },
       onerror() {}, // el servidor puede no estar abierto: no pasa nada
     });
   }

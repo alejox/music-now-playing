@@ -12,7 +12,7 @@ const os = require('node:os');
 const readline = require('node:readline');
 const { spawn } = require('node:child_process');
 
-const VERSION = '2.0.1';
+const VERSION = '2.1.0';
 const ARGS = new Set(process.argv.slice(2));
 
 // Archivos de la app (overlay, lectores del sistema, userscript): junto a este
@@ -22,6 +22,7 @@ const ROOT = __dirname;
 const DATA_DIR = process.env.OBS_NOW_PLAYING_DATA || defaultDataDir();
 const CONFIG_PATH = path.join(DATA_DIR, 'config.json');
 const CONTROL_PATH = path.join(DATA_DIR, '.control');
+const COMMAND_PATH = path.join(DATA_DIR, '.command'); // comandos para el lector de Windows
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 function defaultDataDir() {
@@ -193,12 +194,18 @@ function upsertTrack(key, track) {
 
 const normalize = (s) => (s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 
-function currentTrack() {
+// Con includePaused (panel de controles), si nada suena devuelve la última en pausa,
+// para poder reanudarla.
+function currentTrack({ includePaused = false } = {}) {
   const now = Date.now();
-  const playing = [...tracks.values()].filter(
-    (t) => t.isPlaying && now - t.updatedAt <= STALE_MS && !(t.app && config.ignoredApps.includes(t.app))
+  const alive = [...tracks.values()].filter(
+    (t) => now - t.updatedAt <= STALE_MS && !(t.app && config.ignoredApps.includes(t.app))
   );
-  if (!playing.length) return null;
+  const playing = alive.filter((t) => t.isPlaying);
+  if (!playing.length) {
+    if (!includePaused || !alive.length) return null;
+    return alive.sort((a, b) => b.changedAt - a.changedAt || Number(b.isCurrent) - Number(a.isCurrent))[0];
+  }
   // La misma canción puede llegar por el sistema y por el userscript: la del userscript
   // sabe si es YouTube Music o Spotify, la del sistema solo ve "Chrome".
   playing.sort((a, b) => b.changedAt - a.changedAt || Number(b.isCurrent) - Number(a.isCurrent));
@@ -214,7 +221,7 @@ function publicTrack(t) {
     title: t.title,
     artist: t.artist,
     album: t.album,
-    artwork: t.artworkUrl || (artworks.has(t.artworkId) ? `/artwork/${t.artworkId}` : ''),
+    artwork: artworks.has(t.artworkId) ? `/artwork/${t.artworkId}` : '',
     isPlaying: t.isPlaying,
     progressMs: t.durationMs ? Math.min(t.durationMs, t.progressMs + elapsed) : t.progressMs + elapsed,
     durationMs: t.durationMs,
@@ -261,7 +268,8 @@ function helperCommand() {
   }
   if (process.platform === 'win32') {
     const ps = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-    return [ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(ROOT, 'media', 'windows.ps1')]];
+    const script = path.join(ROOT, 'media', 'windows.ps1');
+    return [ps, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', script, '-CommandFile', COMMAND_PATH]];
   }
   if (process.platform === 'darwin') {
     return ['/usr/bin/osascript', ['-l', 'JavaScript', path.join(ROOT, 'media', 'macos.js')]];
@@ -326,6 +334,7 @@ function startHelper() {
   }
   const startedAt = Date.now();
   system.startedAt = startedAt;
+  fs.rmSync(COMMAND_PATH, { force: true }); // un comando viejo no se ejecuta al arrancar
   const child = spawn(cmd[0], cmd[1], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   helper = child;
   readline.createInterface({ input: child.stdout, crlfDelay: Infinity }).on('line', handleHelperLine);
@@ -352,6 +361,74 @@ function startHelper() {
     const wait = Math.min(60000, 1000 * 2 ** Math.min(helperFailures, 6));
     setTimeout(startHelper, quick ? wait : 500);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Controles: anterior / pausa / siguiente sobre lo que muestra el overlay.
+// ---------------------------------------------------------------------------
+
+const ACTIONS = new Set(['previous', 'playpause', 'next']);
+// Comandos para el userscript (plan B): se los entregamos en la respuesta de su próximo latido.
+const browserCommands = new Map();
+
+function runMacCommand(action) {
+  return new Promise((resolve) => {
+    const child = spawn('/usr/bin/osascript', ['-l', 'JavaScript', path.join(ROOT, 'media', 'macos.js'), 'command', action], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let out = '';
+    child.stdout.on('data', (d) => (out += d));
+    child.stderr.on('data', (d) => (out += d));
+    const timer = setTimeout(() => child.kill(), 5000);
+    child.on('error', (err) => resolve({ ok: false, error: err.message }));
+    child.on('exit', (code) => {
+      clearTimeout(timer);
+      resolve(code === 0 ? { ok: true } : { ok: false, error: out.trim().split('\n').pop() || `código ${code}` });
+    });
+  });
+}
+
+async function sendControl(action) {
+  const t = currentTrack({ includePaused: true });
+  if (!t) return { ok: false, error: 'No hay nada sonando.' };
+  if (!t.app) {
+    browserCommands.set(t.key, action);
+    return { ok: true };
+  }
+  if (process.platform === 'darwin' && !process.env.OBS_NOW_PLAYING_HELPER) return runMacCommand(action);
+  if (!helper) return { ok: false, error: 'El lector del sistema no está corriendo.' };
+  // El lector revisa este archivo cada 100 ms (ver media/windows.ps1).
+  writeJson(COMMAND_PATH, { cmd: action, app: t.app });
+  return { ok: true };
+}
+
+// Las carátulas del userscript son URLs de Google/Spotify: las bajamos y servimos desde
+// /artwork/ para que el overlay pueda leer sus colores (un canvas no deja leer
+// imágenes de otro origen). Solo de estos dominios, para no convertirnos en un proxy.
+const ARTWORK_HOSTS = /(^|\.)(googleusercontent\.com|ggpht\.com|ytimg\.com|scdn\.co|spotifycdn\.com)$/i;
+const artworkFetches = new Set();
+
+async function fetchArtwork(id, url) {
+  if (artworks.has(id) || artworkFetches.has(id)) return;
+  try {
+    if (!ARTWORK_HOSTS.test(new URL(url).hostname)) return;
+  } catch {
+    return;
+  }
+  artworkFetches.add(id);
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000), redirect: 'error' });
+    const mime = (res.headers.get('content-type') || '').split(';')[0].trim();
+    if (!res.ok || !/^image\/[\w.+-]+$/.test(mime)) return;
+    const data = Buffer.from(await res.arrayBuffer());
+    if (data.length > 3 * 1024 * 1024) return;
+    artworks.set(id, { mime, data });
+    while (artworks.size > 30) artworks.delete(artworks.keys().next().value);
+  } catch (err) {
+    console.warn('[carátula]', err.message);
+  } finally {
+    artworkFetches.delete(id);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +546,14 @@ ${notice ? `<div class="box ok">${escapeHtml(notice)}</div>` : ''}
   <h2>1. En OBS</h2>
   <p>Agrega una <b>Fuente de navegador</b> con esta URL (ancho 640, alto 200):</p>
   <p><code id="overlayUrl">${ORIGIN}/overlay</code> <button type="button" onclick="copy('overlayUrl', this)">Copiar</button></p>
-  <p><a href="/overlay?preview=1" target="_blank">Ver vista previa</a> · opciones de estilo en el README (<code>?theme=light</code>, <code>?pos=br</code>…)</p>
+  <p><a href="/overlay?preview=1" target="_blank">Ver vista previa</a> · toma los colores de la carátula · más estilos en el README (<code>?art=big</code>, <code>?blur=1</code>, <code>?theme=light</code>, <code>?pos=br</code>…)</p>
+</div>
+
+<div class="box">
+  <h2>Botones para cambiar de canción (opcional)</h2>
+  <p>En OBS: <b>Docks → Docks de navegador personalizados</b>, nombre <i>Música</i> y esta URL:</p>
+  <p><code id="controlsUrl">${ORIGIN}/controls</code> <button type="button" onclick="copy('controlsUrl', this)">Copiar</button></p>
+  <p class="muted">Queda un panel dentro de OBS con anterior / pausa / siguiente que no sale en el stream. <a href="/controls" target="_blank">Probarlo aquí</a>.</p>
 </div>
 
 <div class="box">
@@ -562,11 +646,35 @@ async function route(req, res) {
     case 'GET /overlay':
       return sendFile(res, 'overlay.html', 'text/html; charset=utf-8');
 
+    case 'GET /controls':
+      return sendFile(res, 'controls.html', 'text/html; charset=utf-8');
+
+    case 'GET /ui.js':
+      return sendFile(res, 'ui.js', 'text/javascript; charset=utf-8');
+
+    case 'POST /api/control': {
+      // Igual que /api/browser: exigir JSON hace que otras páginas web no puedan mandarlo.
+      if (!String(req.headers['content-type'] || '').startsWith('application/json')) {
+        return send(res, 415, 'text/plain; charset=utf-8', 'Se espera JSON');
+      }
+      let body;
+      try {
+        body = JSON.parse(await readBody(req));
+      } catch {
+        return sendJson(res, 400, { error: 'JSON inválido' });
+      }
+      if (!ACTIONS.has(body.action)) return sendJson(res, 400, { error: 'Acción desconocida' });
+      const result = await sendControl(body.action);
+      return sendJson(res, result.ok ? 200 : 409, result);
+    }
+
     case 'GET /now-playing.user.js':
       return sendFile(res, 'now-playing.user.js', 'text/javascript; charset=utf-8');
 
-    case 'GET /api/now-playing':
-      return sendJson(res, 200, { now: Date.now(), track: publicTrack(currentTrack()) });
+    case 'GET /api/now-playing': {
+      const includePaused = url.searchParams.get('paused') === '1';
+      return sendJson(res, 200, { now: Date.now(), track: publicTrack(currentTrack({ includePaused })) });
+    }
 
     case 'POST /api/browser': {
       // Plan B (userscript). Exigir JSON obliga a cualquier página web a pasar por un
@@ -586,21 +694,26 @@ async function route(req, res) {
       const title = cleanString(body.title);
       if (!title) tracks.delete(key);
       else {
+        const artworkUrl = cleanUrl(body.artwork);
+        const artworkId = artworkUrl ? crypto.createHash('sha1').update(artworkUrl).digest('hex').slice(0, 16) : '';
+        if (artworkUrl) fetchArtwork(artworkId, artworkUrl);
         upsertTrack(key, {
           kind: source[0],
           label: source[1],
           title,
           artist: cleanString(body.artist),
           album: cleanString(body.album),
-          artworkUrl: cleanUrl(body.artwork),
+          artworkId,
           isPlaying: body.isPlaying === true,
           isCurrent: false,
           progressMs: cleanMs(body.progressMs),
           durationMs: cleanMs(body.durationMs),
         });
       }
-      res.writeHead(204);
-      return res.end();
+      // La respuesta lleva el comando pendiente (si el usuario pulsó un botón).
+      const cmd = browserCommands.get(key);
+      browserCommands.delete(key);
+      return sendJson(res, 200, cmd ? { cmd } : {});
     }
 
     default:
