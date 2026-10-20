@@ -6,7 +6,9 @@
 #
 # Uso: ./build/build.sh [all|windows|mac]
 #
-# Windows se arma en Linux/WSL (python3 con Pillow y makensis/NSIS).
+# Windows se arma en Linux/WSL (python3 con Pillow y makensis/NSIS). Con
+# PLUGIN_ZIP=<obs-now-playing-plugin-…-windows-x64.zip> el instalador también instala el
+# plugin de OBS (la Release siempre lo hace).
 # Mac se arma mejor EN UN MAC (python3 con Pillow y las herramientas de Xcode): ahí la
 # app queda firmada ad hoc entera. En Linux también se arma (clang + lld), pero sin
 # firmar el paquete, y macOS la da por "dañada" al descargarla. La Release la arma en
@@ -51,8 +53,19 @@ if want windows; then
   python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); open(sys.argv[2],'wb').write(z.read(next(n for n in z.namelist() if n.endswith('/node.exe'))))" \
     "$CACHE/node-v$NODE_VERSION-win-x64.zip" "$W/node.exe"
   STAGE_ABS="$(cd "$W" && pwd)"
+  PLUGIN_ARGS=()
+  if [ -n "${PLUGIN_ZIP:-}" ]; then
+    # El zip trae obs-now-playing/bin/64bit/obs-now-playing.dll y obs-now-playing/data/…
+    # (los símbolos .pdb no hacen falta para usarlo).
+    python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$PLUGIN_ZIP" "$W/plugin"
+    find "$W/plugin" -name '*.pdb' -delete
+    [ -f "$W/plugin/obs-now-playing/bin/64bit/obs-now-playing.dll" ] || { echo "$PLUGIN_ZIP no trae el plugin"; exit 1; }
+    PLUGIN_ARGS=(-DPLUGIN="$STAGE_ABS/plugin/obs-now-playing")
+  else
+    echo "Aviso: sin PLUGIN_ZIP el instalador no incluye el plugin de OBS."
+  fi
   makensis -V2 -DSTAGE="$STAGE_ABS" -DVERSION="$VERSION" build/windows/launcher.nsi
-  makensis -V2 -DSTAGE="$STAGE_ABS" -DVERSION="$VERSION" -DOUTFILE="$(pwd)/$DIST/OBS-Now-Playing-Setup-$VERSION.exe" build/windows/installer.nsi
+  makensis -V2 -DSTAGE="$STAGE_ABS" -DVERSION="$VERSION" ${PLUGIN_ARGS[@]+"${PLUGIN_ARGS[@]}"} -DOUTFILE="$(pwd)/$DIST/OBS-Now-Playing-Setup-$VERSION.exe" build/windows/installer.nsi
 fi
 
 # 4. macOS: lanzador compilado (build/macos/launcher.c) y una app por arquitectura.

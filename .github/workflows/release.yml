@@ -18,7 +18,9 @@ permissions:
   contents: write
 
 jobs:
+  # El instalador de Windows también instala el plugin: necesita el zip ya compilado.
   windows:
+    needs: [plugin]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
@@ -35,8 +37,12 @@ jobs:
           fi
       - name: Prueba de humo
         run: npm test
-      - name: Instalador de Windows
-        run: ./build/build.sh windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-windows
+          path: plugin-windows
+      - name: Instalador de Windows (app + plugin de OBS)
+        run: PLUGIN_ZIP="$(ls plugin-windows/obs-now-playing-plugin-*-windows-x64.zip)" ./build/build.sh windows
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -105,7 +111,7 @@ jobs:
           generate_release_notes: true
           body: |
             ## Descargas
-            - **Windows 10/11:** `OBS-Now-Playing-Setup-….exe`
+            - **Windows 10/11:** `OBS-Now-Playing-Setup-….exe` (la app y el plugin de OBS)
             - **Mac con chip Apple (M1/M2/M3/M4…):** `OBS-Now-Playing-…-mac-apple.zip`
             - **Mac con Intel:** `OBS-Now-Playing-…-mac-intel.zip`
 

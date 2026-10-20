@@ -46,6 +46,9 @@ Descarga el zip de tu sistema desde **[Releases](../../releases/latest)** y **ci
 | **3** | Pega en la Terminal el comando de abajo (una vez) | — |
 | **4** | Abre OBS | Abre OBS |
 
+> [!TIP]
+> En Windows, `OBS-Now-Playing-Setup-<versión>.exe` también instala el plugin en esa misma carpeta (opción **Plugin para OBS**, marcada por defecto), sin descomprimir nada.
+
 ```bash
 xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin
 ```
@@ -133,7 +136,7 @@ La idea de leer los controles multimedia del sistema viene de [SMTC Bridge](http
 
 Descarga el instalador desde **[Releases](../../releases/latest)**. No necesitas Node.js ni la terminal.
 
-**Windows 10/11:** abre `OBS-Now-Playing-Setup-<versión>.exe`. Si sale **"Windows protegió su PC"**, pulsa **Más información → Ejecutar de todas formas**. Por defecto arranca con Windows.
+**Windows 10/11:** abre `OBS-Now-Playing-Setup-<versión>.exe`. Si sale **"Windows protegió su PC"**, pulsa **Más información → Ejecutar de todas formas**. Por defecto arranca con Windows. También instala el plugin de OBS (se puede desmarcar).
 
 **macOS 11+:** descarga `…-mac-apple.zip` (chip Apple) o `…-mac-intel.zip` (Intel), descomprímelo, arrastra **OBS Now Playing** a Aplicaciones y ábrela. Si la bloquea: **Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente**. Si dice *"está dañado"*:
 
