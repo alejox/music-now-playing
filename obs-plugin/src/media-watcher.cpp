@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -21,8 +22,9 @@ namespace {
 
 QString moduleFile(const char *relative)
 {
+	// Ruta completa: en Windows, con el plugin en la carpeta de OBS, llega relativa a bin\64bit.
 	char *path = obs_module_file(relative);
-	QString result = path ? QString::fromUtf8(path) : QString();
+	QString result = path ? QFileInfo(QString::fromUtf8(path)).absoluteFilePath() : QString();
 	bfree(path);
 	return result;
 }
