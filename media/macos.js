@@ -380,43 +380,45 @@ const BROWSERS = [
   ['company.thebrowser.Browser', 'title'],
   ['com.apple.Safari', 'name'],
 ];
-const YOUTUBE_WATCH = /^https:\/\/(?:music\.|www\.|m\.)?youtube\.com\/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})/;
+const YOUTUBE_WATCH = /^https:\/\/(music\.|www\.|m\.)?youtube\.com\/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})/;
 
-function youtubeVideoId(app, title) {
+// { id, site } del video que suena (site: "ytmusic" en music.youtube.com, si no "youtube"),
+// o null.
+function youtubeVideo(app, title) {
   // Las apps instaladas (PWA) llevan el id del navegador como prefijo:
   // com.google.Chrome.app.cinhimbnkkaeohfgghhklpknlkffjgod es YouTube Music en Chrome.
   const browser = BROWSERS.find(([id]) => app === id || app.startsWith(`${id}.`));
-  if (!browser) return '';
+  if (!browser) return null;
   try {
     const b = Application(browser[0]);
-    if (!b.running()) return '';
+    if (!b.running()) return null;
     const found = [];
     for (const w of b.windows()) {
       for (const t of w.tabs()) {
         const m = YOUTUBE_WATCH.exec(String(t.url() || ''));
-        if (m) found.push({ id: m[1], name: String(t[browser[1]]() || '').toLowerCase() });
+        if (m) found.push({ id: m[2], site: m[1] === 'music.' ? 'ytmusic' : 'youtube', name: String(t[browser[1]]() || '').toLowerCase() });
       }
     }
     // Con varias pestañas de YouTube, la que tiene el título de la canción.
     const hit = found.find((f) => title && f.name.includes(title.toLowerCase())) || (found.length === 1 ? found[0] : null);
-    return hit ? hit.id : '';
+    return hit ? { id: hit.id, site: hit.site } : null;
   } catch (e) {
-    return ''; // sin permiso o navegador sin AppleScript: sin video
+    return null; // sin permiso o navegador sin AppleScript: sin video
   }
 }
 
-const videoIds = {}; // "app\ncanción" → id ('' = no se encontró, tras unos intentos)
+const videos = {}; // "app\ncanción" → { id, site }
 const videoTries = {};
 
-function videoIdFor(app, title, videoFlag) {
-  if (!videoFlag || !$.NSFileManager.defaultManager.fileExistsAtPath(videoFlag)) return '';
+function videoFor(app, title, videoFlag) {
+  if (!videoFlag || !$.NSFileManager.defaultManager.fileExistsAtPath(videoFlag)) return null;
   const key = `${app}\n${title}`;
-  if (videoIds[key]) return videoIds[key];
-  if ((videoTries[key] || 0) >= 3) return ''; // la dirección cambia un instante después del título
+  if (videos[key]) return videos[key];
+  if ((videoTries[key] || 0) >= 3) return null; // la dirección cambia un instante después del título
   videoTries[key] = (videoTries[key] || 0) + 1;
-  const id = youtubeVideoId(app, title);
-  if (id) videoIds[key] = id;
-  return id;
+  const video = youtubeVideo(app, title);
+  if (video) videos[key] = video;
+  return video;
 }
 
 function watch(videoFlag) {
@@ -504,8 +506,12 @@ function watch(videoFlag) {
             tries = 0;
           }
         }
-        const videoId = videoIdFor(app, entry.title, videoFlag);
-        if (videoId) entry.videoId = videoId;
+        // El sitio dice si es YouTube o YouTube Music ("Escuchando en …").
+        const video = videoFor(app, entry.title, videoFlag);
+        if (video) {
+          entry.videoId = video.id;
+          entry.site = video.site;
+        }
         emit({ sessions: [entry] });
       }
       failures = 0;
@@ -531,7 +537,8 @@ function testVideo() {
   const info = Request.localNowPlayingItem.nowPlayingInfo;
   const title = ObjC.unwrap(info.objectForKey('kMRMediaRemoteNowPlayingInfoTitle')) || '';
   const app = ObjC.unwrap(Request.localNowPlayingPlayerPath.client.bundleIdentifier) || '';
-  emit({ app, title, videoId: youtubeVideoId(app, title) });
+  const video = youtubeVideo(app, title) || {};
+  emit({ app, title, videoId: video.id || '', site: video.site || '' });
   return 0;
 }
 

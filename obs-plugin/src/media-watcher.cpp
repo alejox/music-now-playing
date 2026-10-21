@@ -32,8 +32,9 @@ struct AppInfo {
 	QString label;
 };
 
-// De qué reproductor viene una sesión: decide el color y el "Escuchando en …".
-AppInfo classifyApp(const QString &app, const QString &name)
+// De qué reproductor viene una sesión: decide el color y el "Escuchando en …". En un
+// navegador, site (del lector, en modo video) dice si la pestaña es YouTube o YouTube Music.
+AppInfo classifyApp(const QString &app, const QString &name, const QString &site)
 {
 	const QString id = (app + " " + name).toLower();
 	if (id.contains("spotify"))
@@ -52,8 +53,13 @@ AppInfo classifyApp(const QString &app, const QString &name)
 		{"opera", "Opera"},   {"vivaldi", "Vivaldi"}, {"safari", "Safari"},   {"thebrowser", "Arc"},
 	};
 	for (const auto &browser : browsers) {
-		if (id.contains(browser.first))
-			return {"browser", browser.second};
+		if (!id.contains(browser.first))
+			continue;
+		if (site == "ytmusic")
+			return {"ytmusic", "YouTube Music"};
+		if (site == "youtube")
+			return {"youtube", "YouTube"};
+		return {"browser", browser.second};
 	}
 	QString fallback = name;
 	if (fallback.isEmpty()) {
@@ -229,7 +235,7 @@ void MediaWatcher::handleLine(const QByteArray &line)
 #endif
 
 		Track track;
-		AppInfo info = classifyApp(app, s.value("name").toString().left(100));
+		AppInfo info = classifyApp(app, s.value("name").toString().left(100), s.value("site").toString());
 		track.app = app;
 		track.kind = info.kind;
 		track.label = info.label;

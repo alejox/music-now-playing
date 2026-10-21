@@ -8,7 +8,7 @@
 // Una sesión multimedia del sistema (una por app que reproduce algo).
 struct Track {
 	QString app;   // id de la app: "Spotify.exe", "com.spotify.client"…
-	QString kind;  // spotify | ytmusic | applemusic | browser | other (decide el color)
+	QString kind;  // spotify | ytmusic | youtube | applemusic | browser | other (decide el color)
 	QString label; // "Spotify", "Chrome"…
 	QString title;
 	QString artist;

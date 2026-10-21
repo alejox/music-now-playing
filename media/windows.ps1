@@ -15,7 +15,8 @@
 # Modo video (plugin de OBS): mientras exista el archivo -VideoFlag, para lo que suena en
 # un navegador se agrega "videoId", el id del video de YouTube / YouTube Music leído de la
 # barra de direcciones (UI Automation) de la ventana cuya pestaña visible es YouTube. Si la
-# barra no se puede leer, se busca el video por su título en YouTube.
+# barra no se puede leer, se busca el video por su título en YouTube. Con él va "site":
+# "ytmusic" (music.youtube.com) o "youtube", para decir "Escuchando en …".
 #
 #   {"sessions":[{"app":"Spotify.exe","title":"…","artist":"…","album":"…",
 #                 "isPlaying":true,"current":true,"progressMs":1234,"durationMs":5678,
@@ -170,8 +171,8 @@ function Find-VideoThumbnail($id) {
 # sus ventanas (la de la pestaña visible). Una ventana sirve si su título (el de la pestaña)
 # dice YouTube o trae el nombre de la canción.
 $browserApps = 'chrome|msedge|brave|vivaldi|opera|firefox'
-$youtubeWatch = '^(?:https?://)?(?:music\.|www\.|m\.)?youtube\.com/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})'
-$videoIds = @{}   # "app`ncanción" → id
+$youtubeWatch = '^(?:https?://)?(music\.|www\.|m\.)?youtube\.com/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})'
+$videoIds = @{}   # "app`ncanción" → @{ id; site }
 $videoTries = @{}
 $uiaReady = $false
 
@@ -193,7 +194,7 @@ function Read-AddressBar($window) {
       if ($type -eq $editType) {
         $value = ''
         try { $value = "$($child.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).Current.Value)" } catch {}
-        if ($value -match $youtubeWatch) { return $Matches[1] }
+        if ($value -match $youtubeWatch) { return $value }
       } elseif ($type -ne $documentType) {
         $queue.Enqueue($child)
       }
@@ -221,7 +222,7 @@ function Search-YouTubeVideoId($title, $artist) {
 }
 
 # Las ventanas cuya pestaña visible es YouTube: { id = video de su barra ('' si no se pudo
-# leer); name = título de la ventana }.
+# leer); site = ytmusic | youtube (de la barra o, si no, del título); name = título }.
 function Read-YouTubeWindows {
   if (-not $script:uiaReady) {
     Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
@@ -233,35 +234,46 @@ function Read-YouTubeWindows {
   foreach ($window in $auto::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)) {
     $name = "$($window.Current.Name)".ToLower()
     if ($name -notmatch 'youtube') { continue }
+    $url = ''
+    try { $url = Read-AddressBar $window } catch {}
     $id = ''
-    try { $id = Read-AddressBar $window } catch {}
-    [void]$windows.Add(@{ id = $id; name = $name })
+    $site = if ($name -match 'youtube music') { 'ytmusic' } else { 'youtube' }
+    if ($url -match $youtubeWatch) {
+      $id = $Matches[2]
+      $site = if ($Matches[1] -eq 'music.') { 'ytmusic' } else { 'youtube' }
+    }
+    [void]$windows.Add(@{ id = $id; site = $site; name = $name })
   }
   , $windows
 }
 
-function Find-YouTubeVideoId($title, $artist) {
+function Find-YouTubeVideo($title, $artist) {
   $windows = Read-YouTubeWindows
   $found = @($windows | Where-Object { $_.id })
   # Con varias ventanas de YouTube, la que tiene el título de la canción.
   $lower = "$title".ToLower()
   $hit = $found | Where-Object { $lower -and $_.name.Contains($lower) } | Select-Object -First 1
   if (-not $hit -and $found.Count -eq 1) { $hit = $found[0] }
-  if ($hit) { return $hit.id }
-  if ($windows.Count -gt 0) { return Search-YouTubeVideoId $title $artist }
-  ''
+  if ($hit) { return @{ id = $hit.id; site = $hit.site } }
+  if ($windows.Count -gt 0) {
+    $id = Search-YouTubeVideoId $title $artist
+    $site = if (@($windows | Where-Object { $_.site -eq 'ytmusic' }).Count -gt 0) { 'ytmusic' } else { 'youtube' }
+    if ($id) { return @{ id = $id; site = $site } }
+  }
+  $null
 }
 
-function Get-VideoId($app, $title, $artist) {
-  if ($app -notmatch $browserApps) { return '' }
+# @{ id; site } del video de YouTube que suena en el navegador, o $null.
+function Get-Video($app, $title, $artist) {
+  if ($app -notmatch $browserApps) { return $null }
   $key = "$app`n$title"
   if ($videoIds[$key]) { return $videoIds[$key] }
-  if ([int]$videoTries[$key] -ge 3) { return '' } # la dirección cambia un instante después del título
+  if ([int]$videoTries[$key] -ge 3) { return $null } # la dirección cambia un instante después del título
   $videoTries[$key] = 1 + [int]$videoTries[$key]
-  $id = ''
-  try { $id = Find-YouTubeVideoId $title $artist } catch { $id = '' }
-  if ($id) { $videoIds[$key] = $id }
-  $id
+  $video = $null
+  try { $video = Find-YouTubeVideo $title $artist } catch { $video = $null }
+  if ($video) { $videoIds[$key] = $video }
+  $video
 }
 
 function Test-VideoWanted {
@@ -280,7 +292,7 @@ if ($SelfTest) {
     catalogArtwork = [bool]$art
     searchVideoId  = $id
     thumbnail      = [bool]$thumb
-    youtubeWindows = @($windows | ForEach-Object { [ordered]@{ name = $_.name; id = $_.id } })
+    youtubeWindows = @($windows | ForEach-Object { [ordered]@{ name = $_.name; id = $_.id; site = $_.site } })
   })
   exit 0
 }
@@ -347,8 +359,8 @@ for ($i = 0; $i -lt 1800; $i++) {
         if (-not $art -and $tries[$app] -ge 3) {
           $art = Find-CatalogArtwork $props.Title $props.Artist
           if (-not $art) {
-            $id = Get-VideoId $app $props.Title $props.Artist
-            if ($id) { $art = Find-VideoThumbnail $id }
+            $video = Get-Video $app $props.Title $props.Artist
+            if ($video) { $art = Find-VideoThumbnail $video.id }
           }
         }
         $fresh = $art -and $art.hash -ne $sentHash[$app]
@@ -360,8 +372,11 @@ for ($i = 0; $i -lt 1800; $i++) {
         }
       }
       if (Test-VideoWanted) {
-        $videoId = Get-VideoId $app $props.Title $props.Artist
-        if ($videoId) { $entry.videoId = $videoId }
+        $video = Get-Video $app $props.Title $props.Artist
+        if ($video) {
+          $entry.videoId = $video.id
+          $entry.site = $video.site
+        }
       }
       [void]$sessions.Add($entry)
     }
