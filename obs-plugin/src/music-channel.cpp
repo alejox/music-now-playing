@@ -63,6 +63,33 @@ obs_data_t *captureSettings(const QString &target)
 	return settings;
 }
 
+// En macOS la captura de OBS (ScreenCaptureKit) busca la app en una lista de apps que
+// arma al crearse la fuente o al abrir sus Propiedades, no al cambiarle la app: una app
+// abierta después (o sin ventana a la vista en ese momento) no está en esa lista y la
+// captura queda en silencio sin avisar. Aplicar los ajustes a sus propiedades corre el
+// callback de "Método", que vuelve a pedir la lista y llena la de "Aplicación": así se
+// refresca la lista que usa la captura y se sabe si la app está. En Windows no hace falta.
+bool refreshAndFindApp(obs_source_t *source, obs_data_t *settings, const QString &target)
+{
+#ifdef __APPLE__
+	obs_properties_t *props = obs_source_properties(source);
+	if (!props)
+		return true;
+	obs_properties_apply_settings(props, settings);
+	obs_property_t *apps = obs_properties_get(props, "application");
+	bool found = !apps; // si OBS cambió las propiedades, no se bloquea el cambio
+	for (size_t i = 0; apps && !found && i < obs_property_list_item_count(apps); i++)
+		found = target.compare(QString::fromUtf8(obs_property_list_item_string(apps, i)), Qt::CaseInsensitive) == 0;
+	obs_properties_destroy(props);
+	return found;
+#else
+	(void)source;
+	(void)settings;
+	(void)target;
+	return true;
+#endif
+}
+
 // A qué app apunta hoy la captura.
 QString currentTarget(obs_source_t *source)
 {
@@ -97,10 +124,22 @@ void follow_music_channel()
 	// Solo el canal que creó el plugin (no otra fuente que se llame igual).
 	if (strcmp(obs_source_get_id(source), kSourceId) == 0 &&
 	    currentTarget(source).compare(target, Qt::CaseInsensitive) != 0) {
-		obs_data_t *settings = captureSettings(target);
-		obs_source_update(source, settings);
-		obs_data_release(settings);
-		blog(LOG_INFO, "[obs-now-playing] canal de música → %s", target.toUtf8().constData());
+		// Si la app todavía no aparece en la lista de macOS, se reintenta cada 3 segundos
+		// (sin tocar el canal, que si no quedaría en silencio).
+		static qint64 lastTry = 0;
+		qint64 now = MediaWatcher::now();
+		if (now - lastTry >= 3000) {
+			lastTry = now;
+			obs_data_t *settings = captureSettings(target);
+			if (refreshAndFindApp(source, settings, target)) {
+				obs_source_update(source, settings);
+				blog(LOG_INFO, "[obs-now-playing] canal de música → %s", target.toUtf8().constData());
+			} else {
+				blog(LOG_INFO, "[obs-now-playing] canal de música: %s aún no se puede capturar, se reintenta",
+				     target.toUtf8().constData());
+			}
+			obs_data_release(settings);
+		}
 	}
 	obs_source_release(source);
 }
@@ -128,9 +167,10 @@ void create_music_channel(QWidget *parent)
 	QByteArray name = text("NowPlaying.Channel.SourceName").toUtf8();
 	obs_source_t *source = obs_get_source_by_name(name.constData());
 	bool created = !source;
-	if (source)
+	if (source) {
+		refreshAndFindApp(source, settings, target);
 		obs_source_update(source, settings);
-	else
+	} else
 		source = obs_source_create(sourceId, name.constData(), settings, nullptr);
 	obs_data_release(settings);
 	if (!source) {
