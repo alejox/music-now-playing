@@ -269,6 +269,10 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		track.artwork = artworks_.value(artKey);
 
 		const Track prev = tracks_.value(app);
+		// Una vez por canción: si llegó el video de YouTube (para saber qué pasó si no se ve).
+		if (!track.videoId.isEmpty() && track.videoId != prev.videoId)
+			obs_log(LOG_INFO, "video de YouTube para %s: %s", app.toUtf8().constData(),
+				track.videoId.toUtf8().constData());
 		bool changed = !prev.valid() || prev.title != track.title || prev.artist != track.artist ||
 			       (!prev.isPlaying && track.isPlaying);
 		track.changedAt = changed ? t : prev.changedAt;

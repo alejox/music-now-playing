@@ -764,7 +764,10 @@
             if (e.data === YT.PlayerState.ENDED) showVideo(false);
           },
           // 2, 5, 100, 101, 150, 153: video inválido, borrado o que no se deja insertar.
-          onError: () => {
+          onError: (e) => {
+            // Queda en el registro de OBS ([obs-browser…]): 101/150 = el video no se deja
+            // insertar; 100 = borrado o privado; 153 = YouTube rechazó el reproductor.
+            console.warn(`Now Playing: el video ${video.id} no se puede mostrar (error ${e.data}); se muestra la carátula`);
             video.failed.add(video.id);
             video.id = '';
             showVideo(false);
