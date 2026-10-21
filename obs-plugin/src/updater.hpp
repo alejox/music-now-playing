@@ -10,9 +10,9 @@ class QProgressDialog;
 //
 // Al abrir OBS (y desde Herramientas → "Now Playing: buscar actualizaciones") revisa la
 // última Release; si trae un plugin más nuevo para este sistema, pregunta con un modal.
-// En macOS lo instala solo: descarga el zip con el curl del sistema, lo descomprime con
-// ditto y reemplaza el plugin (el cambio se aplica al reiniciar OBS). En Windows el plugin
-// va en la carpeta de OBS, que pide administrador: se abre la página de descargas.
+// Si se acepta, lo instala solo: descarga el zip con el curl del sistema, lo descomprime
+// (ditto en macOS, tar en Windows) y reemplaza el plugin. En Windows el plugin está en la
+// carpeta de OBS: la copia pide permiso de administrador. El cambio se aplica al reiniciar OBS.
 class Updater : public QObject {
 	Q_OBJECT
 
@@ -22,7 +22,8 @@ public:
 	// manual: también avisa si ya está al día o si falla la revisión.
 	void check(bool manual);
 
-	// Limpia lo que haya quedado de una actualización anterior (la descarga temporal).
+	// Limpia lo que haya quedado de una actualización anterior (la descarga temporal; en
+	// Windows los .dll viejos los borra la actualización siguiente, que tiene el permiso).
 	static void cleanupPreviousUpdate();
 
 	// "1.0.10" > "1.0.9". Pública para poder probarla.

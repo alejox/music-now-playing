@@ -41,10 +41,12 @@ O usa `OBS-Now-Playing-Setup-….exe`: además de la app, copia el plugin a la c
 
 ## Actualizaciones
 
-Desde la versión 1.0.3, al abrir OBS el plugin revisa si hay una versión nueva en las Releases de GitHub. Si la hay, muestra un aviso (también se puede revisar a mano en **Herramientas → Now Playing: buscar actualizaciones**):
+Desde la versión 1.0.3, al abrir OBS el plugin revisa si hay una versión nueva en las Releases de GitHub. Si la hay, muestra un aviso con **Actualizar ahora**, **Más tarde** u **Omitir esta versión**: "Actualizar ahora" la descarga, reemplaza el plugin y pide reiniciar OBS. También se puede revisar a mano en **Herramientas → Now Playing: buscar actualizaciones**.
 
-- **macOS:** **Actualizar ahora** la descarga, reemplaza el plugin y pide reiniciar OBS. Solo si está instalado en su propia carpeta (`…/plugins/obs-now-playing.plugin`), como dicen las instrucciones de arriba; si no, el aviso ofrece abrir la página de descargas.
-- **Windows:** el plugin está en la carpeta de OBS, que necesita permiso de administrador, así que el aviso abre la página de descargas: instala la versión nueva con el instalador o el zip.
+- **macOS:** solo si está en su propia carpeta (`…/plugins/obs-now-playing.plugin`), como dicen las instrucciones de arriba.
+- **Windows:** solo si está en la carpeta de OBS (`…\obs-studio\obs-plugins\64bit\obs-now-playing.dll`). Esa carpeta es de administrador: al actualizar, Windows pide permiso una vez para copiar el plugin.
+
+Si no está donde dicen las instrucciones, el aviso ofrece abrir la página de descargas.
 
 ## Usar
 

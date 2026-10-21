@@ -142,7 +142,7 @@ SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "La app y su panel de configuración."
 !ifdef PLUGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecPlugin} "La fuente Now Playing (horizontal o vertical), el dock Música y el canal de música para OBS 31+. Va en la carpeta de OBS (Windows pide permiso). Cierra OBS antes."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecPlugin} "La fuente Now Playing (horizontal o vertical), el dock Música, el canal de música y las actualizaciones automáticas para OBS 31+. Va en la carpeta de OBS (Windows pide permiso). Cierra OBS antes."
 !endif
   !insertmacro MUI_DESCRIPTION_TEXT ${SecStartup} "Arranca en segundo plano al encender el computador, para que el overlay ya esté listo cuando abras OBS."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "Agrega un ícono en el escritorio."

@@ -16,7 +16,8 @@
 # un navegador se agrega "videoId", el id del video de YouTube / YouTube Music leído de la
 # barra de direcciones (UI Automation) de la ventana cuya pestaña visible es YouTube. Si la
 # barra no se puede leer, se busca el video por su título en YouTube. Con él va "site":
-# "ytmusic" (music.youtube.com) o "youtube", para decir "Escuchando en …".
+# "ytmusic" (music.youtube.com) o "youtube", para decir "Escuchando en …". Para Spotify,
+# Apple Music y las demás apps, el video se busca en YouTube por título y artista.
 #
 #   {"sessions":[{"app":"Spotify.exe","title":"…","artist":"…","album":"…",
 #                 "isPlaying":true,"current":true,"progressMs":1234,"durationMs":5678,
@@ -263,15 +264,23 @@ function Find-YouTubeVideo($title, $artist) {
   $null
 }
 
-# @{ id; site } del video de YouTube que suena en el navegador, o $null.
+# @{ id; site } del video de YouTube de lo que suena, o $null. En un navegador, el de su
+# pestaña; en las demás apps (Spotify…), el que da la búsqueda en YouTube (sin site).
 function Get-Video($app, $title, $artist) {
-  if ($app -notmatch $browserApps) { return $null }
+  if ($app -match 'obs64') { return $null } # el video de la propia tarjeta
   $key = "$app`n$title"
   if ($videoIds[$key]) { return $videoIds[$key] }
   if ([int]$videoTries[$key] -ge 3) { return $null } # la dirección cambia un instante después del título
   $videoTries[$key] = 1 + [int]$videoTries[$key]
   $video = $null
-  try { $video = Find-YouTubeVideo $title $artist } catch { $video = $null }
+  try {
+    if ($app -match $browserApps) {
+      $video = Find-YouTubeVideo $title $artist
+    } else {
+      $id = Search-YouTubeVideoId $title $artist
+      if ($id) { $video = @{ id = $id; site = '' } }
+    }
+  } catch { $video = $null }
   if ($video) { $videoIds[$key] = $video }
   $video
 }
@@ -358,7 +367,7 @@ for ($i = 0; $i -lt 1800; $i++) {
         # catálogo de Apple o, en el navegador, la miniatura del video de YouTube.
         if (-not $art -and $tries[$app] -ge 3) {
           $art = Find-CatalogArtwork $props.Title $props.Artist
-          if (-not $art) {
+          if (-not $art -and $app -match $browserApps) {
             $video = Get-Video $app $props.Title $props.Artist
             if ($video) { $art = Find-VideoThumbnail $video.id }
           }
@@ -375,7 +384,7 @@ for ($i = 0; $i -lt 1800; $i++) {
         $video = Get-Video $app $props.Title $props.Artist
         if ($video) {
           $entry.videoId = $video.id
-          $entry.site = $video.site
+          if ($video.site) { $entry.site = $video.site }
         }
       }
       [void]$sessions.Add($entry)

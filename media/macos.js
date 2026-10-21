@@ -367,9 +367,10 @@ function catalogArtwork(title, artist) {
 
 // Modo video: el id del video de YouTube / YouTube Music que suena, leído de la dirección
 // de la pestaña (o de la app instalada de YouTube Music, que es una ventana del
-// navegador). Solo si el plugin lo pidió (existe el archivo videoFlag): leer pestañas
-// hace que macOS pregunte si OBS puede controlar el navegador, y eso no debe pasarle a
-// quien no eligió "Video si es posible".
+// navegador). Para Spotify, Apple Music y las demás apps, el video se busca en YouTube
+// por título y artista. Solo si el plugin lo pidió (existe el archivo videoFlag): leer
+// pestañas hace que macOS pregunte si OBS puede controlar el navegador, y eso no debe
+// pasarle a quien no eligió "Video si es posible".
 const BROWSERS = [
   // [id de la app, cómo se llama el título de la pestaña en su AppleScript]
   ['com.google.Chrome', 'title'],
@@ -407,16 +408,70 @@ function youtubeVideo(app, title) {
   }
 }
 
+// Una página web como texto, con las cabeceras de un navegador (sin la cookie de
+// consentimiento, en Europa YouTube responde con su página de "antes de continuar").
+function fetchText(url) {
+  // Estas clases no vienen en el puente de Foundation de JXA: se piden por su nombre.
+  const Request = $.NSClassFromString('NSMutableURLRequest');
+  const Connection = $.NSClassFromString('NSURLConnection');
+  const request = Request.requestWithURL($.NSURL.URLWithString(url));
+  request.timeoutInterval = 6;
+  request.setValueForHTTPHeaderField('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36', 'User-Agent');
+  request.setValueForHTTPHeaderField('en-US,en;q=0.8', 'Accept-Language');
+  request.setValueForHTTPHeaderField('SOCS=CAI; CONSENT=YES+', 'Cookie');
+  const response = Ref();
+  const error = Ref();
+  const data = Connection.sendSynchronousRequestReturningResponseError(request, response, error);
+  if (!data || data.isNil() || !data.length) return '';
+  return ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || '';
+}
+
+const normName = (s) => String(s).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
+
+// El video de una canción que no suena en YouTube (Spotify, Apple Music…): se busca por
+// título y artista y se usa el primer resultado con ese mismo título (o el primero).
+function searchYouTubeVideo(title, artist) {
+  const query = encodeURIComponent(`${title} ${artist}`.trim());
+  const html = fetchText(`https://www.youtube.com/results?search_query=${query}`);
+  const pattern = /"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"[\s\S]{0,4000}?"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"/g;
+  const results = [];
+  let m;
+  while ((m = pattern.exec(html)) && results.length < 5) {
+    let name = m[2];
+    try {
+      name = JSON.parse(`"${name}"`);
+    } catch (e) {
+      // queda el texto tal cual
+    }
+    results.push({ id: m[1], name });
+  }
+  if (!results.length) return '';
+  const wanted = normName(title);
+  const hit = results.find((r) => normName(r.name) === wanted) || results[0];
+  return hit.id;
+}
+
 const videos = {}; // "app\ncanción" → { id, site }
 const videoTries = {};
 
-function videoFor(app, title, videoFlag) {
+function videoFor(app, title, artist, videoFlag) {
   if (!videoFlag || !$.NSFileManager.defaultManager.fileExistsAtPath(videoFlag)) return null;
+  if (/obsproject/i.test(app)) return null; // el video de la propia tarjeta
   const key = `${app}\n${title}`;
   if (videos[key]) return videos[key];
   if ((videoTries[key] || 0) >= 3) return null; // la dirección cambia un instante después del título
   videoTries[key] = (videoTries[key] || 0) + 1;
-  const video = youtubeVideo(app, title);
+  let video = null;
+  if (BROWSERS.some(([id]) => app === id || app.startsWith(`${id}.`))) {
+    video = youtubeVideo(app, title);
+  } else {
+    try {
+      const id = searchYouTubeVideo(title, artist);
+      if (id) video = { id, site: '' };
+    } catch (e) {
+      // sin internet o respuesta rara: sin video
+    }
+  }
   if (video) videos[key] = video;
   return video;
 }
@@ -507,10 +562,10 @@ function watch(videoFlag) {
           }
         }
         // El sitio dice si es YouTube o YouTube Music ("Escuchando en …").
-        const video = videoFor(app, entry.title, videoFlag);
+        const video = videoFor(app, entry.title, entry.artist, videoFlag);
         if (video) {
           entry.videoId = video.id;
-          entry.site = video.site;
+          if (video.site) entry.site = video.site;
         }
         emit({ sessions: [entry] });
       }
@@ -521,6 +576,13 @@ function watch(videoFlag) {
     }
     delay(1);
   }
+  return 0;
+}
+
+// Para probar la búsqueda del video de una canción: ... media/macos.js ytsearch "Canción" "Artista"
+function testYouTubeSearch(title, artist) {
+  const id = searchYouTubeVideo(title || '', artist || '');
+  emit({ title, artist, videoId: id });
   return 0;
 }
 
@@ -548,6 +610,7 @@ function run(argv) {
     mode === 'command' ? sendCommand(argv[1])
     : mode === 'search' ? searchSong(argv[1])
     : mode === 'artwork' ? testArtwork(argv[1], argv[2])
+    : mode === 'ytsearch' ? testYouTubeSearch(argv[1], argv[2])
     : mode === 'video' ? testVideo()
     : mode === 'selftest' ? selfTest()
     : watch(mode === 'watch' ? argv[1] : ''); // watch <archivo>: el plugin pide modo video
