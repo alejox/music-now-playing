@@ -35,7 +35,8 @@ struct AppInfo {
 };
 
 // De qué reproductor viene una sesión: decide el color y el "Escuchando en …". En un
-// navegador, site (del lector, en modo video) dice si la pestaña es YouTube o YouTube Music.
+// navegador, site (del lector, en modo video) dice si la pestaña es YouTube, YouTube Music
+// o el reproductor web de Spotify.
 AppInfo classifyApp(const QString &app, const QString &name, const QString &site)
 {
 	const QString id = (app + " " + name).toLower();
@@ -61,6 +62,8 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 			return {"ytmusic", "YouTube Music"};
 		if (site == "youtube")
 			return {"youtube", "YouTube"};
+		if (site == "spotify")
+			return {"spotify", "Spotify"};
 		return {"browser", browser.second};
 	}
 	QString fallback = name;

@@ -460,7 +460,32 @@ function searchYouTubeVideo(title, artist) {
 const videos = {}; // "app\ncanción" → { id, site }
 const videoTries = {};
 
-function videoFor(app, title, artist, videoFlag) {
+// ¿Hay una pestaña del reproductor web de Spotify? (para decir "Escuchando en Spotify").
+function hasSpotifyTab(app) {
+  const browser = BROWSERS.find(([id]) => app === id || app.startsWith(`${id}.`));
+  try {
+    const b = Application(browser[0]);
+    for (const w of b.windows()) {
+      for (const t of w.tabs()) {
+        if (/^https:\/\/open\.spotify\.com\//.test(String(t.url() || ''))) return true;
+      }
+    }
+  } catch (e) {
+    // sin permiso o navegador sin AppleScript
+  }
+  return false;
+}
+
+function searchedVideo(title, artist, site) {
+  try {
+    const id = searchYouTubeVideo(title, artist);
+    return id ? { id, site } : null;
+  } catch (e) {
+    return null; // sin internet o respuesta rara: sin video
+  }
+}
+
+function videoFor(app, title, artist, album, videoFlag) {
   if (!videoFlag || !$.NSFileManager.defaultManager.fileExistsAtPath(videoFlag)) return null;
   if (/obsproject/i.test(app)) return null; // el video de la propia tarjeta
   const key = `${app}\n${title}`;
@@ -470,13 +495,11 @@ function videoFor(app, title, artist, videoFlag) {
   let video = null;
   if (BROWSERS.some(([id]) => app === id || app.startsWith(`${id}.`))) {
     video = youtubeVideo(app, title);
+    // Sin pestaña de YouTube: el reproductor web de Spotify u otra página de música. Solo
+    // si trae álbum (una canción): un stream o una serie no lo traen y no se les busca video.
+    if (!video && album) video = searchedVideo(title, artist, hasSpotifyTab(app) ? 'spotify' : '');
   } else {
-    try {
-      const id = searchYouTubeVideo(title, artist);
-      if (id) video = { id, site: '' };
-    } catch (e) {
-      // sin internet o respuesta rara: sin video
-    }
+    video = searchedVideo(title, artist, '');
   }
   if (video) videos[key] = video;
   return video;
@@ -568,7 +591,7 @@ function watch(videoFlag) {
           }
         }
         // El sitio dice si es YouTube o YouTube Music ("Escuchando en …").
-        const video = videoFor(app, entry.title, entry.artist, videoFlag);
+        const video = videoFor(app, entry.title, entry.artist, entry.album, videoFlag);
         if (video) {
           entry.videoId = video.id;
           if (video.site) entry.site = video.site;
