@@ -172,11 +172,11 @@ function browserCommandIn(browser, code, withSpotify) {
     const players = tabs.filter((t) => YOUTUBE_WATCH.test(t.url) || PLAYER_PAGE.test(t.url));
     let hit = players.find((t) => title && t.name.includes(title)) || (tabs.length === 1 && players.length === 1 ? players[0] : null);
     if (!hit && title) hit = tabs.find((t) => normName(run(t.tab, MEDIA_SESSION_TITLE) || '') === title);
-    if (!hit) return { tried: false };
+    if (!hit) return { tried: false, seen: tabs.length };
     return { tried: true, ok: run(hit.tab, code) === 'ok' };
   } catch (e) {
     // El navegador no deja ejecutar JavaScript desde Apple Events (viene apagado).
-    return { tried: true, ok: false, blocked: /javascript/i.test(String(e)) };
+    return { tried: true, ok: false, blocked: /javascript/i.test(String(e)), error: String(e).slice(0, 200) };
   }
 }
 
@@ -240,7 +240,10 @@ function sendCommand(action, arg) {
     });
     return 1;
   }
-  emit({ ok: true, via: 'teclas de música', ...(hint ? { hint } : {}) });
+  // Para el registro: por qué no se usó la página.
+  const why = page.error ? ` (la página falló: ${page.error})`
+    : page.seen !== undefined ? ` (pestañas de YouTube vistas: ${page.seen})` : '';
+  emit({ ok: true, via: `teclas de música${why}`, ...(hint ? { hint } : {}) });
   return 0;
 }
 
