@@ -48,6 +48,8 @@ public:
 
 	// previous | playpause | next, sobre la app que se está mostrando.
 	void sendCommand(const QString &action);
+	// Adelantar / retroceder: salta a esa posición (ms) de la canción que se está mostrando.
+	void seekTo(qint64 positionMs);
 
 	static qint64 now();
 
@@ -63,6 +65,8 @@ signals:
 
 private:
 	MediaWatcher() = default;
+	// positionMs >= 0: va con el comando (seek).
+	void runCommand(const QString &action, qint64 positionMs);
 	void launch();
 	void readLines();
 	void handleLine(const QByteArray &line);
