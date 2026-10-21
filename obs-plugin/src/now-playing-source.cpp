@@ -163,9 +163,12 @@ void readSettings(NowPlayingSource *s, obs_data_t *settings)
 obs_data_t *browserSettings(const NowPlayingSource *s)
 {
 	obs_data_t *bs = obs_data_create();
+	// En Windows, con el plugin en la carpeta de OBS, obs_module_file da una ruta relativa
+	// (../../data/obs-plugins/…, desde bin\64bit): la fuente de navegador necesita la completa.
 	char *page = obs_module_file("overlay/index.html");
+	QString pagePath = page ? QFileInfo(QString::fromUtf8(page)).absoluteFilePath() : QString();
 	obs_data_set_bool(bs, "is_local_file", true);
-	obs_data_set_string(bs, "local_file", page ? page : "");
+	obs_data_set_string(bs, "local_file", pagePath.toUtf8().constData());
 	obs_data_set_int(bs, "width", s->width);
 	obs_data_set_int(bs, "height", s->height);
 	obs_data_set_int(bs, "fps", 30);
