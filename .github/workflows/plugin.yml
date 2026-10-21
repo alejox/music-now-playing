@@ -94,23 +94,27 @@ jobs:
       - name: Empaquetar
         run: |
           cmake --install build_x64 --prefix release --config RelWithDebInfo
-          # Instalar.cmd copia el plugin a %ProgramData%\obs-studio\plugins desde donde se
-          # haya descomprimido (al "Extraer todo", Windows agrega una carpeta con el nombre del zip).
-          Copy-Item packaging/windows/Instalar.cmd release/
-          Get-ChildItem -Recurse release | Select-Object -ExpandProperty FullName
+          # Con la forma de la carpeta de OBS (C:\Program Files\obs-studio): el .dll en
+          # obs-plugins\64bit y los datos en data\obs-plugins\obs-now-playing. Se instala
+          # copiando las dos carpetas del zip encima de la de OBS. Sin los símbolos .pdb.
+          $built = "release/obs-now-playing"
+          New-Item -ItemType Directory -Force package/obs-plugins/64bit, package/data/obs-plugins | Out-Null
+          Copy-Item "$built/bin/64bit/obs-now-playing.dll" package/obs-plugins/64bit/
+          Copy-Item "$built/data" package/data/obs-plugins/obs-now-playing -Recurse
+          Get-ChildItem -Recurse package | Select-Object -ExpandProperty FullName
           New-Item -ItemType Directory -Force ../dist | Out-Null
-          Compress-Archive -Path release/* -DestinationPath "../dist/obs-now-playing-plugin-${{ steps.version.outputs.v }}-windows-x64.zip"
-      # Como lo haría alguien: "Extraer todo" (carpeta con el nombre del zip) y abrir Instalar.cmd.
-      - name: El zip se instala con Instalar.cmd
+          Compress-Archive -Path package/* -DestinationPath "../dist/obs-now-playing-plugin-${{ steps.version.outputs.v }}-windows-x64.zip"
+      - name: El zip trae la forma de la carpeta de OBS
         run: |
           $zip = Get-Item "../dist/obs-now-playing-plugin-*-windows-x64.zip"
           $dir = Join-Path $env:RUNNER_TEMP $zip.BaseName
           Expand-Archive $zip.FullName -DestinationPath $dir
-          '' | & "$dir\Instalar.cmd"  # sin teclado, "pause" sigue de largo
-          $dll = "$env:ProgramData\obs-studio\plugins\obs-now-playing\bin\64bit\obs-now-playing.dll"
-          if (-not (Test-Path $dll)) { throw "Instalar.cmd no dejó $dll" }
-          if (-not (Test-Path "$env:ProgramData\obs-studio\plugins\obs-now-playing\data\media\windows.ps1")) { throw 'Faltan los datos del plugin' }
-          Remove-Item -Recurse -Force "$env:ProgramData\obs-studio\plugins\obs-now-playing"
+          foreach ($file in 'obs-plugins\64bit\obs-now-playing.dll', 'data\obs-plugins\obs-now-playing\media\windows.ps1',
+                            'data\obs-plugins\obs-now-playing\overlay\index.html', 'data\obs-plugins\obs-now-playing\locale\es-ES.ini') {
+            if (-not (Test-Path (Join-Path $dir $file))) { throw "Falta $file en el zip" }
+          }
+          $extra = Get-ChildItem $dir | Where-Object { $_.Name -notin 'obs-plugins', 'data' }
+          if ($extra) { throw "El zip trae de más: $($extra.Name -join ', ')" }
       - uses: actions/upload-artifact@v4
         with:
           name: plugin-windows
