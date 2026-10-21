@@ -113,7 +113,27 @@ function pageScript(action) {
 // El título que la página anuncia a macOS (el mismo que lee el lector).
 const MEDIA_SESSION_TITLE = "(navigator.mediaSession && navigator.mediaSession.metadata && navigator.mediaSession.metadata.title) || ''";
 
-function browserCommand(app, action) {
+// Adelantar / retroceder en la página: se mueve el video (o audio) que está sonando.
+function seekScript(seconds) {
+  return `(() => {
+    const media = [...document.querySelectorAll('video, audio')].find((m) => m.duration > 0);
+    if (!media) return 'sin-video';
+    media.currentTime = ${Number(seconds) || 0};
+    return 'ok';
+  })()`;
+}
+
+const SPOTIFY_WEB = /^https:\/\/open\.spotify\.com\//;
+// Cualquier página de YouTube / YouTube Music, no solo /watch: en YouTube Music la música
+// sigue sonando en la barra de abajo mientras se navega (inicio, biblioteca, búsqueda), y
+// la app instalada (PWA) suele estar en una de esas páginas.
+const YOUTUBE_PAGE = /^https:\/\/(music\.|www\.|m\.)?youtube\.com\//;
+// Páginas que son un reproductor por sí mismas: si hay una sola pestaña, es esa.
+const PLAYER_PAGE = /^https:\/\/(music\.youtube\.com\/|open\.spotify\.com\/)/;
+
+// code: el JavaScript que se corre en la pestaña que suena. withSpotify: también cuenta la
+// pestaña del reproductor web de Spotify (para adelantar; los botones van por las teclas).
+function browserCommand(app, code, withSpotify) {
   const browser = BROWSERS.find(([id]) => app === id || app.startsWith(`${id}.`));
   // Si macOS cree que "suena" OBS (el video de la tarjeta), la música real está en algún
   // navegador: se prueba en todos los abiertos.
@@ -121,16 +141,16 @@ function browserCommand(app, action) {
     if (!/obsproject/i.test(app)) return { tried: false };
     let blocked = false;
     for (const [id] of BROWSERS) {
-      const r = browserCommandIn(BROWSERS.find(([b]) => b === id), action);
+      const r = browserCommandIn(BROWSERS.find(([b]) => b === id), code, withSpotify);
       if (r.ok) return r;
       blocked = blocked || r.blocked;
     }
     return { tried: true, ok: false, blocked };
   }
-  return browserCommandIn(browser, action);
+  return browserCommandIn(browser, code, withSpotify);
 }
 
-function browserCommandIn(browser, action) {
+function browserCommandIn(browser, code, withSpotify) {
   try {
     const b = Application(browser[0]);
     if (!b.running()) return { tried: false };
@@ -139,37 +159,67 @@ function browserCommandIn(browser, action) {
     const tabs = [];
     for (const w of b.windows()) {
       for (const t of w.tabs()) {
-        if (YOUTUBE_WATCH.test(String(t.url() || ''))) tabs.push({ tab: t, name: normName(t[browser[1]]() || '') });
+        const url = String(t.url() || '');
+        if (YOUTUBE_PAGE.test(url) || (withSpotify && SPOTIFY_WEB.test(url))) tabs.push({ tab: t, url, name: normName(t[browser[1]]() || '') });
       }
     }
     const run = (tab, code) => (browser[0] === 'com.apple.Safari' ? b.doJavaScript(code, { in: tab }) : tab.execute({ javascript: code }));
     // La pestaña que suena: la que tiene la canción en el título o, si hay varias, la que la
     // anuncia en su sesión de medios (la app instalada de YouTube Music titula su ventana
     // "YouTube Music", sin la canción, y puede haber otras pestañas de YouTube abiertas).
-    let hit = tabs.find((t) => title && t.name.includes(title)) || (tabs.length === 1 ? tabs[0] : null);
+    // Por el título o por ser la única solo cuentan un video o un reproductor; otra página de
+    // youtube.com (el inicio, una búsqueda con la canción en el título) solo si la anuncia.
+    const players = tabs.filter((t) => YOUTUBE_WATCH.test(t.url) || PLAYER_PAGE.test(t.url));
+    let hit = players.find((t) => title && t.name.includes(title)) || (tabs.length === 1 && players.length === 1 ? players[0] : null);
     if (!hit && title) hit = tabs.find((t) => normName(run(t.tab, MEDIA_SESSION_TITLE) || '') === title);
     if (!hit) return { tried: false };
-    return { tried: true, ok: run(hit.tab, pageScript(action)) === 'ok' };
+    return { tried: true, ok: run(hit.tab, code) === 'ok' };
   } catch (e) {
     // El navegador no deja ejecutar JavaScript desde Apple Events (viene apagado).
     return { tried: true, ok: false, blocked: /javascript/i.test(String(e)) };
   }
 }
 
-function sendCommand(action) {
+const BLOCKED_HINT = 'Para que los botones vayan siempre a YouTube Music, activa en el navegador: Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events.';
+
+// Saltar a una posición (en ms): en la página, o en la app (Spotify, Apple Music).
+function seekCommand(positionMs) {
+  const seconds = Math.max(0, Number(positionMs) || 0) / 1000;
+  const app = nowPlayingApp();
+  const page = browserCommand(app, seekScript(seconds), true);
+  if (page.ok) {
+    emit({ ok: true, via: 'página' });
+    return 0;
+  }
+  if (APP_COMMANDS[app]) {
+    try {
+      const player = Application(app);
+      if (player.running()) {
+        player.playerPosition = seconds;
+        emit({ ok: true, via: app });
+        return 0;
+      }
+    } catch (e) {
+      // sin permiso de Automatización
+    }
+  }
+  emit({ error: page.blocked ? BLOCKED_HINT : 'Este reproductor no deja adelantar ni retroceder desde OBS.' });
+  return 1;
+}
+
+function sendCommand(action, arg) {
+  if (action === 'seek') return seekCommand(arg);
   if (!ACTIONS.includes(action)) {
     emit({ error: `Comando desconocido: ${action}` });
     return 2;
   }
   const app = nowPlayingApp();
-  const page = browserCommand(app, action);
+  const page = browserCommand(app, pageScript(action), false);
   if (page.ok) {
     emit({ ok: true, via: 'página de YouTube' });
     return 0;
   }
-  const hint = page.blocked
-    ? 'Para que los botones vayan siempre a YouTube Music, activa en el navegador: Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events.'
-    : '';
+  const hint = page.blocked ? BLOCKED_HINT : '';
   const direct = APP_COMMANDS[app];
   if (direct) {
     try {
@@ -636,7 +686,7 @@ function testVideo() {
 function run(argv) {
   const mode = argv[0];
   const code =
-    mode === 'command' ? sendCommand(argv[1])
+    mode === 'command' ? sendCommand(argv[1], argv[2])
     : mode === 'search' ? searchSong(argv[1])
     : mode === 'artwork' ? testArtwork(argv[1], argv[2])
     : mode === 'ytsearch' ? testYouTubeSearch(argv[1], argv[2])

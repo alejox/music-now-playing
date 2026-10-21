@@ -30,7 +30,7 @@ Funciona con **Spotify** (app o web), **YouTube Music**, **Apple Music** y cualq
 | 📐 **Horizontal o vertical** | Barra o tarjeta vertical; el tamaño de la fuente se ajusta solo. |
 | 🎬 **Modo video** | El video de YouTube en vez de la carátula (sin sonido y sincronizado), en Mac y Windows: el de la pestaña con YouTube Music / YouTube y, con Spotify (app o web) u otras apps, el que encuentra buscando la canción en YouTube. |
 | 🖼️ **Tu logo** | Una imagen tuya para las canciones sin carátula. |
-| ⏯️ **Dock de control** | Anterior / pausa / siguiente, retroceder y adelantar 10 s y una barra de progreso que se arrastra para saltar (en Windows), dentro de OBS y fuera del stream. |
+| ⏯️ **Dock de control** | Anterior / pausa / siguiente, retroceder y adelantar 10 s y una barra de progreso que se arrastra para saltar, dentro de OBS y fuera del stream. |
 | 🔊 **Canal de música** | Con un clic, un canal en el Mezclador de audio solo con el sonido del reproductor; te sigue si cambias de reproductor. |
 | 🔄 **Actualizaciones** | OBS te avisa cuando hay una versión nueva y la instala por ti. |
 
