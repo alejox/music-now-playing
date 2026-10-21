@@ -219,6 +219,12 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		return;
 	QJsonObject msg = doc.object();
 
+	// El reproductor no hizo caso a un comando (p. ej. no deja adelantar): no es un error
+	// del lector, se avisa en el dock.
+	if (msg.contains("commandError")) {
+		emit commandFailed(msg.value("commandError").toString().left(300));
+		return;
+	}
 	if (msg.contains("error")) {
 		setStatus(Status::Error, msg.value("error").toString().left(500));
 		return;
@@ -331,6 +337,17 @@ void MediaWatcher::setVideoWanted(bool wanted)
 
 void MediaWatcher::sendCommand(const QString &action)
 {
+	runCommand(action, -1);
+}
+
+void MediaWatcher::seekTo(qint64 positionMs)
+{
+	runCommand("seek", std::max<qint64>(0, positionMs));
+}
+
+void MediaWatcher::runCommand(const QString &action, qint64 positionMs)
+{
+	Q_UNUSED(positionMs) // en Linux no hay lector
 	Track track = current(true);
 	if (!track.valid())
 		return;
@@ -340,6 +357,8 @@ void MediaWatcher::sendCommand(const QString &action)
 	QSaveFile file(commandFile_);
 	if (file.open(QIODevice::WriteOnly)) {
 		QJsonObject cmd{{"cmd", action}, {"app", track.app}};
+		if (positionMs >= 0)
+			cmd.insert("positionMs", positionMs);
 		file.write(QJsonDocument(cmd).toJson(QJsonDocument::Compact));
 		file.commit();
 	}
@@ -361,6 +380,9 @@ void MediaWatcher::sendCommand(const QString &action)
 			obs_log(LOG_INFO, "botón por: %s", result.value("via").toString().toUtf8().constData());
 		}
 	});
-	command->start("/usr/bin/osascript", {"-l", "JavaScript", moduleFile("media/macos.js"), "command", action});
+	QStringList args{"-l", "JavaScript", moduleFile("media/macos.js"), "command", action};
+	if (positionMs >= 0)
+		args << QString::number(positionMs);
+	command->start("/usr/bin/osascript", args);
 #endif
 }

@@ -13,7 +13,10 @@
 #include <QPainterPath>
 #include <QPalette>
 #include <QPixmap>
-#include <QProgressBar>
+#include <QMouseEvent>
+#include <QSlider>
+#include <QStyle>
+#include <QStyleOptionSlider>
 #include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -25,6 +28,8 @@ namespace {
 
 constexpr int kArtSize = 168;
 constexpr int kSideButton = 40;
+constexpr int kSkipButton = 32;
+constexpr qint64 kSkipMs = 10000;
 constexpr int kMainButton = 52;
 
 QString text(const char *key)
@@ -88,7 +93,7 @@ QColor accentFrom(const QImage &source)
 	return QColor::fromHslF(h, std::clamp(s, 0.55f, 1.0f), std::clamp(l, 0.55f, 0.7f));
 }
 
-enum class Glyph { Previous, Play, Pause, Next };
+enum class Glyph { Previous, Play, Pause, Next, Back10, Forward10 };
 
 // Iconos dibujados aquí (y no los del sistema, que en el tema de OBS se ven grises y
 // borrosos, como deshabilitados): triángulos y barras redondeados del color pedido.
@@ -113,7 +118,34 @@ QPixmap glyphPixmap(Glyph glyph, const QColor &color, int size, qreal dpr)
 		p.drawPath(path);
 	};
 	auto bar = [&](qreal x, qreal width) { p.drawRoundedRect(QRectF(x, s * 0.24, width, s * 0.52), s * 0.03, s * 0.03); };
+	// Flecha en círculo con un "10" adentro (retroceder / adelantar 10 segundos).
+	auto skip = [&](bool forward) {
+		p.setBrush(Qt::NoBrush);
+		QPen pen(color, s * 0.08, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+		p.setPen(pen);
+		QRectF circle(s * 0.16, s * 0.16, s * 0.68, s * 0.68);
+		// El arco deja abierto arriba, donde va la punta de la flecha.
+		p.drawArc(circle, forward ? 60 * 16 : 120 * 16, forward ? 300 * 16 : -300 * 16);
+		const qreal tipX = forward ? s * 0.66 : s * 0.34;
+		const qreal dir = forward ? 1 : -1;
+		QPainterPath arrow;
+		arrow.moveTo(tipX - dir * s * 0.14, s * 0.06);
+		arrow.lineTo(tipX + dir * s * 0.02, s * 0.17);
+		arrow.lineTo(tipX - dir * s * 0.12, s * 0.29);
+		p.drawPath(arrow);
+		QFont font;
+		font.setPixelSize(int(s * 0.3));
+		font.setBold(true);
+		p.setFont(font);
+		p.drawText(circle, Qt::AlignCenter, "10");
+	};
 	switch (glyph) {
+	case Glyph::Back10:
+		skip(false);
+		break;
+	case Glyph::Forward10:
+		skip(true);
+		break;
 	case Glyph::Play:
 		triangle(s * 0.34, s * 0.76, true);
 		break;
@@ -165,6 +197,28 @@ QPixmap pixmapFromDataUrl(const QString &dataUrl)
 	return pixmap;
 }
 
+// Barra de progreso que se arrastra para saltar en la canción. Un clic fuera de la perilla
+// la lleva ahí y empieza a arrastrarla (QSlider normal solo avanza un "paso").
+class SeekSlider : public QSlider {
+public:
+	explicit SeekSlider(QWidget *parent) : QSlider(Qt::Horizontal, parent) {}
+
+protected:
+	void mousePressEvent(QMouseEvent *event) override
+	{
+		if (event->button() == Qt::LeftButton) {
+			QStyleOptionSlider option;
+			initStyleOption(&option);
+			QRect handle = style()->subControlRect(QStyle::CC_Slider, &option, QStyle::SC_SliderHandle, this);
+			if (!handle.contains(event->position().toPoint())) {
+				int x = int(event->position().x()) - handle.width() / 2;
+				setValue(QStyle::sliderValueFromPosition(minimum(), maximum(), x, width() - handle.width()));
+			}
+		}
+		QSlider::mousePressEvent(event);
+	}
+};
+
 } // namespace
 
 NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
@@ -212,10 +266,23 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	progressRow->setSpacing(10);
 	elapsed_ = new QLabel("0:00", this);
 	duration_ = new QLabel("0:00", this);
-	progress_ = new QProgressBar(this);
-	progress_->setTextVisible(false);
-	progress_->setFixedHeight(4);
+	progress_ = new SeekSlider(this);
+	progress_->setFixedHeight(16);
 	progress_->setRange(0, 1000);
+	progress_->setCursor(Qt::PointingHandCursor);
+	progress_->setFocusPolicy(Qt::NoFocus);
+	progress_->setToolTip(text("NowPlaying.Seek"));
+	// Mientras se arrastra, el tiempo muestra adónde se va a saltar; al soltar, se salta.
+	connect(progress_, &QSlider::sliderMoved, this, [this](int value) {
+		Track track = MediaWatcher::instance().current(true);
+		if (track.durationMs > 0)
+			elapsed_->setText(formatTime(value * track.durationMs / 1000));
+	});
+	connect(progress_, &QSlider::sliderReleased, this, [this] {
+		Track track = MediaWatcher::instance().current(true);
+		if (track.valid() && track.durationMs > 0)
+			seekToMs(qint64(progress_->value()) * track.durationMs / 1000);
+	});
 	progressRow->addWidget(elapsed_);
 	progressRow->addWidget(progress_, 1);
 	progressRow->addWidget(duration_);
@@ -223,7 +290,7 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	layout->addSpacing(16);
 
 	auto *buttons = new QHBoxLayout();
-	buttons->setSpacing(22);
+	buttons->setSpacing(14);
 	buttons->addStretch(1);
 	auto makeButton = [this, buttons](const char *tip, const QString &action, int size) {
 		auto *button = new QToolButton(this);
@@ -239,9 +306,21 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 		buttons->addWidget(button, 0, Qt::AlignVCenter);
 		return button;
 	};
+	auto makeSkip = [this, buttons](const char *tip, qint64 deltaMs) {
+		auto *button = new QToolButton(this);
+		button->setFixedSize(kSkipButton, kSkipButton);
+		button->setToolTip(text(tip));
+		button->setCursor(Qt::PointingHandCursor);
+		button->setFocusPolicy(Qt::NoFocus);
+		connect(button, &QToolButton::clicked, this, [this, deltaMs] { seekBy(deltaMs); });
+		buttons->addWidget(button, 0, Qt::AlignVCenter);
+		return button;
+	};
+	back_ = makeSkip("NowPlaying.Back10", -kSkipMs);
 	previous_ = makeButton("NowPlaying.Previous", "previous", kSideButton);
 	playPause_ = makeButton("NowPlaying.PlayPause", "playpause", kMainButton);
 	next_ = makeButton("NowPlaying.Next", "next", kSideButton);
+	forward_ = makeSkip("NowPlaying.Forward10", kSkipMs);
 	buttons->addStretch(1);
 	layout->addLayout(buttons);
 	layout->addSpacing(10);
@@ -270,9 +349,14 @@ void NowPlayingDock::applyAccent(const QColor &accent)
 {
 	accent_ = accent.isValid() ? accent : palette().color(QPalette::Highlight);
 	const QString color = accent_.name();
-	progress_->setStyleSheet(QString("QProgressBar { border: 0; border-radius: 2px; background: rgba(127,127,127,0.25); }"
-					 "QProgressBar::chunk { border-radius: 2px; background: %1; }")
-					 .arg(color));
+	// Barra fina del color de la carátula con una perilla redonda para arrastrar.
+	progress_->setStyleSheet(
+		QString("QSlider::groove:horizontal { height: 4px; border-radius: 2px; background: rgba(127,127,127,0.25); }"
+			"QSlider::sub-page:horizontal { border-radius: 2px; background: %1; }"
+			"QSlider::handle:horizontal { width: 12px; height: 12px; margin: -4px 0; border-radius: 6px;"
+			" background: %1; }"
+			"QSlider::handle:horizontal:hover { background: %2; }")
+			.arg(color, accent_.lighter(120).name()));
 	source_->setStyleSheet(QString("color: %1;").arg(color));
 
 	// Anterior / siguiente: redondos, con borde y fondo suave del color de la carátula,
@@ -286,6 +370,10 @@ void NowPlayingDock::applyAccent(const QColor &accent)
 					  rgba(accent_, 0.45));
 	previous_->setStyleSheet(side);
 	next_->setStyleSheet(side);
+	const QString skip = QString(side).replace(QString("border-radius: %1px").arg(kSideButton / 2),
+						    QString("border-radius: %1px").arg(kSkipButton / 2));
+	back_->setStyleSheet(skip);
+	forward_->setStyleSheet(skip);
 	playPause_->setStyleSheet(QString("QToolButton { border-radius: %1px; border: 0; background: %2; }"
 					  "QToolButton:hover { background: %3; }"
 					  "QToolButton:pressed { background: %4; }"
@@ -312,6 +400,11 @@ void NowPlayingDock::updateIcons()
 	previous_->setIconSize(QSize(side, side));
 	next_->setIcon(glyphIcon(Glyph::Next, textColor, side, dpr));
 	next_->setIconSize(QSize(side, side));
+	const int skip = kSkipButton - 6;
+	back_->setIcon(glyphIcon(Glyph::Back10, textColor, skip, dpr));
+	back_->setIconSize(QSize(skip, skip));
+	forward_->setIcon(glyphIcon(Glyph::Forward10, textColor, skip, dpr));
+	forward_->setIconSize(QSize(skip, skip));
 	const int main = kMainButton / 2;
 	playPause_->setIcon(glyphIcon(playing_ ? Glyph::Pause : Glyph::Play, contrastOn(accent_), main, dpr));
 	playPause_->setIconSize(QSize(main, main));
@@ -383,10 +476,35 @@ void NowPlayingDock::tick()
 	progress_->setVisible(show);
 	elapsed_->setVisible(show);
 	duration_->setVisible(show);
-	if (!show)
-		return;
-	qint64 position = track.progressNow(MediaWatcher::now());
+	back_->setEnabled(show);
+	forward_->setEnabled(show);
+	if (!show || progress_->isSliderDown())
+		return; // mientras se arrastra manda la barra
+	const qint64 now = MediaWatcher::now();
+	qint64 position = track.progressNow(now);
+	// Recién saltado: el lector todavía trae la posición de antes durante un momento.
+	if (seekTarget_ >= 0 && now - seekAt_ < 3000)
+		position = std::min(track.durationMs, seekTarget_ + (track.isPlaying ? now - seekAt_ : 0));
 	progress_->setValue(int(position * 1000 / track.durationMs));
 	elapsed_->setText(formatTime(position));
 	duration_->setText(formatTime(track.durationMs));
+}
+
+void NowPlayingDock::seekBy(qint64 deltaMs)
+{
+	Track track = MediaWatcher::instance().current(true);
+	if (!track.valid() || track.durationMs <= 0)
+		return;
+	const qint64 now = MediaWatcher::now();
+	qint64 position = seekTarget_ >= 0 && now - seekAt_ < 3000 ? seekTarget_ + (track.isPlaying ? now - seekAt_ : 0)
+								   : track.progressNow(now);
+	seekToMs(std::clamp<qint64>(position + deltaMs, 0, std::max<qint64>(0, track.durationMs - 1000)));
+}
+
+void NowPlayingDock::seekToMs(qint64 positionMs)
+{
+	MediaWatcher::instance().seekTo(positionMs);
+	seekTarget_ = positionMs;
+	seekAt_ = MediaWatcher::now();
+	tick();
 }

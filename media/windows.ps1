@@ -4,6 +4,9 @@
 # archivo -CommandFile (server.js lo escribe y aquí se borra al leerlo):
 #
 #   {"cmd":"next","app":"Spotify.exe"}      cmd: previous | playpause | next
+#   {"cmd":"seek","app":"chrome.exe","positionMs":61000}   saltar a esa posición
+#
+# Si el reproductor no deja saltar, se escribe {"commandError":"…"} (no es un error del lector).
 #
 # Es un archivo y no la entrada estándar a propósito: en Windows PowerShell 5.1 leer
 # la entrada sin bloquear el bucle no es confiable, y un lector bloqueado congela el overlay.
@@ -71,8 +74,15 @@ function Send-MediaCommand($line) {
     'previous' { $target.TrySkipPreviousAsync() }
     'playpause' { $target.TryTogglePlayPauseAsync() }
     'next' { $target.TrySkipNextAsync() }
+    # La posición va en unidades de 100 ns.
+    'seek' { $target.TryChangePlaybackPositionAsync([int64]$msg.positionMs * 10000) }
   }
-  if ($operation) { $null = Await $operation ([bool]) }
+  if ($operation) {
+    $done = Await $operation ([bool])
+    if ($msg.cmd -eq 'seek' -and -not $done) {
+      Emit @{ commandError = 'Este reproductor no deja adelantar ni retroceder desde OBS.' }
+    }
+  }
 }
 
 $md5 = [System.Security.Cryptography.MD5]::Create()
