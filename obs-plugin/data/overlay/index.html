@@ -3,6 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Now Playing</title>
+<!-- Letras de algunos estilos (Synthwave, Cyberpunk, Glitch). Sin internet se usan las del sistema. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mr+Dafoe&family=Orbitron:wght@500;700&family=VT323&display=swap">
 <!--
   Tarjeta de la fuente "Now Playing" del plugin. La carga una fuente de navegador
   privada y el plugin le manda, una vez por segundo, el evento "obs-now-playing" con
@@ -25,6 +27,7 @@
     --track: rgba(17, 18, 22, 0.14);
   }
   :root[data-art="big"] { --art: 112px; }
+  :root { --skyline: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 60'><path d='M0 60V33h12V60zM12 60V8h8V60zM15 8v-8h2V8zM20 60V29h16V60zM27 29v-7h2V29zM38 60V27h8V60zM41 27v-7h2V27zM46 60V35h16V60zM62 60V5h16V60zM78 60V7h8V60zM87 60V33h14V60zM102 60V31h16V60zM109 31v-8h2V31zM118 60V36h12V60zM130 60V39h16V60zM148 60V8h18V60zM167 60V5h14V60zM182 60V27h12V60zM194 60V6h8V60zM204 60V14h12V60zM209 14v-4h2V14zM216 60V16h16V60zM223 16v-6h2V16zM232 60V16h14V60zM238 16v-9h2V16z'/></svg>"); }
   html, body {
     margin: 0;
     background: transparent;
@@ -130,12 +133,12 @@
      brillo en diagonal, borde de luz y sombra interior. OBS no deja que una fuente
      difumine lo que tiene debajo: el "esmerilado" lo pone la carátula difuminada. */
   .art, .meta { position: relative; z-index: 1; }
-  [data-style="glass"] .card {
+  [data-glass] .card {
     backdrop-filter: none;
     border: 1px solid rgba(255, 255, 255, 0.22);
     box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -1px 0 rgba(0, 0, 0, 0.12);
   }
-  [data-style="glass"] .card::after {
+  [data-glass] .card::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -145,15 +148,275 @@
       linear-gradient(135deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0.07) 38%, rgba(255, 255, 255, 0) 58%),
       linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0) 35%);
   }
-  [data-style="glass"][data-blur] .backdrop.ready { opacity: calc(0.25 + var(--alpha, 0.6) * 0.4); }
-  [data-style="glass"] .title, [data-style="glass"] .artist, [data-style="glass"] .label, [data-style="glass"] .progress {
+  [data-glass][data-blur] .backdrop.ready { opacity: calc(0.25 + var(--alpha, 0.6) * 0.4); }
+  [data-glass] .title, [data-glass] .artist, [data-glass] .label, [data-glass] .progress {
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
   }
-  [data-style="glass"][data-theme="light"] .card { border-color: rgba(255, 255, 255, 0.7); }
-  [data-style="glass"][data-theme="light"] .title, [data-style="glass"][data-theme="light"] .artist,
-  [data-style="glass"][data-theme="light"] .label, [data-style="glass"][data-theme="light"] .progress {
+  [data-glass][data-theme="light"] .card { border-color: rgba(255, 255, 255, 0.7); }
+  [data-glass][data-theme="light"] .title, [data-glass][data-theme="light"] .artist,
+  [data-glass][data-theme="light"] .label, [data-glass][data-theme="light"] .progress {
     text-shadow: 0 1px 2px rgba(255, 255, 255, 0.6);
   }
+
+  /* ---- Estilos con diseño propio (colores fijos, no los de la carátula) ------------
+     Cada uno pone sus colores en variables y su decoración en .deco (fondo), .dots
+     (botones de ventana) y .corner (ícono de la esquina). La carátula va en un círculo
+     (el video no: no se recorta); en vertical, el círculo va centrado y algo más chico. */
+  .deco, .deco i { position: absolute; pointer-events: none; }
+  .deco { inset: 0; z-index: 0; overflow: hidden; border-radius: inherit; }
+  .deco i, .dots, .corner, .card .corner > * { display: none; }
+  .dots, .corner { position: absolute; z-index: 2; pointer-events: none; }
+  .dots { top: 10px; left: 14px; gap: 7px; }
+  .dots i { width: 11px; height: 11px; border-radius: 50%; background: #ff5f57; box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.2); }
+  .dots i:nth-child(2) { background: #febc2e; }
+  .dots i:nth-child(3) { background: #28c840; }
+  .corner { top: 12px; right: 14px; color: var(--fg); }
+  .corner svg { width: 100%; height: 100%; fill: currentColor; }
+  [data-corner] .corner { display: block; }
+  [data-corner="eq"] .card .corner .eq { display: inline-flex; height: 16px; gap: 3px; }
+  .corner .eq i { width: 4px; background: currentColor; animation-name: eq-big; }
+  @keyframes eq-big { 0%, 100% { height: 6px; } 50% { height: 16px; } }
+  [data-corner="ff"] .card .corner .ff { display: block; width: 24px; height: 20px; }
+  [data-corner="wave"] .card .corner .wave { display: block; position: relative; width: 27px; height: 26px; }
+  .corner .wave i { position: absolute; top: 50%; width: 3px; border-radius: 2px; background: currentColor; transform: translateY(-50%); animation: wave 1.1s ease-in-out infinite; }
+  .corner .wave i:nth-child(1) { left: 0; animation-delay: -0.2s; }
+  .corner .wave i:nth-child(2) { left: 6px; animation-delay: -0.5s; }
+  .corner .wave i:nth-child(3) { left: 12px; animation-delay: -0.9s; }
+  .corner .wave i:nth-child(4) { left: 18px; animation-delay: -0.4s; }
+  .corner .wave i:nth-child(5) { left: 24px; animation-delay: -0.7s; }
+  @keyframes wave { 0%, 100% { height: 8px; } 50% { height: 26px; } }
+  .paused .corner .wave i { animation-play-state: paused; }
+  [data-corner="pp"] .card .corner .pp {
+    display: block; width: 44px; height: 44px; padding: 14px; box-sizing: border-box; border-radius: 50%;
+    background: rgba(255, 255, 255, 0.4);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+  :root:not([data-theme="light"]) .corner .pp { background: rgba(255, 255, 255, 0.14); }
+  [data-corner] .label, [data-corner] .title { margin-right: 30px; }
+  [data-corner="pp"]:not([data-layout="vertical"]) .meta { margin-right: 52px; }
+  [data-corner="pp"]:not([data-layout="vertical"]) .corner { top: 50%; right: 16px; transform: translateY(-50%); }
+  [data-corner="pp"]:not([data-layout="vertical"]) .label,
+  [data-corner="pp"]:not([data-layout="vertical"]) .title { margin-right: 0; }
+
+  [data-round] .art:not(.video) { border-radius: 50%; box-shadow: 0 0 0 3px var(--ring, rgba(255, 255, 255, 0.85)), 0 4px 16px rgba(0, 0, 0, 0.35); }
+  [data-round]:not([data-layout="vertical"]) .card { padding-left: 15px; gap: 16px; }
+  /* Como un disco: la carátula gira mientras suena y se detiene (donde quedó) en pausa. */
+  [data-round] img.art { animation: disc 8s linear infinite; }
+  [data-round] .paused img.art { animation-play-state: paused; }
+  @keyframes disc { to { transform: rotate(360deg); } }
+  /* El video no gira (ni se recorta): gira su borde, que va por fuera del reproductor
+     (fitVideo deja libre --frame px en cada lado). */
+  @property --spin { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+  [data-round] .video { --frame: 3px; border-radius: 14px; }
+  [data-round] .video::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    padding: var(--frame);
+    border-radius: inherit;
+    background: conic-gradient(from var(--spin), var(--accent), transparent 30%, var(--accent) 50%, transparent 80%, var(--accent));
+    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: spin-border 3s linear infinite;
+    pointer-events: none;
+  }
+  [data-round] .paused .video::after { animation-play-state: paused; }
+  /* En vertical el ícono de la esquina quedaría encima del video: se oculta mientras hay video. */
+  [data-layout="vertical"] .card.has-video .corner { display: none; }
+  @keyframes spin-border { to { --spin: 360deg; } }
+  [data-round][data-layout="vertical"] .art:not(.video) { width: 72%; align-self: center; margin-top: 8px; }
+  [data-round][data-layout="vertical"] .card { gap: 14px; }
+  [data-layout="vertical"] .label, [data-layout="vertical"] .title { margin-right: 0; }
+  :root[data-styled] { --shadow: 0 6px 18px rgba(0, 0, 0, 0.4); }
+  [data-styled] .card { backdrop-filter: none; }
+  #elapsed { color: var(--time-a, inherit); }
+  #duration { color: var(--time-b, inherit); }
+  .bar div { box-shadow: var(--bar-glow, none); }
+
+  /* Synthwave: atardecer de neón con piso cuadriculado y título en letra cursiva. */
+  :root[data-style="synthwave"] {
+    --bg: rgba(18, 4, 34, var(--alpha, 0.85)); --fg: #fff; --muted: #35e0ff; --accent: #ff2bd6;
+    --track: rgba(255, 43, 214, 0.18); --ring: #2b0a3d; --time-a: #35e0ff; --time-b: #35e0ff;
+    --bar-glow: 0 0 8px #ff2bd6;
+  }
+  [data-style="synthwave"] .card { border: 2px solid #ff2bd6; box-shadow: var(--shadow), inset 0 0 14px rgba(255, 43, 214, 0.55); }
+  [data-style="synthwave"] .deco { background: linear-gradient(to bottom, rgba(40, 6, 70, 0.6), rgba(90, 10, 90, 0.5)); }
+  [data-style="synthwave"] .deco .sun {
+    display: block; width: 118px; height: 118px; left: 72px; top: -26px; border-radius: 50%;
+    background: linear-gradient(to bottom, #ffd23f 10%, #ff7b2e 45%, #ff2a8a 80%);
+    -webkit-mask: linear-gradient(#000 52%, transparent 52%), repeating-linear-gradient(to bottom, #000 0 7%, transparent 7% 11%);
+    filter: drop-shadow(0 0 10px rgba(255, 90, 140, 0.6));
+  }
+  [data-style="synthwave"] .deco .grid {
+    display: block; left: -40%; right: -40%; bottom: -2px; height: 55%;
+    background:
+      repeating-linear-gradient(90deg, rgba(255, 43, 214, 0.75) 0 1px, transparent 1px 26px),
+      repeating-linear-gradient(0deg, rgba(255, 43, 214, 0.75) 0 1px, transparent 1px 13px);
+    transform: perspective(90px) rotateX(48deg); transform-origin: bottom;
+    -webkit-mask: linear-gradient(to top, #000 10%, transparent 95%);
+  }
+  [data-style="synthwave"] .title { font-family: "Mr Dafoe", "Brush Script MT", cursive; font-weight: 400; font-size: 30px; line-height: 1.05; color: #ff3fdc; text-shadow: 0 0 10px rgba(255, 43, 214, 0.85); padding-right: 6px; }
+  [data-style="synthwave"] .artist { text-shadow: 0 0 6px rgba(53, 224, 255, 0.6); }
+  [data-style="synthwave"] .bar { height: 6px; border: 1px solid rgba(255, 43, 214, 0.7); border-radius: 4px; }
+  [data-style="synthwave"][data-layout="vertical"] .deco .sun { left: 50%; top: 6px; width: 70%; height: auto; aspect-ratio: 1; transform: translateX(-50%); }
+  [data-style="synthwave"][data-layout="vertical"] .deco .grid { height: 38%; }
+  [data-style="synthwave"][data-layout="vertical"] .title { font-size: 34px; }
+
+  /* Retro: papel viejo con franjas de arcoíris. */
+  :root[data-style="retro"] {
+    --bg: rgba(238, 228, 205, var(--alpha, 0.85)); --fg: #1c1a17; --muted: #2c2925; --accent: #1aa3a3;
+    --track: #1c1a17; --ring: #1aa3a3;
+    --rainbow: #d8452f 0 20%, #ec8a2d 20% 40%, #f2c14b 40% 60%, #4aa36c 60% 80%, #2b6f9a 80%;
+  }
+  [data-style="retro"] .card { border-radius: 12px; box-shadow: var(--shadow), inset 0 0 22px rgba(120, 90, 40, 0.35); }
+  [data-style="retro"] .deco {
+    background:
+      radial-gradient(circle at 18% 30%, rgba(140, 110, 60, 0.12), transparent 30%),
+      radial-gradient(circle at 70% 80%, rgba(140, 110, 60, 0.1), transparent 35%),
+      radial-gradient(circle at 85% 15%, rgba(255, 255, 255, 0.3), transparent 30%),
+      repeating-radial-gradient(circle at 40% 60%, rgba(90, 70, 40, 0.05) 0 1px, transparent 1px 4px);
+  }
+  [data-style="retro"] .deco .stripes { display: block; top: 0; bottom: 0; right: 0; width: 44px; background: linear-gradient(90deg, var(--rainbow)); }
+  [data-style="retro"]:not([data-layout="vertical"]) .meta { margin-right: 40px; }
+  [data-style="retro"] .title { font-weight: 800; letter-spacing: -0.01em; }
+  [data-style="retro"] .label { color: #b0412c; }
+  [data-style="retro"] .progress { font-weight: 700; }
+  [data-style="retro"] .bar { height: 7px; border-radius: 4px; border: 1.5px solid #1c1a17; }
+  [data-style="retro"][data-layout="vertical"] .deco .stripes { top: auto; left: 0; width: auto; height: 12px; background: linear-gradient(90deg, var(--rainbow)); }
+  [data-style="retro"][data-layout="vertical"] .card { padding-bottom: 20px; }
+
+  /* Cyberpunk: panel de HUD con esquinas cortadas, borde cian→magenta y ciudad. */
+  :root[data-style="cyber"] {
+    --bg: linear-gradient(115deg, #22d3ff, #3a6bff 50%, #ff2bd6); --fg: #eaf6ff; --muted: #ff3fd8; --accent: #22e4ff;
+    --track: rgba(255, 43, 214, 0.25); --ring: #22d3ff; --time-a: #22e4ff; --time-b: #ff3fd8;
+    --bar-glow: 0 0 8px #22e4ff; --cut: 16px;
+  }
+  [data-style="cyber"] .card {
+    background: var(--bg); border-radius: 0; box-shadow: none;
+    font-family: "Orbitron", "Eurostile", "Bank Gothic", system-ui, sans-serif;
+    clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  }
+  [data-style="cyber"] .deco {
+    inset: 2px; border-radius: 0;
+    background: linear-gradient(120deg, rgba(5, 12, 40, var(--alpha, 0.85)), rgba(20, 8, 50, var(--alpha, 0.85)));
+    clip-path: polygon(calc(var(--cut) - 1px) 0, 100% 0, 100% calc(100% - var(--cut) + 1px), calc(100% - var(--cut) + 1px) 100%, 0 100%, 0 calc(var(--cut) - 1px));
+  }
+  [data-style="cyber"] .deco .city {
+    display: block; right: 0; bottom: 0; width: 60%; height: 80%; opacity: 0.35;
+    background: linear-gradient(to top, #ff2bd6, #3a3bff 60%, #1a1f6b);
+    -webkit-mask: var(--skyline) right bottom / auto 100% repeat-x;
+  }
+  [data-style="cyber"] .deco .stripes {
+    display: block; top: 6px; right: 26px; width: 46px; height: 5px;
+    background: repeating-linear-gradient(115deg, #22d3ff 0 5px, transparent 5px 9px);
+  }
+  [data-style="cyber"][data-layout="vertical"] .deco .city { width: 100%; height: 30%; }
+  [data-style="cyber"] .title { font-size: 17px; letter-spacing: 0.02em; text-shadow: 0 0 8px rgba(34, 228, 255, 0.7); }
+  [data-style="cyber"] .artist { font-size: 13px; text-shadow: 0 0 6px rgba(255, 63, 216, 0.6); }
+  [data-style="cyber"] .label { color: #22e4ff; letter-spacing: 0.14em; }
+  [data-style="cyber"] .art:not(.video) { box-shadow: 0 0 0 2px #22d3ff, 0 0 14px rgba(34, 211, 255, 0.7); }
+  [data-style="cyber"] .bar { height: 5px; border-radius: 0; }
+  [data-style="cyber"] .bar div { border-radius: 0; }
+
+  /* Minimal: negro mate, carátula con aro blanco, línea divisoria y ecualizador. */
+  :root[data-style="minimal"] {
+    --bg: rgba(14, 14, 16, var(--alpha, 0.85)); --fg: #f4f4f5; --muted: rgba(244, 244, 245, 0.72); --accent: #f4f4f5;
+    --track: rgba(255, 255, 255, 0.16); --ring: #f4f4f5;
+  }
+  [data-style="minimal"] .card { border: 1px solid rgba(255, 255, 255, 0.16); }
+  [data-style="minimal"] .label { color: var(--muted); }
+  [data-style="minimal"] .title { font-weight: 600; }
+  [data-style="minimal"]:not([data-layout="vertical"]) .meta { border-left: 1px solid rgba(255, 255, 255, 0.18); padding-left: 16px; }
+  [data-style="minimal"][data-layout="vertical"] .meta { border-top: 1px solid rgba(255, 255, 255, 0.14); padding-top: 10px; }
+
+  /* Línea: barra negra con borde blanco, rayas en los lados y onda de sonido. */
+  :root[data-style="line"] {
+    --bg: rgba(0, 0, 0, var(--alpha, 0.85)); --fg: #fff; --muted: rgba(255, 255, 255, 0.75); --accent: #fff;
+    --track: rgba(255, 255, 255, 0.18); --ring: #fff;
+  }
+  [data-style="line"][data-round] .card { border: 2px solid #fff; border-radius: 18px; padding-left: 34px; padding-right: 30px; }
+  [data-style="line"] .label { color: var(--muted); }
+  [data-style="line"] .deco .stripes,
+  [data-style="line"] .deco .grid {
+    display: block; top: 22%; bottom: 22%; left: 10px; width: 10px;
+    background: repeating-linear-gradient(-55deg, #fff 0 3px, transparent 3px 9px);
+  }
+  [data-style="line"] .deco .grid { left: auto; right: 10px; }
+  [data-style="line"][data-round][data-layout="vertical"] .card { padding: 14px 30px; }
+
+  /* Glitch / VHS: líneas de barrido, colores corridos y algún salto de imagen. */
+  :root[data-style="glitch"] {
+    --bg: rgba(18, 18, 20, var(--alpha, 0.85)); --fg: #f2f2f2; --muted: #e6e6e6; --accent: #f2f2f2;
+    --track: rgba(80, 220, 230, 0.25); --ring: rgba(255, 255, 255, 0.85);
+  }
+  [data-style="glitch"] .card { border: 1px solid rgba(255, 255, 255, 0.14); border-radius: 12px; font-family: "VT323", "Courier New", monospace; }
+  [data-style="glitch"] .deco {
+    background:
+      repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.45));
+  }
+  [data-style="glitch"] .title { font-size: 24px; font-weight: 400; text-shadow: -2px 0 rgba(255, 40, 80, 0.85), 2px 0 rgba(40, 230, 255, 0.85); animation: glitch 4s steps(1) infinite; }
+  [data-style="glitch"] .artist { font-size: 18px; text-shadow: -1px 0 rgba(255, 40, 80, 0.7), 1px 0 rgba(40, 230, 255, 0.7); }
+  [data-style="glitch"] .label { color: #50e6f0; font-family: inherit; font-size: 13px; font-weight: 400; }
+  [data-style="glitch"] .progress { font-size: 16px; }
+  [data-style="glitch"] .bar { border: 1px solid rgba(80, 220, 230, 0.7); height: 6px; }
+  [data-style="glitch"] .art:not(.video) { box-shadow: -3px 0 0 rgba(255, 40, 80, 0.75), 3px 0 0 rgba(40, 230, 255, 0.75), 0 0 0 2px rgba(255, 255, 255, 0.7); animation: disc 8s linear infinite, glitch-clip 5s steps(1) infinite -1.3s; }
+  @keyframes glitch-clip { 0%, 91%, 100% { clip-path: none; } 92% { clip-path: inset(10% 0 55% 0); } 94% { clip-path: inset(60% 0 8% 0); } }
+  @keyframes glitch {
+    0%, 91%, 100% { transform: none; clip-path: none; }
+    92% { transform: translateX(-3px); clip-path: inset(10% 0 55% 0); }
+    94% { transform: translateX(3px); clip-path: inset(60% 0 8% 0); }
+    96% { transform: translateX(-1px); }
+  }
+
+  /* Ciudad neón: noche morada con sol de rayas y edificios reflejados. */
+  :root[data-style="neoncity"] {
+    --bg: linear-gradient(115deg, rgba(14, 10, 52, var(--alpha, 0.85)), rgba(36, 10, 72, var(--alpha, 0.85))); --fg: #fff; --muted: #2fe0ff;
+    --accent: #ff3fd8; --track: rgba(47, 224, 255, 0.25); --ring: #ff3fd8; --time-a: #2fe0ff; --time-b: #2fe0ff;
+    --bar-glow: 0 0 8px #ff3fd8;
+  }
+  [data-style="neoncity"] .card { background: var(--bg); border: 1.5px solid rgba(160, 90, 255, 0.85); box-shadow: var(--shadow), inset 0 0 14px rgba(140, 70, 255, 0.4); }
+  [data-style="neoncity"] .deco .sun {
+    display: block; width: 104px; height: 104px; right: 40px; top: -6px; border-radius: 50%;
+    background: linear-gradient(to bottom, #ff3f8e 20%, #ff7a45 75%);
+    -webkit-mask: linear-gradient(#000 45%, transparent 45%), repeating-linear-gradient(to bottom, #000 0 8%, transparent 8% 12%);
+    filter: drop-shadow(0 0 12px rgba(255, 70, 140, 0.55));
+  }
+  [data-style="neoncity"] .deco .city {
+    display: block; right: 0; bottom: 18%; width: 62%; height: 68%;
+    background: linear-gradient(to top, #120a2e, #2b145a);
+    -webkit-mask: var(--skyline) right bottom / auto 100% repeat-x;
+  }
+  [data-style="neoncity"] .deco .grid {
+    display: block; right: 0; bottom: 0; width: 62%; height: 18%;
+    background: repeating-linear-gradient(to bottom, rgba(255, 63, 216, 0.45) 0 1px, transparent 1px 4px), linear-gradient(to bottom, rgba(90, 30, 140, 0.6), transparent);
+  }
+  [data-style="neoncity"] .title { color: #ff4fe0; text-shadow: 0 0 8px rgba(255, 63, 216, 0.6); }
+  [data-style="neoncity"] .art:not(.video) { box-shadow: 0 0 0 3px #ff3fd8, 0 0 16px rgba(255, 63, 216, 0.6); }
+  [data-style="neoncity"][data-layout="vertical"] .deco .sun { right: 50%; transform: translateX(50%); top: auto; bottom: 30%; width: 60%; height: auto; aspect-ratio: 1; opacity: 0.6; }
+  [data-style="neoncity"][data-layout="vertical"] .deco .city,
+  [data-style="neoncity"][data-layout="vertical"] .deco .grid { width: 100%; }
+  [data-style="neoncity"][data-layout="vertical"] .deco .city { height: 34%; bottom: 8%; opacity: 0.8; }
+  [data-style="neoncity"][data-layout="vertical"] .deco .grid { height: 8%; }
+
+  /* Ventana macOS y Píldora: el cristal con botones de ventana o un botón de pausa. */
+  [data-style="macos"] .dots { display: flex; }
+  [data-style="macos"][data-layout="vertical"] .card { padding-top: 30px; }
+  [data-style="macos"][data-layout="vertical"] .card::before {
+    content: ""; position: absolute; left: 0; right: 0; top: 30px; height: 1px; background: rgba(255, 255, 255, 0.25); z-index: 1;
+  }
+  [data-style="macos"]:not([data-layout="vertical"]) .dots { left: auto; right: 14px; }
+  [data-style="macos"]:not([data-layout="vertical"]) .corner { display: none; }
+  [data-style="macos"]:not([data-layout="vertical"]) .label,
+  [data-style="macos"]:not([data-layout="vertical"]) .title { margin-right: 52px; }
+  [data-style="macos"][data-layout="vertical"] .corner { top: 7px; }
+  [data-style="pill"]:not([data-layout="vertical"]) .card { border-radius: 999px; padding: 12px 14px; }
+  [data-style="pill"][data-layout="vertical"] .card { border-radius: 40px; padding: 14px 14px 18px; }
+  [data-style="pill"][data-layout="vertical"] .corner { top: 14px; right: 14px; }
+  [data-style="pill"][data-layout="vertical"] .corner .pp { width: 36px; height: 36px; padding: 10px; }
+  [data-glass][data-round] .art:not(.video) { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.55), 0 6px 18px rgba(0, 0, 0, 0.25); }
 
   .art {
     flex: none;
@@ -200,6 +463,14 @@
 <body>
 <div class="card" id="card">
   <div class="backdrop" id="backdrop"></div>
+  <div class="deco"><i class="sun"></i><i class="grid"></i><i class="city"></i><i class="stripes"></i></div>
+  <div class="dots"><i></i><i></i><i></i></div>
+  <div class="corner">
+    <span class="eq"><i></i><i></i><i></i></span>
+    <svg class="ff" viewBox="0 0 24 20" aria-hidden="true"><path d="M1 2l11 8-11 8zM12 2l11 8-11 8z"/></svg>
+    <span class="wave"><i></i><i></i><i></i><i></i><i></i></span>
+    <span class="pp" id="pp"></span>
+  </div>
   <img class="art" id="art" alt="">
   <div class="art video" id="videoBox" hidden><div id="player"></div></div>
   <div class="meta">
@@ -214,10 +485,27 @@
 
 <script src="ui.js"></script>
 <script>
-  const { extractColors, fmt } = NowPlayingUI;
+  const { extractColors, fmt, ICONS } = NowPlayingUI;
   const root = document.documentElement;
   const $ = (id) => document.getElementById(id);
   const ACCENTS = { spotify: '#1ed760', ytmusic: '#ff0033', applemusic: '#fa2d48', browser: '#8b8cff', other: '#8b8cff' };
+  // Estilos: glass = fondo traslúcido con el color de la carátula; themed = colores
+  // propios del estilo (no los de la carátula); round = carátula en círculo; corner = el
+  // ícono de la esquina (ecualizador, adelantar, onda o botón de pausa).
+  const STYLES = {
+    solid: {},
+    glass: { glass: true },
+    macos: { glass: true, round: true, corner: 'eq' },
+    pill: { glass: true, round: true, corner: 'pp' },
+    minimal: { themed: true, round: true, corner: 'eq' },
+    line: { themed: true, round: true, corner: 'wave' },
+    synthwave: { themed: true, round: true },
+    neoncity: { themed: true, round: true },
+    cyber: { themed: true, round: true },
+    retro: { themed: true, round: true },
+    glitch: { themed: true, round: true, corner: 'ff' },
+  };
+  const styleOf = () => STYLES[config.style] || STYLES.solid;
   const PREVIEW = {
     kind: 'spotify', sourceLabel: 'Spotify', title: 'Canción de ejemplo con un título bastante largo',
     artist: 'Artista de prueba', isPlaying: true, progressMs: 42000, durationMs: 215000,
@@ -243,7 +531,16 @@
     else delete root.dataset.art;
     if (config.blur) root.dataset.blur = '';
     else delete root.dataset.blur;
-    root.dataset.style = config.style === 'glass' ? 'glass' : 'solid';
+    const style = styleOf();
+    root.dataset.style = STYLES[config.style] ? config.style : 'solid';
+    for (const flag of ['glass', 'round']) {
+      if (style[flag]) root.dataset[flag] = '';
+      else delete root.dataset[flag];
+    }
+    if (style.themed) root.dataset.styled = '';
+    else delete root.dataset.styled;
+    if (style.corner) root.dataset.corner = style.corner;
+    else delete root.dataset.corner;
     root.dataset.layout = config.layout === 'vertical' ? 'vertical' : 'horizontal';
     root.dataset.videoFit = config.videoFit === 'wide' ? 'wide' : 'square';
     root.dataset.anchor = config.anchor === 'bottom' ? 'bottom' : 'top';
@@ -256,9 +553,14 @@
   function setPalette(t, colors) {
     lastColors = colors;
     const alpha = Math.min(100, Math.max(0, Number(config.opacity ?? 85))) / 100;
-    const glass = config.style === 'glass';
+    const glass = Boolean(styleOf().glass);
     const light = config.theme === 'light';
     root.style.setProperty('--alpha', String(alpha));
+    if (styleOf().themed) {
+      // Los colores los pone el estilo (en el CSS); la opacidad sí se respeta.
+      for (const name of ['--accent', '--bg', '--track']) root.style.removeProperty(name);
+      return;
+    }
     root.style.setProperty('--accent', colors?.accent || ACCENTS[t.kind] || ACCENTS.other);
     if (colors) {
       root.style.setProperty('--bg', glass ? colors.glass(alpha) : colors.solid(alpha));
@@ -375,11 +677,14 @@
     const box = $('videoBox');
     const frame = video.ready && video.player.getIframe();
     if (!frame || box.hidden || !box.clientWidth) return;
-    const width = box.clientWidth;
-    const height = Math.min(box.clientHeight, (width * 9) / 16);
+    // --frame: borde que gira alrededor del video (estilos con disco); el reproductor va por dentro.
+    const inset = parseFloat(getComputedStyle(box).getPropertyValue('--frame')) || 0;
+    const width = box.clientWidth - 2 * inset;
+    const height = Math.min(box.clientHeight - 2 * inset, (width * 9) / 16);
     const k = Math.max(1, VIDEO_RENDER_WIDTH / width);
     frame.style.width = `${width * k}px`;
     frame.style.height = `${height * k}px`;
+    frame.style.left = `${inset}px`;
     frame.style.top = `${(box.clientHeight - height) / 2}px`;
     frame.style.transform = `scale(${1 / k})`;
     // mqdefault es 16:9 sin franjas negras (hqdefault las trae) y existe en todo video.
@@ -397,6 +702,7 @@
 
   function showVideo(on) {
     $('videoBox').hidden = !on;
+    $('card').classList.toggle('has-video', on);
     $('art').hidden = on || config.art === 'hidden' || !$('art').getAttribute('src');
     if (on) fitVideo();
   }
@@ -476,6 +782,7 @@
       }
     }
     $('card').classList.toggle('paused', !t.isPlaying);
+    $('pp').innerHTML = ICONS[t.isPlaying ? 'pause' : 'play'];
     $('card').classList.add('visible');
     tick();
   }

@@ -291,6 +291,15 @@ obs_properties_t *np_properties(void *)
 							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Solid"), "solid");
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Glass"), "glass");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.MacOS"), "macos");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Pill"), "pill");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Minimal"), "minimal");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Line"), "line");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Synthwave"), "synthwave");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.NeonCity"), "neoncity");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Cyber"), "cyber");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Retro"), "retro");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Glitch"), "glitch");
 	obs_property_set_long_description(style, obs_module_text("NowPlaying.Style.Help"));
 
 	obs_property_t *opacity =
