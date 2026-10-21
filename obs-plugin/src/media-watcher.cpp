@@ -348,6 +348,10 @@ void MediaWatcher::sendCommand(const QString &action)
 		if (!problem.isEmpty()) {
 			obs_log(LOG_WARNING, "botón: %s", problem.toUtf8().constData());
 			emit commandFailed(problem);
+		} else if (result.contains("via")) {
+			// Por dónde llegó el botón (página de YouTube, la app, teclas de música): para
+			// saber qué pasó si un reproductor no responde.
+			obs_log(LOG_INFO, "botón por: %s", result.value("via").toString().toUtf8().constData());
 		}
 	});
 	command->start("/usr/bin/osascript", {"-l", "JavaScript", moduleFile("media/macos.js"), "command", action});

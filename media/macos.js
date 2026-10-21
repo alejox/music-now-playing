@@ -110,6 +110,9 @@ function pageScript(action) {
   })()`;
 }
 
+// El título que la página anuncia a macOS (el mismo que lee el lector).
+const MEDIA_SESSION_TITLE = "(navigator.mediaSession && navigator.mediaSession.metadata && navigator.mediaSession.metadata.title) || ''";
+
 function browserCommand(app, action) {
   const browser = BROWSERS.find(([id]) => app === id || app.startsWith(`${id}.`));
   // Si macOS cree que "suena" OBS (el video de la tarjeta), la música real está en algún
@@ -131,19 +134,22 @@ function browserCommandIn(browser, action) {
   try {
     const b = Application(browser[0]);
     if (!b.running()) return { tried: false };
-    const title = String(ObjC.unwrap($.NSClassFromString('MRNowPlayingRequest').localNowPlayingItem.nowPlayingInfo
-      .objectForKey('kMRMediaRemoteNowPlayingInfoTitle')) || '').toLowerCase();
+    const title = normName(ObjC.unwrap($.NSClassFromString('MRNowPlayingRequest').localNowPlayingItem.nowPlayingInfo
+      .objectForKey('kMRMediaRemoteNowPlayingInfoTitle')) || '');
     const tabs = [];
     for (const w of b.windows()) {
       for (const t of w.tabs()) {
-        if (YOUTUBE_WATCH.test(String(t.url() || ''))) tabs.push({ tab: t, name: String(t[browser[1]]() || '').toLowerCase() });
+        if (YOUTUBE_WATCH.test(String(t.url() || ''))) tabs.push({ tab: t, name: normName(t[browser[1]]() || '') });
       }
     }
-    const hit = tabs.find((t) => title && t.name.includes(title)) || (tabs.length === 1 ? tabs[0] : null);
+    const run = (tab, code) => (browser[0] === 'com.apple.Safari' ? b.doJavaScript(code, { in: tab }) : tab.execute({ javascript: code }));
+    // La pestaña que suena: la que tiene la canción en el título o, si hay varias, la que la
+    // anuncia en su sesión de medios (la app instalada de YouTube Music titula su ventana
+    // "YouTube Music", sin la canción, y puede haber otras pestañas de YouTube abiertas).
+    let hit = tabs.find((t) => title && t.name.includes(title)) || (tabs.length === 1 ? tabs[0] : null);
+    if (!hit && title) hit = tabs.find((t) => normName(run(t.tab, MEDIA_SESSION_TITLE) || '') === title);
     if (!hit) return { tried: false };
-    const code = pageScript(action);
-    const result = browser[0] === 'com.apple.Safari' ? b.doJavaScript(code, { in: hit.tab }) : hit.tab.execute({ javascript: code });
-    return { tried: true, ok: result === 'ok' };
+    return { tried: true, ok: run(hit.tab, pageScript(action)) === 'ok' };
   } catch (e) {
     // El navegador no deja ejecutar JavaScript desde Apple Events (viene apagado).
     return { tried: true, ok: false, blocked: /javascript/i.test(String(e)) };
