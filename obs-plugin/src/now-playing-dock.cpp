@@ -31,6 +31,13 @@ constexpr int kSideButton = 40;
 constexpr int kSkipButton = 32;
 constexpr qint64 kSkipMs = 10000;
 constexpr int kMainButton = 52;
+// Adelantar / retroceder (barra que se arrastra y −10 s / +10 s): solo en Windows. En Mac
+// el dock queda como antes (barra fija y anterior / pausa / siguiente), que sí funciona.
+#ifdef _WIN32
+constexpr bool kCanSeek = true;
+#else
+constexpr bool kCanSeek = false;
+#endif
 
 QString text(const char *key)
 {
@@ -269,9 +276,13 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	progress_ = new SeekSlider(this);
 	progress_->setFixedHeight(16);
 	progress_->setRange(0, 1000);
-	progress_->setCursor(Qt::PointingHandCursor);
 	progress_->setFocusPolicy(Qt::NoFocus);
-	progress_->setToolTip(text("NowPlaying.Seek"));
+	if (kCanSeek) {
+		progress_->setCursor(Qt::PointingHandCursor);
+		progress_->setToolTip(text("NowPlaying.Seek"));
+	} else {
+		progress_->setAttribute(Qt::WA_TransparentForMouseEvents);
+	}
 	// Mientras se arrastra, el tiempo muestra adónde se va a saltar; al soltar, se salta.
 	connect(progress_, &QSlider::sliderMoved, this, [this](int value) {
 		Track track = MediaWatcher::instance().current(true);
@@ -290,7 +301,7 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	layout->addSpacing(16);
 
 	auto *buttons = new QHBoxLayout();
-	buttons->setSpacing(14);
+	buttons->setSpacing(kCanSeek ? 14 : 22);
 	buttons->addStretch(1);
 	auto makeButton = [this, buttons](const char *tip, const QString &action, int size) {
 		auto *button = new QToolButton(this);
@@ -321,6 +332,8 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	playPause_ = makeButton("NowPlaying.PlayPause", "playpause", kMainButton);
 	next_ = makeButton("NowPlaying.Next", "next", kSideButton);
 	forward_ = makeSkip("NowPlaying.Forward10", kSkipMs);
+	back_->setVisible(kCanSeek);
+	forward_->setVisible(kCanSeek);
 	buttons->addStretch(1);
 	layout->addLayout(buttons);
 	layout->addSpacing(10);
@@ -349,14 +362,16 @@ void NowPlayingDock::applyAccent(const QColor &accent)
 {
 	accent_ = accent.isValid() ? accent : palette().color(QPalette::Highlight);
 	const QString color = accent_.name();
-	// Barra fina del color de la carátula con una perilla redonda para arrastrar.
+	// Barra fina del color de la carátula con una perilla redonda para arrastrar (en Mac, sin perilla).
 	progress_->setStyleSheet(
 		QString("QSlider::groove:horizontal { height: 4px; border-radius: 2px; background: rgba(127,127,127,0.25); }"
 			"QSlider::sub-page:horizontal { border-radius: 2px; background: %1; }"
-			"QSlider::handle:horizontal { width: 12px; height: 12px; margin: -4px 0; border-radius: 6px;"
-			" background: %1; }"
+			"QSlider::handle:horizontal { width: %3px; height: 12px; margin: -4px 0; border-radius: 6px;"
+			" background: %4; }"
 			"QSlider::handle:horizontal:hover { background: %2; }")
-			.arg(color, accent_.lighter(120).name()));
+			.arg(color, accent_.lighter(120).name())
+			.arg(kCanSeek ? 12 : 0)
+			.arg(kCanSeek ? color : QString("transparent")));
 	source_->setStyleSheet(QString("color: %1;").arg(color));
 
 	// Anterior / siguiente: redondos, con borde y fondo suave del color de la carátula,

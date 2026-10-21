@@ -12,7 +12,7 @@ const os = require('node:os');
 const readline = require('node:readline');
 const { spawn, execFileSync } = require('node:child_process');
 
-const VERSION = '2.4.22';
+const VERSION = '2.4.23';
 const ARGS = new Set(process.argv.slice(2));
 
 // Archivos de la app (overlay, lectores del sistema, userscript): junto a este
