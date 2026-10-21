@@ -8,7 +8,8 @@
 #
 # Windows se arma en Linux/WSL (python3 con Pillow y makensis/NSIS). Con
 # PLUGIN_ZIP=<obs-now-playing-plugin-…-windows-x64.zip> el instalador también instala el
-# plugin de OBS (la Release siempre lo hace).
+# plugin de OBS (la Release siempre lo hace). PLUGIN_ZIP_MAC=<…-macos.zip>: lo mismo para
+# la app de Mac (lo instala al abrirse).
 # Mac se arma mejor EN UN MAC (python3 con Pillow y las herramientas de Xcode): ahí la
 # app queda firmada ad hoc entera. En Linux también se arma (clang + lld), pero sin
 # firmar el paquete, y macOS la da por "dañada" al descargarla. La Release la arma en
@@ -91,7 +92,7 @@ if want mac; then
     IFS=: read -r node_arch launcher_arch label <<<"$pair"
     zip="$DIST/OBS-Now-Playing-$VERSION-mac-$label.zip"
     python3 build/package_mac.py "$VERSION" "$node_arch" "$CACHE/node-v$NODE_VERSION-darwin-$node_arch.tar.gz" \
-      "$STAGE/icons/AppIcon.icns" "$M/launcher-$launcher_arch" "$zip"
+      "$STAGE/icons/AppIcon.icns" "$M/launcher-$launcher_arch" "$zip" "${PLUGIN_ZIP_MAC:-}"
 
     if [ "$(uname)" = Darwin ]; then
       # Firma ad hoc de la app ENTERA (sella Info.plist y recursos). Sin --deep: el

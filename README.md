@@ -126,7 +126,7 @@ Download the installer from **[Releases](../../releases/latest)**. No Node.js or
 
 **Windows 10/11:** open `OBS-Now-Playing-Setup-<version>.exe`. If **"Windows protected your PC"** appears, click **More info → Run anyway**. By default it starts with Windows. It also installs the OBS plugin (you can uncheck it).
 
-**macOS 11+:** download `…-mac-apple.zip` (Apple chip) or `…-mac-intel.zip` (Intel), unzip, drag **OBS Now Playing** to Applications and open it. If it's blocked: **System Settings → Privacy & Security → Open Anyway**. If it says *"is damaged"*:
+**macOS 11+:** download `…-mac-apple.zip` (Apple chip) or `…-mac-intel.zip` (Intel), unzip, drag **OBS Now Playing** to the **Applications** folder (opening it from Downloads doesn't install it) and open it. On launch it also installs the **OBS plugin** in `~/Library/Application Support/obs-studio/plugins/` (or updates it if yours is older): open or restart OBS and **Sources → + → ♫ Now Playing (music)** shows up. If it's blocked: **System Settings → Privacy & Security → Open Anyway**. If it says *"is damaged"*:
 
 ```bash
 xattr -cr "/Applications/OBS Now Playing.app" && open "/Applications/OBS Now Playing.app"

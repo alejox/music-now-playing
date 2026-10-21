@@ -130,7 +130,7 @@ Descarga el instalador desde **[Releases](../../releases/latest)**. No necesitas
 
 **Windows 10/11:** abre `OBS-Now-Playing-Setup-<versión>.exe`. Si sale **"Windows protegió su PC"**, pulsa **Más información → Ejecutar de todas formas**. Por defecto arranca con Windows. También instala el plugin de OBS (se puede desmarcar).
 
-**macOS 11+:** descarga `…-mac-apple.zip` (chip Apple) o `…-mac-intel.zip` (Intel), descomprímelo, arrastra **OBS Now Playing** a Aplicaciones y ábrela. Si la bloquea: **Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente**. Si dice *"está dañado"*:
+**macOS 11+:** descarga `…-mac-apple.zip` (chip Apple) o `…-mac-intel.zip` (Intel), descomprímelo, arrastra **OBS Now Playing** a la carpeta **Aplicaciones** (si la abres desde Descargas no queda instalada) y ábrela. Al abrirse instala también el **plugin de OBS** en `~/Library/Application Support/obs-studio/plugins/` (o lo actualiza si el que tienes es más viejo): abre o reinicia OBS y aparece **Fuentes → + → ♫ Now Playing (música)**. Si la bloquea: **Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente**. Si dice *"está dañado"*:
 
 ```bash
 xattr -cr "/Applications/OBS Now Playing.app" && open "/Applications/OBS Now Playing.app"

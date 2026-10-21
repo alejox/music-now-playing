@@ -51,9 +51,15 @@ jobs:
   # En un Mac de verdad: la app queda firmada ad hoc entera (sin eso, macOS la da por
   # "dañada" al descargarla) y se prueba que abre.
   mac:
+    # La app de Mac lleva el plugin de OBS y lo instala al abrirse: necesita el zip compilado.
+    needs: [plugin]
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          name: plugin-macos
+          path: plugin-macos
       - uses: actions/setup-node@v5
         with:
           node-version: 22
@@ -62,8 +68,8 @@ jobs:
           python-version: '3.12'
       - name: Pillow
         run: python -m pip install pillow
-      - name: Apps de macOS
-        run: ./build/build.sh mac
+      - name: Apps de macOS (con el plugin de OBS adentro)
+        run: PLUGIN_ZIP_MAC="$(ls "$PWD"/plugin-macos/obs-now-playing-plugin-*-macos.zip)" ./build/build.sh mac
       - name: La app firmada abre y responde
         run: |
           app_dir="$RUNNER_TEMP/prueba"
@@ -79,6 +85,12 @@ jobs:
           echo
           curl -fs http://127.0.0.1:8787/ | grep -o 'Lector del sistema:</b>.\{0,200\}' | sed 's/<[^>]*>//g'
           echo "--- log"; cat "$HOME/Library/Application Support/OBS Now Playing/log.txt"
+          # La app instaló el plugin en la carpeta de plugins de OBS.
+          plugin="$HOME/Library/Application Support/obs-studio/plugins/obs-now-playing.plugin"
+          test -f "$plugin/Contents/MacOS/obs-now-playing" || { echo "La app no instaló el plugin de OBS"; exit 1; }
+          test -f "$plugin/Contents/Resources/overlay/index.html" || { echo "El plugin instalado está incompleto"; exit 1; }
+          codesign --verify --deep "$plugin"
+          plutil -extract CFBundleShortVersionString raw "$plugin/Contents/Info.plist" || true
       - uses: actions/upload-artifact@v4
         with:
           name: mac
@@ -116,8 +128,8 @@ jobs:
           body: |
             ## Descargas
             - **Windows 10/11:** `OBS-Now-Playing-Setup-….exe` (la app y el plugin de OBS)
-            - **Mac con chip Apple (M1/M2/M3/M4…):** `OBS-Now-Playing-…-mac-apple.zip`
-            - **Mac con Intel:** `OBS-Now-Playing-…-mac-intel.zip`
+            - **Mac con chip Apple (M1/M2/M3/M4…):** `OBS-Now-Playing-…-mac-apple.zip` (la app; al abrirla instala el plugin de OBS)
+            - **Mac con Intel:** `OBS-Now-Playing-…-mac-intel.zip` (la app; al abrirla instala el plugin de OBS)
 
             ### Plugin nativo para OBS (fuente "Now Playing" y dock "Música")
             - **macOS:** `obs-now-playing-plugin-…-macos.zip`

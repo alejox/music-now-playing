@@ -10,9 +10,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const os = require('node:os');
 const readline = require('node:readline');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 
-const VERSION = '2.4.21';
+const VERSION = '2.4.22';
 const ARGS = new Set(process.argv.slice(2));
 
 // Archivos de la app (overlay, lectores del sistema, userscript): junto a este
@@ -540,6 +540,7 @@ function statusPage(notice = '') {
     'OBS Now Playing',
     `<h1>🎵 OBS Now Playing</h1>
 ${notice ? `<div class="box ok">${escapeHtml(notice)}</div>` : ''}
+${pluginStatusHtml()}
 <div class="box"><b>Sonando ahora:</b> ${t ? `${escapeHtml(t.artist)}${t.artist ? ' — ' : ''}${escapeHtml(t.title)} <small class="muted">(${escapeHtml(nowLabel)})</small>` : '<span class="warn">nada</span>'}</div>
 
 <div class="box">
@@ -742,6 +743,79 @@ server.on('error', (err) => {
   process.exit(1);
 });
 
+// ---- Plugin de OBS (macOS) ----------------------------------------------------
+// La app de Mac trae el plugin nativo de OBS (Contents/Resources/plugin/) y lo instala
+// en la carpeta de plugins de OBS del usuario si falta o si el instalado es más viejo,
+// como el instalador de Windows. Esa carpeta es del usuario: no pide permisos. OBS lo
+// carga al abrirse; si ya estaba abierto, al reiniciarlo. Uno más nuevo (que el plugin
+// bajó solo) no se toca.
+const BUNDLED_PLUGIN = path.join(ROOT, '..', 'plugin');
+const OBS_PLUGINS_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'obs-studio', 'plugins');
+let pluginStatus = null; // { state: 'installed' | 'updated' | 'current' | 'error', version, error }
+
+function compareVersions(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d < 0 ? -1 : 1;
+  }
+  return 0;
+}
+
+function installMacPlugin() {
+  const zip = path.join(BUNDLED_PLUGIN, 'obs-now-playing-plugin-macos.zip');
+  if (process.platform !== 'darwin' || !fs.existsSync(zip)) return;
+  let bundled = '';
+  try {
+    bundled = fs.readFileSync(path.join(BUNDLED_PLUGIN, 'version.txt'), 'utf8').trim();
+  } catch {}
+  const target = path.join(OBS_PLUGINS_DIR, 'obs-now-playing.plugin');
+  let installed = '';
+  if (fs.existsSync(path.join(target, 'Contents', 'MacOS', 'obs-now-playing'))) {
+    try {
+      installed = execFileSync('/usr/bin/plutil', ['-extract', 'CFBundleShortVersionString', 'raw', path.join(target, 'Contents', 'Info.plist')], { encoding: 'utf8' }).trim();
+    } catch {
+      installed = '?';
+    }
+    // Sin versión legible, se deja como está (mejor no pisar algo que no se entiende).
+    if (installed === '?' || !bundled || compareVersions(installed, bundled) >= 0) {
+      pluginStatus = { state: 'current', version: installed };
+      return;
+    }
+  }
+  let tmp = '';
+  try {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'obs-now-playing-plugin-'));
+    execFileSync('/usr/bin/ditto', ['-x', '-k', zip, tmp]);
+    const fresh = path.join(tmp, 'obs-now-playing.plugin');
+    if (!fs.existsSync(path.join(fresh, 'Contents', 'MacOS', 'obs-now-playing'))) throw new Error('el plugin incluido está incompleto');
+    fs.mkdirSync(OBS_PLUGINS_DIR, { recursive: true });
+    fs.rmSync(target, { recursive: true, force: true });
+    execFileSync('/usr/bin/ditto', [fresh, target]);
+    try {
+      execFileSync('/usr/bin/xattr', ['-cr', target]); // sin la marca de "descargado de internet"
+    } catch {}
+    pluginStatus = { state: installed ? 'updated' : 'installed', version: bundled };
+    console.log(`   Plugin de OBS:           ${installed ? `actualizado ${installed} → ${bundled}` : `instalado ${bundled}`} en ${target}`);
+  } catch (err) {
+    pluginStatus = { state: 'error', error: err.message };
+    console.warn(`No se pudo instalar el plugin de OBS en ${target}: ${err.message}`);
+  } finally {
+    if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+function pluginStatusHtml() {
+  if (!pluginStatus) return '';
+  const where = escapeHtml(path.join(OBS_PLUGINS_DIR, 'obs-now-playing.plugin'));
+  if (pluginStatus.state === 'error') {
+    return `<div class="box"><h2>Plugin de OBS</h2><p class="warn">No se pudo instalar: ${escapeHtml(pluginStatus.error)}</p><p class="muted">Instálalo a mano (ver README) en <code>${where}</code>.</p></div>`;
+  }
+  const what = { installed: 'Instalado', updated: 'Actualizado', current: 'Instalado' }[pluginStatus.state];
+  return `<div class="box ok"><h2>Plugin de OBS</h2><p><b>${what}</b>${pluginStatus.version && pluginStatus.version !== '?' ? ` (versión ${escapeHtml(pluginStatus.version)})` : ''}. Abre (o reinicia) OBS: en <b>Fuentes → + → ♫ Now Playing (música)</b> está la tarjeta con todos los estilos, y en <b>Docks → Música</b> los botones. Con el plugin no hace falta la Fuente de navegador de abajo.</p></div>`;
+}
+
 server.listen(PORT, '127.0.0.1', () => {
   console.log(`🎵 OBS Now Playing ${VERSION} listo`);
   console.log(`   Panel:                   ${ORIGIN}/`);
@@ -755,6 +829,7 @@ server.listen(PORT, '127.0.0.1', () => {
       // si alguien borró el archivo, lo ignoramos
     }
   }, 1000);
+  installMacPlugin();
   if (ARGS.has('--open')) openExternal(`${ORIGIN}/`);
   startHelper();
 });
