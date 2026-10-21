@@ -124,6 +124,12 @@ function seekScript(seconds) {
 }
 
 const SPOTIFY_WEB = /^https:\/\/open\.spotify\.com\//;
+// Cualquier página de YouTube / YouTube Music, no solo /watch: en YouTube Music la música
+// sigue sonando en la barra de abajo mientras se navega (inicio, biblioteca, búsqueda), y
+// la app instalada (PWA) suele estar en una de esas páginas.
+const YOUTUBE_PAGE = /^https:\/\/(music\.|www\.|m\.)?youtube\.com\//;
+// Páginas que son un reproductor por sí mismas: si hay una sola pestaña, es esa.
+const PLAYER_PAGE = /^https:\/\/(music\.youtube\.com\/|open\.spotify\.com\/)/;
 
 // code: el JavaScript que se corre en la pestaña que suena. withSpotify: también cuenta la
 // pestaña del reproductor web de Spotify (para adelantar; los botones van por las teclas).
@@ -154,20 +160,23 @@ function browserCommandIn(browser, code, withSpotify) {
     for (const w of b.windows()) {
       for (const t of w.tabs()) {
         const url = String(t.url() || '');
-        if (YOUTUBE_WATCH.test(url) || (withSpotify && SPOTIFY_WEB.test(url))) tabs.push({ tab: t, name: normName(t[browser[1]]() || '') });
+        if (YOUTUBE_PAGE.test(url) || (withSpotify && SPOTIFY_WEB.test(url))) tabs.push({ tab: t, url, name: normName(t[browser[1]]() || '') });
       }
     }
     const run = (tab, code) => (browser[0] === 'com.apple.Safari' ? b.doJavaScript(code, { in: tab }) : tab.execute({ javascript: code }));
     // La pestaña que suena: la que tiene la canción en el título o, si hay varias, la que la
     // anuncia en su sesión de medios (la app instalada de YouTube Music titula su ventana
     // "YouTube Music", sin la canción, y puede haber otras pestañas de YouTube abiertas).
-    let hit = tabs.find((t) => title && t.name.includes(title)) || (tabs.length === 1 ? tabs[0] : null);
+    // Por el título o por ser la única solo cuentan un video o un reproductor; otra página de
+    // youtube.com (el inicio, una búsqueda con la canción en el título) solo si la anuncia.
+    const players = tabs.filter((t) => YOUTUBE_WATCH.test(t.url) || PLAYER_PAGE.test(t.url));
+    let hit = players.find((t) => title && t.name.includes(title)) || (tabs.length === 1 && players.length === 1 ? players[0] : null);
     if (!hit && title) hit = tabs.find((t) => normName(run(t.tab, MEDIA_SESSION_TITLE) || '') === title);
-    if (!hit) return { tried: false };
+    if (!hit) return { tried: false, seen: tabs.length };
     return { tried: true, ok: run(hit.tab, code) === 'ok' };
   } catch (e) {
     // El navegador no deja ejecutar JavaScript desde Apple Events (viene apagado).
-    return { tried: true, ok: false, blocked: /javascript/i.test(String(e)) };
+    return { tried: true, ok: false, blocked: /javascript/i.test(String(e)), error: String(e).slice(0, 200) };
   }
 }
 
@@ -231,7 +240,10 @@ function sendCommand(action, arg) {
     });
     return 1;
   }
-  emit({ ok: true, via: 'teclas de música', ...(hint ? { hint } : {}) });
+  // Para el registro: por qué no se usó la página.
+  const why = page.error ? ` (la página falló: ${page.error})`
+    : page.seen !== undefined ? ` (pestañas de YouTube vistas: ${page.seen})` : '';
+  emit({ ok: true, via: `teclas de música${why}`, ...(hint ? { hint } : {}) });
   return 0;
 }
 
