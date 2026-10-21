@@ -411,14 +411,17 @@ function youtubeVideo(app, title) {
 // Una página web como texto, con las cabeceras de un navegador (sin la cookie de
 // consentimiento, en Europa YouTube responde con su página de "antes de continuar").
 function fetchText(url) {
-  const request = $.NSMutableURLRequest.requestWithURL($.NSURL.URLWithString(url));
+  // Estas clases no vienen en el puente de Foundation de JXA: se piden por su nombre.
+  const Request = $.NSClassFromString('NSMutableURLRequest');
+  const Connection = $.NSClassFromString('NSURLConnection');
+  const request = Request.requestWithURL($.NSURL.URLWithString(url));
   request.timeoutInterval = 6;
   request.setValueForHTTPHeaderField('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36', 'User-Agent');
   request.setValueForHTTPHeaderField('en-US,en;q=0.8', 'Accept-Language');
   request.setValueForHTTPHeaderField('SOCS=CAI; CONSENT=YES+', 'Cookie');
   const response = Ref();
   const error = Ref();
-  const data = $.NSURLConnection.sendSynchronousRequestReturningResponseError(request, response, error);
+  const data = Connection.sendSynchronousRequestReturningResponseError(request, response, error);
   if (!data || data.isNil() || !data.length) return '';
   return ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || '';
 }
