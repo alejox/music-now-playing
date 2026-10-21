@@ -3,7 +3,6 @@
 #include <obs-module.h>
 #include <plugin-support.h>
 
-#include <QDesktopServices>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -15,7 +14,6 @@
 #include <QSet>
 #include <QStandardPaths>
 #include <QTimer>
-#include <QUrl>
 
 #include <algorithm>
 
@@ -34,8 +32,9 @@ struct AppInfo {
 	QString label;
 };
 
-// De qué reproductor viene una sesión: decide el color y el "Escuchando en …".
-AppInfo classifyApp(const QString &app, const QString &name)
+// De qué reproductor viene una sesión: decide el color y el "Escuchando en …". En un
+// navegador, site (del lector, en modo video) dice si la pestaña es YouTube o YouTube Music.
+AppInfo classifyApp(const QString &app, const QString &name, const QString &site)
 {
 	const QString id = (app + " " + name).toLower();
 	if (id.contains("spotify"))
@@ -54,8 +53,13 @@ AppInfo classifyApp(const QString &app, const QString &name)
 		{"opera", "Opera"},   {"vivaldi", "Vivaldi"}, {"safari", "Safari"},   {"thebrowser", "Arc"},
 	};
 	for (const auto &browser : browsers) {
-		if (id.contains(browser.first))
-			return {"browser", browser.second};
+		if (!id.contains(browser.first))
+			continue;
+		if (site == "ytmusic")
+			return {"ytmusic", "YouTube Music"};
+		if (site == "youtube")
+			return {"youtube", "YouTube"};
+		return {"browser", browser.second};
 	}
 	QString fallback = name;
 	if (fallback.isEmpty()) {
@@ -231,7 +235,7 @@ void MediaWatcher::handleLine(const QByteArray &line)
 #endif
 
 		Track track;
-		AppInfo info = classifyApp(app, s.value("name").toString().left(100));
+		AppInfo info = classifyApp(app, s.value("name").toString().left(100), s.value("site").toString());
 		track.app = app;
 		track.kind = info.kind;
 		track.label = info.label;
@@ -345,45 +349,5 @@ void MediaWatcher::sendCommand(const QString &action)
 		}
 	});
 	command->start("/usr/bin/osascript", {"-l", "JavaScript", moduleFile("media/macos.js"), "command", action});
-#endif
-}
-
-void MediaWatcher::searchSong(const QString &query)
-{
-	const QString q = query.trimmed().left(200);
-	if (q.isEmpty()) {
-		emit searchFinished();
-		return;
-	}
-	obs_log(LOG_INFO, "buscar canción");
-#ifdef __APPLE__
-	auto *search = new QProcess(this);
-	connect(search, &QProcess::finished, this, [this, search](int, QProcess::ExitStatus) {
-		QByteArray out = search->readAllStandardOutput().trimmed();
-		search->deleteLater();
-		QJsonObject result = QJsonDocument::fromJson(out.split('\n').last()).object();
-		QString error = result.value("error").toString();
-		QString info = result.value("info").toString();
-		if (!error.isEmpty() || out.isEmpty()) {
-			emit commandFailed(error.isEmpty() ? QString::fromUtf8(obs_module_text("NowPlaying.Search.Failed"))
-							   : error);
-		} else if (!info.isEmpty()) {
-			emit commandNotice(info);
-		}
-		emit searchFinished();
-	});
-	search->start("/usr/bin/osascript", {"-l", "JavaScript", moduleFile("media/macos.js"), "search", q});
-#else
-	// En Windows no se puede manejar la página del navegador: se abre la búsqueda en el
-	// reproductor que suena (Spotify) o en YouTube Music, y ahí se elige la canción.
-	const QString encoded = QString::fromUtf8(QUrl::toPercentEncoding(q));
-	const bool spotify = current(true).kind == "spotify";
-	QUrl url(spotify ? "spotify:search:" + encoded : "https://music.youtube.com/search?q=" + encoded);
-	if (QDesktopServices::openUrl(url))
-		emit commandNotice(QString::fromUtf8(obs_module_text(spotify ? "NowPlaying.Search.OpenedSpotify"
-									 : "NowPlaying.Search.OpenedYouTube")));
-	else
-		emit commandFailed(QString::fromUtf8(obs_module_text("NowPlaying.Search.Failed")));
-	emit searchFinished();
 #endif
 }

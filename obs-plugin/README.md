@@ -2,8 +2,8 @@
 
 Plugin nativo para OBS Studio (macOS y Windows) que agrega:
 
-- Una fuente **Now Playing (música)**: la tarjeta con la canción que suena (carátula, título, artista, barra de progreso) con los colores de la carátula. Se agrega a la escena como cualquier fuente y se configura en sus **Propiedades**: diseño **Horizontal** (barra) o **Vertical** (tarjeta con la carátula grande arriba); al cambiar de diseño o de tamaño de carátula, el ancho y el alto de la fuente se ajustan solos; si la tarjeta queda más chica que la fuente, se elige qué borde se mantiene fijo (arriba o abajo, para tarjetas en la parte de abajo de la pantalla), tema claro/oscuro, estilo **Sólido**, **Cristal** (traslúcido, deja ver la escena con el color de la carátula), **Ventana macOS** o **Píldora** (cristal), o uno con diseño propio —**Minimal**, **Línea**, **Synthwave**, **Ciudad neón**, **Cyberpunk**, **Retro** o **Glitch**—, o los skins **Winamp clásico** y **Winamp 5** (en horizontal y en vertical; en los estilos con disco la carátula gira mientras suena y, con video, gira su borde) con su **opacidad**, carátula normal/grande/oculta, **imagen para cuando no hay carátula** (tu logo; la tarjeta toma sus colores), **Carátula o video** (con YouTube Music / YouTube en el navegador, el video sin sonido y sincronizado; en Windows, de la barra de direcciones de la ventana cuya pestaña visible es YouTube o, si no se puede leer, buscando el video por su título) y su **formato** (mismo tamaño que la carátula con franjas difuminadas, o ajustado al video en 16:9), colores de la carátula, fondo difuminado, barra de progreso y la línea "Escuchando en …".
-- Un dock **Música** (menú **Docks**): la canción con los botones **anterior / pausa / siguiente** y un **buscador**: escribe una canción y pulsa Enter. Con YouTube Music en el navegador (Mac) pone el primer resultado; con Spotify abre la búsqueda en la app; con Apple Music pone la primera de tu biblioteca; en Windows abre la búsqueda en Spotify o YouTube Music. Vive dentro de OBS y no sale en el stream. Con YouTube Music en el navegador, los botones pulsan los de la propia página (en Chrome: **Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events**, una vez); con Spotify y Apple Music se le pide a la app; si no, se simulan las teclas de música (permiso de Accesibilidad para OBS).
+- Una fuente **♫ Now Playing (música)**: la tarjeta con la canción que suena (carátula, título, artista, barra de progreso) con los colores de la carátula. Se agrega a la escena como cualquier fuente y se configura en sus **Propiedades**: diseño **Horizontal** (barra) o **Vertical** (tarjeta con la carátula grande arriba); al cambiar de diseño o de tamaño de carátula, el ancho y el alto de la fuente se ajustan solos; si la tarjeta queda más chica que la fuente, se elige qué borde se mantiene fijo (arriba o abajo, para tarjetas en la parte de abajo de la pantalla), tema claro/oscuro, estilo **Sólido**, **Cristal** (traslúcido, deja ver la escena con el color de la carátula), **Ventana macOS** o **Píldora** (cristal), o uno con diseño propio —**Minimal**, **Línea**, **Synthwave**, **Ciudad neón**, **Cyberpunk**, **Retro** o **Glitch**—, o los skins **Winamp clásico** y **Winamp 5** (en horizontal y en vertical; en los estilos con disco la carátula gira mientras suena y, con video, gira su borde) con su **opacidad**, carátula normal/grande/oculta, **imagen para cuando no hay carátula** (tu logo; la tarjeta toma sus colores), **Carátula o video** (por defecto, video si es posible: con YouTube Music / YouTube en el navegador, el video sin sonido y sincronizado; en Windows, de la barra de direcciones de la ventana cuya pestaña visible es YouTube o, si no se puede leer, buscando el video por su título) y su **formato** (mismo tamaño que la carátula con franjas difuminadas, o ajustado al video en 16:9), colores de la carátula, fondo difuminado, barra de progreso y la línea "Escuchando en …".
+- Un dock **Música** (menú **Docks**): la canción con los botones **anterior / pausa / siguiente**. Vive dentro de OBS y no sale en el stream. Con YouTube Music en el navegador, los botones pulsan los de la propia página (en Chrome: **Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events**, una vez); con Spotify y Apple Music se le pide a la app; si no, se simulan las teclas de música (permiso de Accesibilidad para OBS).
 - En las Propiedades de la fuente, el botón **Crear canal de música** agrega al Mezclador de audio un canal "Música (Now Playing)" con solo el sonido de la app que suena (captura de audio por aplicación de OBS; macOS 13+ / Windows 10 2004+), para manejar su volumen aparte. Si el canal ya existe, lo reapunta a la app de ahora; y después el canal sigue solo a la música: al pasar de Spotify a YouTube Music (o al revés), apunta a la app que suena.
 
 **Carátula:** si el reproductor no la entrega (en macOS 27 el sistema solo manda su identificador), la pide a la app de Spotify (la primera vez macOS pregunta si OBS puede controlar Spotify: responde Permitir) y, para YouTube Music y los demás, la busca por artista y canción en el catálogo público de Apple (iTunes Search); solo la usa si artista y título coinciden. Esa búsqueda manda a Apple el nombre de la canción y el artista, nada más. En Windows, si el reproductor no manda imagen, hace la misma búsqueda y, para YouTube en el navegador, usa la miniatura del video.
@@ -28,23 +28,27 @@ Descarga el zip de tu sistema desde **[Releases](../../../releases/latest)** (`o
 
 ### Windows (OBS 31+, Windows 10/11)
 
-1. Cierra OBS y descomprime el zip donde sea (clic derecho → **Extraer todo**).
-2. Abre **Instalar.cmd**: copia el plugin a `C:\ProgramData\obs-studio\plugins\obs-now-playing` (queda `…\obs-now-playing\bin\64bit\obs-now-playing.dll`), la carpeta de plugins que OBS lee en Windows sin tocar su instalación (`%APPDATA%\obs-studio\plugins` no sirve). No pide administrador.
-3. Abre OBS.
+El zip tiene la misma forma que la carpeta de OBS: `obs-plugins\64bit\obs-now-playing.dll` y `data\obs-plugins\obs-now-playing\…`.
 
-A mano: la carpeta `obs-now-playing` del zip tiene que quedar directamente dentro de `C:\ProgramData\obs-studio\plugins\`, no dentro de otra carpeta con el nombre del zip.
+1. Cierra OBS.
+2. Descomprime el zip (clic derecho → **Extraer todo**): quedan las carpetas `obs-plugins` y `data`.
+3. Copia esas dos carpetas dentro de `C:\Program Files\obs-studio\` (la carpeta donde está instalado OBS). Windows pregunta si quieres reemplazar archivos y pide permiso de administrador: acepta las dos cosas.
+4. Comprueba que quedaron `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` y `C:\Program Files\obs-studio\data\obs-plugins\obs-now-playing\`.
+5. Si antes lo instalaste en `C:\ProgramData\obs-studio\plugins\obs-now-playing`, borra esa carpeta (si no, OBS carga las dos copias).
+6. Abre OBS. En el registro (**Ayuda → Archivos de registro**) debe aparecer `[obs-now-playing] plugin loaded successfully (version …)` con la versión nueva.
 
-O usa `OBS-Now-Playing-Setup-….exe`: además de la app, instala el plugin en esa misma carpeta (opción **Plugin para OBS**).
+O usa `OBS-Now-Playing-Setup-….exe`: además de la app, copia el plugin a la carpeta de OBS (opción **Plugin para OBS**; pide permiso de administrador) y borra la copia vieja de ProgramData si la hay.
 
 ## Actualizaciones
 
-Desde la versión 1.0.3, al abrir OBS el plugin revisa si hay una versión nueva en las Releases de GitHub. Si la hay, muestra un aviso con **Actualizar ahora**, **Más tarde** u **Omitir esta versión**: "Actualizar ahora" la descarga, reemplaza el plugin y pide reiniciar OBS. También se puede revisar a mano en **Herramientas → Now Playing: buscar actualizaciones**.
+Desde la versión 1.0.3, al abrir OBS el plugin revisa si hay una versión nueva en las Releases de GitHub. Si la hay, muestra un aviso (también se puede revisar a mano en **Herramientas → Now Playing: buscar actualizaciones**):
 
-Solo se actualiza sola si está instalada en su propia carpeta, como dicen las instrucciones de arriba. Si no, el aviso ofrece abrir la página de descargas.
+- **macOS:** **Actualizar ahora** la descarga, reemplaza el plugin y pide reiniciar OBS. Solo si está instalado en su propia carpeta (`…/plugins/obs-now-playing.plugin`), como dicen las instrucciones de arriba; si no, el aviso ofrece abrir la página de descargas.
+- **Windows:** el plugin está en la carpeta de OBS, que necesita permiso de administrador, así que el aviso abre la página de descargas: instala la versión nueva con el instalador o el zip.
 
 ## Usar
 
-1. **Fuentes → + → Now Playing (música)**. Ubícala y escálala como cualquier fuente; el tamaño de la tarjeta se cambia en sus Propiedades (ancho y alto).
+1. **Fuentes → + → ♫ Now Playing (música)**. Ubícala y escálala como cualquier fuente; el tamaño de la tarjeta se cambia en sus Propiedades (ancho y alto).
 2. **Docks → Música** para los botones.
 
 Si en el dock aparece "El lector del sistema no funciona", el mensaje dice por qué. El registro de OBS (**Ayuda → Archivos de registro**) tiene las líneas `[obs-now-playing]`.

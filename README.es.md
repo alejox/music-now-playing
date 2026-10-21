@@ -30,9 +30,9 @@ Funciona con **Spotify** (app o web), **YouTube Music**, **Apple Music** y cualq
 | 📐 **Horizontal o vertical** | Barra o tarjeta vertical; el tamaño de la fuente se ajusta solo. |
 | 🎬 **Modo video** | Con YouTube Music / YouTube, el video en vez de la carátula (sin sonido y sincronizado), en Mac y Windows. |
 | 🖼️ **Tu logo** | Una imagen tuya para las canciones sin carátula. |
-| ⏯️ **Dock de control** | Anterior / pausa / siguiente y un **buscador de canciones**, dentro de OBS y fuera del stream. |
+| ⏯️ **Dock de control** | Anterior / pausa / siguiente, dentro de OBS y fuera del stream. |
 | 🔊 **Canal de música** | Con un clic, un canal en el Mezclador de audio solo con el sonido del reproductor; te sigue si cambias de reproductor. |
-| 🔄 **Actualizaciones** | OBS te avisa cuando hay una versión nueva y la instala por ti. |
+| 🔄 **Actualizaciones** | OBS te avisa cuando hay una versión nueva; en Mac la instala por ti. |
 
 ## 📦 Instalar el plugin
 
@@ -41,13 +41,16 @@ Descarga el zip de tu sistema desde **[Releases](../../releases/latest)** y **ci
 | | macOS (OBS 31+) | Windows (OBS 31+) |
 |---|---|---|
 | **Archivo** | `obs-now-playing-plugin-<versión>-macos.zip` | `obs-now-playing-plugin-<versión>-windows-x64.zip` |
-| **1** | Descomprímelo: queda `obs-now-playing.plugin` | Cierra OBS y descomprímelo donde sea (clic derecho → Extraer todo) |
-| **2** | Cópialo a `~/Library/Application Support/obs-studio/plugins/` | Abre `Instalar.cmd`: copia el plugin a `C:\ProgramData\obs-studio\plugins\obs-now-playing` |
-| **3** | Pega en la Terminal el comando de abajo (una vez) | — |
+| **1** | Descomprímelo: queda `obs-now-playing.plugin` | Descomprímelo (clic derecho → **Extraer todo**): quedan las carpetas `obs-plugins` y `data` |
+| **2** | Cópialo a `~/Library/Application Support/obs-studio/plugins/` | Copia esas dos carpetas dentro de `C:\Program Files\obs-studio\` y acepta reemplazar y el permiso de administrador |
+| **3** | Pega en la Terminal el comando de abajo (una vez) | Comprueba que quedó `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` |
 | **4** | Abre OBS | Abre OBS |
 
 > [!TIP]
-> En Windows, `OBS-Now-Playing-Setup-<versión>.exe` también instala el plugin en esa misma carpeta (opción **Plugin para OBS**, marcada por defecto), sin descomprimir nada.
+> En Windows, `OBS-Now-Playing-Setup-<versión>.exe` también instala el plugin en la carpeta de OBS (opción **Plugin para OBS**, marcada por defecto; pide permiso de administrador), sin descomprimir nada.
+
+> [!IMPORTANT]
+> En Windows, si antes lo instalaste en `C:\ProgramData\obs-studio\plugins\obs-now-playing`, borra esa carpeta: si no, OBS carga las dos copias.
 
 ```bash
 xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin
@@ -58,23 +61,12 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 
 ## 🎛️ Usarlo
 
-1. **Fuentes → + → Now Playing (música)** para agregar la tarjeta. En sus **Propiedades** cambias el estilo.
-2. **Docks → Música** para los botones y el buscador.
+1. **Fuentes → + → ♫ Now Playing (música)** para agregar la tarjeta. En sus **Propiedades** cambias el estilo.
+2. **Docks → Música** para los botones.
 3. Opcional: en las Propiedades de la fuente, **Crear canal de música** para manejar el volumen de la música aparte.
 
-### 🔍 Buscador de canciones (dock)
-
-Escribe una canción o un artista y pulsa **Enter**. Lo que pasa depende del reproductor:
-
-| Reproductor | Qué hace el buscador |
-|---|---|
-| YouTube Music en el navegador (Mac) | Busca en su pestaña y **pone el primer resultado** |
-| Spotify | Abre la búsqueda en la app de Spotify y ahí eliges la canción |
-| Apple Music | Pone la primera que coincida en tu biblioteca |
-| Windows / otros | Abre la búsqueda en Spotify o en YouTube Music |
-
 > [!NOTE]
-> En Mac, para que los botones y el buscador funcionen con YouTube Music, activa una vez en Chrome: **Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events**.
+> En Mac, para que los botones funcionen con YouTube Music, activa una vez en Chrome: **Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events**.
 
 ## ❓ Preguntas frecuentes
 
@@ -107,7 +99,7 @@ Pega el comando `xattr -cr …` de los pasos de instalación. Pasa porque el plu
 <details>
 <summary><b>¿Cómo se actualiza?</b></summary>
 
-Al abrir OBS, si hay una versión nueva sale un aviso con **Actualizar ahora**: la descarga, reemplaza el plugin y pide reiniciar OBS. También en **Herramientas → Now Playing: buscar actualizaciones**.
+Al abrir OBS, si hay una versión nueva sale un aviso. En Mac, **Actualizar ahora** la descarga, reemplaza el plugin y pide reiniciar OBS. En Windows el plugin está en la carpeta de OBS (necesita permiso de administrador), así que el aviso abre la página de descargas: instálalo con el instalador o el zip. También en **Herramientas → Now Playing: buscar actualizaciones**.
 </details>
 
 ## 🖥️ App aparte (opcional)

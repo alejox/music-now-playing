@@ -55,12 +55,12 @@ if want windows; then
   STAGE_ABS="$(cd "$W" && pwd)"
   PLUGIN_ARGS=()
   if [ -n "${PLUGIN_ZIP:-}" ]; then
-    # El zip trae obs-now-playing/bin/64bit/obs-now-playing.dll y obs-now-playing/data/…
-    # (los símbolos .pdb no hacen falta para usarlo).
+    # El zip trae la forma de la carpeta de OBS: obs-plugins/64bit/obs-now-playing.dll y
+    # data/obs-plugins/obs-now-playing/… (el instalador lo copia encima de la de OBS).
     python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$PLUGIN_ZIP" "$W/plugin"
     find "$W/plugin" -name '*.pdb' -delete
-    [ -f "$W/plugin/obs-now-playing/bin/64bit/obs-now-playing.dll" ] || { echo "$PLUGIN_ZIP no trae el plugin"; exit 1; }
-    PLUGIN_ARGS=(-DPLUGIN="$STAGE_ABS/plugin/obs-now-playing")
+    [ -f "$W/plugin/obs-plugins/64bit/obs-now-playing.dll" ] || { echo "$PLUGIN_ZIP no trae el plugin"; exit 1; }
+    PLUGIN_ARGS=(-DPLUGIN="$STAGE_ABS/plugin")
   else
     echo "Aviso: sin PLUGIN_ZIP el instalador no incluye el plugin de OBS."
   fi

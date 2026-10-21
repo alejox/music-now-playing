@@ -239,7 +239,8 @@ void np_defaults(obs_data_t *settings)
 	obs_data_set_default_string(settings, "style", "solid");
 	obs_data_set_default_int(settings, "opacity", 85);
 	obs_data_set_default_string(settings, "art", "normal");
-	obs_data_set_default_string(settings, "media", "art");
+	// Video si es posible (YouTube / YouTube Music); si no, la carátula.
+	obs_data_set_default_string(settings, "media", "video");
 	obs_data_set_default_string(settings, "video_fit", "square");
 	obs_data_set_default_bool(settings, "colors", true);
 	obs_data_set_default_bool(settings, "blur", false);
@@ -334,8 +335,8 @@ obs_properties_t *np_properties(void *)
 
 	obs_property_t *media = obs_properties_add_list(props, "media", obs_module_text("NowPlaying.Media"),
 							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-	obs_property_list_add_string(media, obs_module_text("NowPlaying.Media.Art"), "art");
 	obs_property_list_add_string(media, obs_module_text("NowPlaying.Media.Video"), "video");
+	obs_property_list_add_string(media, obs_module_text("NowPlaying.Media.Art"), "art");
 	obs_property_set_long_description(media, obs_module_text("NowPlaying.Media.Help"));
 
 	obs_property_t *videoFit = obs_properties_add_list(props, "video_fit", obs_module_text("NowPlaying.VideoFit"),

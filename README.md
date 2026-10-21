@@ -30,9 +30,9 @@ Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any 
 | 📐 **Horizontal or vertical** | A bar or a vertical card; the source size adjusts itself. |
 | 🎬 **Video mode** | With YouTube Music / YouTube, the music video instead of the cover (muted and in sync), on Mac and Windows. |
 | 🖼️ **Your logo** | An image of your own for songs without a cover. |
-| ⏯️ **Control dock** | Previous / pause / next and a **song search box**, inside OBS and off-stream. |
+| ⏯️ **Control dock** | Previous / pause / next, inside OBS and off-stream. |
 | 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound; it follows you when you switch players. |
-| 🔄 **Updates** | OBS tells you when there's a new version and installs it for you. |
+| 🔄 **Updates** | OBS tells you when there's a new version; on Mac it installs it for you. |
 
 ## 📦 Install the plugin
 
@@ -41,13 +41,16 @@ Download the zip for your system from **[Releases](../../releases/latest)** and 
 | | macOS (OBS 31+) | Windows (OBS 31+) |
 |---|---|---|
 | **File** | `obs-now-playing-plugin-<version>-macos.zip` | `obs-now-playing-plugin-<version>-windows-x64.zip` |
-| **1** | Unzip it: you get `obs-now-playing.plugin` | Close OBS and unzip it anywhere (right click → Extract All) |
-| **2** | Copy it to `~/Library/Application Support/obs-studio/plugins/` | Open `Instalar.cmd`: it copies the plugin to `C:\ProgramData\obs-studio\plugins\obs-now-playing` |
-| **3** | Run the Terminal command below (once) | — |
+| **1** | Unzip it: you get `obs-now-playing.plugin` | Unzip it (right click → **Extract All**): you get the `obs-plugins` and `data` folders |
+| **2** | Copy it to `~/Library/Application Support/obs-studio/plugins/` | Copy those two folders into `C:\Program Files\obs-studio\`, accepting to replace and the administrator prompt |
+| **3** | Run the Terminal command below (once) | Check that `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` is there |
 | **4** | Open OBS | Open OBS |
 
 > [!TIP]
-> On Windows, `OBS-Now-Playing-Setup-<version>.exe` also installs the plugin into that same folder (option **Plugin para OBS**, checked by default), no zip needed.
+> On Windows, `OBS-Now-Playing-Setup-<version>.exe` also installs the plugin into the OBS folder (option **Plugin para OBS**, checked by default; asks for administrator permission), no zip needed.
+
+> [!IMPORTANT]
+> On Windows, if you installed it before in `C:\ProgramData\obs-studio\plugins\obs-now-playing`, delete that folder: otherwise OBS loads both copies.
 
 ```bash
 xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin
@@ -58,23 +61,12 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 
 ## 🎛️ Use it
 
-1. **Sources → + → Now Playing (música)** to add the card. Open its **Properties** to change the style.
-2. **Docks → Música** for the buttons and the search box.
+1. **Sources → + → ♫ Now Playing (music)** to add the card. Open its **Properties** to change the style.
+2. **Docks → Música** for the buttons.
 3. Optional: in the source Properties, **Crear canal de música** (Create music channel) to control the music volume separately.
 
-### 🔍 Song search (dock)
-
-Type a song or an artist and press **Enter**. What happens depends on the player:
-
-| Player | What the search does |
-|---|---|
-| YouTube Music in the browser (Mac) | Searches in its tab and **plays the first result** |
-| Spotify | Opens the search in the Spotify app, you pick the song |
-| Apple Music | Plays the first match from your library |
-| Windows / others | Opens the search in Spotify or YouTube Music |
-
 > [!NOTE]
-> On Mac, for the YouTube Music buttons and search to work, turn on once in Chrome: **View → Developer → Allow JavaScript from Apple Events**.
+> On Mac, for the YouTube Music buttons to work, turn on once in Chrome: **View → Developer → Allow JavaScript from Apple Events**.
 
 The plugin's interface is in Spanish, with English strings included.
 
