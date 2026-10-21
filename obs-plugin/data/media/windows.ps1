@@ -265,8 +265,10 @@ function Find-YouTubeVideo($title, $artist) {
 }
 
 # @{ id; site } del video de YouTube de lo que suena, o $null. En un navegador, el de su
-# pestaña; en las demás apps (Spotify…), el que da la búsqueda en YouTube (sin site).
-function Get-Video($app, $title, $artist) {
+# pestaña de YouTube; si no hay (el reproductor web de Spotify u otra página de música, que
+# traen álbum; un stream o una serie no) y en las demás apps (Spotify…), el que da la
+# búsqueda en YouTube (sin site).
+function Get-Video($app, $title, $artist, $album) {
   if ($app -match 'obs64') { return $null } # el video de la propia tarjeta
   $key = "$app`n$title"
   if ($videoIds[$key]) { return $videoIds[$key] }
@@ -276,6 +278,10 @@ function Get-Video($app, $title, $artist) {
   try {
     if ($app -match $browserApps) {
       $video = Find-YouTubeVideo $title $artist
+      if (-not $video -and $album) {
+        $id = Search-YouTubeVideoId $title $artist
+        if ($id) { $video = @{ id = $id; site = '' } }
+      }
     } else {
       $id = Search-YouTubeVideoId $title $artist
       if ($id) { $video = @{ id = $id; site = '' } }
@@ -368,7 +374,7 @@ for ($i = 0; $i -lt 1800; $i++) {
         if (-not $art -and $tries[$app] -ge 3) {
           $art = Find-CatalogArtwork $props.Title $props.Artist
           if (-not $art -and $app -match $browserApps) {
-            $video = Get-Video $app $props.Title $props.Artist
+            $video = Get-Video $app $props.Title $props.Artist $props.AlbumTitle
             if ($video) { $art = Find-VideoThumbnail $video.id }
           }
         }
@@ -381,7 +387,7 @@ for ($i = 0; $i -lt 1800; $i++) {
         }
       }
       if (Test-VideoWanted) {
-        $video = Get-Video $app $props.Title $props.Artist
+        $video = Get-Video $app $props.Title $props.Artist $props.AlbumTitle
         if ($video) {
           $entry.videoId = $video.id
           if ($video.site) { $entry.site = $video.site }

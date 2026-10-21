@@ -35,7 +35,8 @@ struct AppInfo {
 };
 
 // De qué reproductor viene una sesión: decide el color y el "Escuchando en …". En un
-// navegador, site (del lector, en modo video) dice si la pestaña es YouTube o YouTube Music.
+// navegador, site (del lector, en modo video) dice si la pestaña es YouTube, YouTube Music
+// o el reproductor web de Spotify.
 AppInfo classifyApp(const QString &app, const QString &name, const QString &site)
 {
 	const QString id = (app + " " + name).toLower();
@@ -61,6 +62,8 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 			return {"ytmusic", "YouTube Music"};
 		if (site == "youtube")
 			return {"youtube", "YouTube"};
+		if (site == "spotify")
+			return {"spotify", "Spotify"};
 		return {"browser", browser.second};
 	}
 	QString fallback = name;
@@ -269,6 +272,10 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		track.artwork = artworks_.value(artKey);
 
 		const Track prev = tracks_.value(app);
+		// Una vez por canción: si llegó el video de YouTube (para saber qué pasó si no se ve).
+		if (!track.videoId.isEmpty() && track.videoId != prev.videoId)
+			obs_log(LOG_INFO, "video de YouTube para %s: %s", app.toUtf8().constData(),
+				track.videoId.toUtf8().constData());
 		bool changed = !prev.valid() || prev.title != track.title || prev.artist != track.artist ||
 			       (!prev.isPlaying && track.isPlaying);
 		track.changedAt = changed ? t : prev.changedAt;
@@ -348,6 +355,10 @@ void MediaWatcher::sendCommand(const QString &action)
 		if (!problem.isEmpty()) {
 			obs_log(LOG_WARNING, "botón: %s", problem.toUtf8().constData());
 			emit commandFailed(problem);
+		} else if (result.contains("via")) {
+			// Por dónde llegó el botón (página de YouTube, la app, teclas de música): para
+			// saber qué pasó si un reproductor no responde.
+			obs_log(LOG_INFO, "botón por: %s", result.value("via").toString().toUtf8().constData());
 		}
 	});
 	command->start("/usr/bin/osascript", {"-l", "JavaScript", moduleFile("media/macos.js"), "command", action});
