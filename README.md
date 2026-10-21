@@ -28,11 +28,11 @@ Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any 
 | 🎨 **Cover art colors** | The card takes the colors of each song's cover, with a smooth transition. |
 | 🪟 **Solid or glass** | A solid card or a translucent "glass" one, with adjustable opacity. Light or dark theme. |
 | 📐 **Horizontal or vertical** | A bar or a vertical card; the source size adjusts itself. |
-| 🎬 **Video mode** | With YouTube Music / YouTube, the music video instead of the cover (muted and in sync), on Mac and Windows. |
+| 🎬 **Video mode** | The YouTube video instead of the cover (muted and in sync), on Mac and Windows: the one in the YouTube Music / YouTube tab and, with Spotify or other apps, the one found by searching the song on YouTube. |
 | 🖼️ **Your logo** | An image of your own for songs without a cover. |
 | ⏯️ **Control dock** | Previous / pause / next, inside OBS and off-stream. |
 | 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound; it follows you when you switch players. |
-| 🔄 **Updates** | OBS tells you when there's a new version; on Mac it installs it for you. |
+| 🔄 **Updates** | OBS tells you when there's a new version and installs it for you. |
 
 ## 📦 Install the plugin
 
@@ -169,7 +169,7 @@ URL options (combine with `&`):
 ## 🔒 Privacy
 
 - Everything runs on your computer; there's no server of ours.
-- The plugin only goes online to check for updates on GitHub, to look up missing cover art in Apple's public catalog (song title and artist), on Windows to find the YouTube video that is playing when the address bar can't be read (video title and channel) and, in video mode, to load the YouTube player.
+- The plugin only goes online to check for updates on GitHub, to look up missing cover art in Apple's public catalog (song title and artist), in video mode to search YouTube for the song's video (title and artist; on Windows also when the address bar can't be read) and to load the YouTube player.
 - The app only listens on `127.0.0.1` and doesn't let other web pages read what you listen to.
 
 ## 🛠️ For developers

@@ -28,11 +28,11 @@ Funciona con **Spotify** (app o web), **YouTube Music**, **Apple Music** y cualq
 | 🎨 **Colores de la carátula** | La tarjeta toma los colores de la carátula de cada canción, con una transición suave. |
 | 🪟 **Sólido o cristal** | Tarjeta sólida o traslúcida tipo "cristal", con opacidad ajustable. Tema claro u oscuro. |
 | 📐 **Horizontal o vertical** | Barra o tarjeta vertical; el tamaño de la fuente se ajusta solo. |
-| 🎬 **Modo video** | Con YouTube Music / YouTube, el video en vez de la carátula (sin sonido y sincronizado), en Mac y Windows. |
+| 🎬 **Modo video** | El video de YouTube en vez de la carátula (sin sonido y sincronizado), en Mac y Windows: el de la pestaña con YouTube Music / YouTube y, con Spotify u otras apps, el que encuentra buscando la canción en YouTube. |
 | 🖼️ **Tu logo** | Una imagen tuya para las canciones sin carátula. |
 | ⏯️ **Dock de control** | Anterior / pausa / siguiente, dentro de OBS y fuera del stream. |
 | 🔊 **Canal de música** | Con un clic, un canal en el Mezclador de audio solo con el sonido del reproductor; te sigue si cambias de reproductor. |
-| 🔄 **Actualizaciones** | OBS te avisa cuando hay una versión nueva; en Mac la instala por ti. |
+| 🔄 **Actualizaciones** | OBS te avisa cuando hay una versión nueva y la instala por ti. |
 
 ## 📦 Instalar el plugin
 
@@ -99,7 +99,7 @@ Pega el comando `xattr -cr …` de los pasos de instalación. Pasa porque el plu
 <details>
 <summary><b>¿Cómo se actualiza?</b></summary>
 
-Al abrir OBS, si hay una versión nueva sale un aviso. En Mac, **Actualizar ahora** la descarga, reemplaza el plugin y pide reiniciar OBS. En Windows el plugin está en la carpeta de OBS (necesita permiso de administrador), así que el aviso abre la página de descargas: instálalo con el instalador o el zip. También en **Herramientas → Now Playing: buscar actualizaciones**.
+Al abrir OBS, si hay una versión nueva sale un aviso con **Actualizar ahora**: la descarga, reemplaza el plugin y pide reiniciar OBS. En Windows, como el plugin está en la carpeta de OBS, Windows pide permiso de administrador para copiarlo. También en **Herramientas → Now Playing: buscar actualizaciones**.
 </details>
 
 ## 🖥️ App aparte (opcional)
@@ -173,7 +173,7 @@ Opciones para la URL (se combinan con `&`):
 ## 🔒 Privacidad
 
 - Todo corre en tu computador; no hay servidores nuestros.
-- El plugin solo se conecta a internet para buscar actualizaciones en GitHub, para buscar la carátula que falte en el catálogo público de Apple (nombre de la canción y artista), en Windows para encontrar el video de YouTube que suena cuando no se puede leer la barra de direcciones (título del video y canal) y, en el modo video, para cargar el reproductor de YouTube.
+- El plugin solo se conecta a internet para buscar actualizaciones en GitHub, para buscar la carátula que falte en el catálogo público de Apple (nombre de la canción y artista), en el modo video para buscar en YouTube el video de la canción (título y artista; en Windows también cuando no se puede leer la barra de direcciones) y para cargar el reproductor de YouTube.
 - La app solo escucha en `127.0.0.1` y no deja que otras páginas web lean lo que escuchas.
 
 ## 🛠️ Para desarrolladores

@@ -24,6 +24,13 @@
 
 #include <algorithm>
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 namespace {
 
 const char *kLatestRelease = "https://api.github.com/repos/alejox/obs-music-player/releases/latest";
@@ -80,8 +87,9 @@ void skipVersion(const QString &version)
 	}
 }
 
-// Carpeta raíz del plugin instalado (macOS): …/obs-now-playing.plugin (binario en
-// Contents/MacOS/). En Windows el plugin va en la carpeta de OBS y no se actualiza solo.
+// Carpeta raíz del plugin instalado:
+//   macOS:   …/obs-now-playing.plugin   (binario en Contents/MacOS/)
+//   Windows: la carpeta de OBS          (binario en obs-plugins\64bit\)
 QString installedRoot()
 {
 	QString binary = QString::fromUtf8(obs_get_module_binary_path(obs_current_module()));
@@ -114,6 +122,56 @@ bool copyTree(const QString &from, const QString &to, QString *problem)
 	}
 	return true;
 }
+
+#ifdef _WIN32
+// La carpeta de OBS (Archivos de programa) pide permiso de administrador: la copia la hace
+// una PowerShell con "Ejecutar como administrador" (Windows muestra el aviso de permiso).
+// Devuelve el código de salida, o -1 si no se pudo pedir el permiso (o se canceló).
+int runElevated(const QString &program, const QString &params, QString *problem)
+{
+	std::wstring file = program.toStdWString();
+	std::wstring args = params.toStdWString();
+	SHELLEXECUTEINFOW info = {};
+	info.cbSize = sizeof(info);
+	info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC;
+	info.lpVerb = L"runas";
+	info.lpFile = file.c_str();
+	info.lpParameters = args.c_str();
+	info.nShow = SW_HIDE;
+	if (!ShellExecuteExW(&info) || !info.hProcess) {
+		DWORD error = GetLastError();
+		*problem = error == ERROR_CANCELLED ? QString("Se canceló el permiso de administrador.")
+						    : QString("No se pudo pedir permiso de administrador (error %1).").arg(error);
+		return -1;
+	}
+	WaitForSingleObject(info.hProcess, 180000);
+	DWORD code = 1;
+	GetExitCodeProcess(info.hProcess, &code);
+	CloseHandle(info.hProcess);
+	return int(code);
+}
+
+// Copia el zip descomprimido (obs-plugins\, data\) encima de la carpeta de OBS. El .dll
+// cargado no se puede pisar, pero sí renombrar: queda como .old (se borra en la próxima
+// actualización) y el nuevo se usa al reiniciar OBS. Si la copia falla, vuelve el de antes.
+const char *kInstallScript = R"PS(param([string]$Source, [string]$Obs)
+$ErrorActionPreference = 'Stop'
+$dir = Join-Path $Obs 'obs-plugins\64bit'
+$dll = Join-Path $dir 'obs-now-playing.dll'
+Get-ChildItem -LiteralPath $dir -Filter 'obs-now-playing.dll.*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+$old = ''
+if (Test-Path -LiteralPath $dll) {
+  $old = "$dll.$([DateTimeOffset]::Now.ToUnixTimeSeconds()).old"
+  Rename-Item -LiteralPath $dll -NewName (Split-Path $old -Leaf)
+}
+robocopy $Source $Obs /E /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) {
+  if ($old -and -not (Test-Path -LiteralPath $dll)) { Rename-Item -LiteralPath $old -NewName 'obs-now-playing.dll' }
+  exit 1
+}
+exit 0
+)PS";
+#endif
 
 } // namespace
 
@@ -219,28 +277,16 @@ void Updater::askToUpdate(const QString &version, const QString &url, const QStr
 	box.setTextInteractionFlags(Qt::TextBrowserInteraction);
 	box.setText(text("NowPlaying.Update.Available")
 			    .arg(version, QString::fromUtf8(PLUGIN_VERSION), pageUrl.toHtmlEscaped()));
-#ifdef _WIN32
-	QPushButton *update = box.addButton(text("NowPlaying.Update.OpenPage"), QMessageBox::AcceptRole);
-#else
 	QPushButton *update = box.addButton(text("NowPlaying.Update.Now"), QMessageBox::AcceptRole);
-#endif
 	box.addButton(text("NowPlaying.Update.Later"), QMessageBox::RejectRole);
 	QPushButton *skip = box.addButton(text("NowPlaying.Update.Skip"), QMessageBox::DestructiveRole);
 	box.setDefaultButton(update);
 	box.exec();
 
-	if (box.clickedButton() == update) {
-#ifdef _WIN32
-		// En Windows el plugin va en la carpeta de OBS (Archivos de programa), que pide
-		// permiso de administrador: se abre la página para descargar el zip o el instalador.
-		(void)url;
-		QDesktopServices::openUrl(QUrl(pageUrl));
-#else
+	if (box.clickedButton() == update)
 		download(version, url);
-#endif
-	} else if (box.clickedButton() == skip) {
+	else if (box.clickedButton() == skip)
 		skipVersion(version);
-	}
 }
 
 void Updater::download(const QString &version, const QString &url)
@@ -275,18 +321,31 @@ void Updater::install(const QString &version, const QString &zipPath)
 	QString extracted = QDir(workDir).filePath("unzipped");
 	QDir().mkpath(extracted);
 
+#ifdef _WIN32
+	int unzip = QProcess::execute(systemTool("tar"), {"-xf", zipPath, "-C", extracted});
+	// El zip trae la forma de la carpeta de OBS: obs-plugins\64bit\…dll y data\obs-plugins\…
+	QString newRoot = extracted;
+	bool unzipped = unzip == 0 && QFileInfo::exists(QDir(extracted).filePath("obs-plugins/64bit/obs-now-playing.dll"));
+#else
 	int unzip = QProcess::execute(systemTool("ditto"), {"-x", "-k", zipPath, extracted});
 	QString newRoot = QDir(extracted).filePath("obs-now-playing.plugin");
-	if (unzip != 0 || !QFileInfo(newRoot).isDir()) {
+	bool unzipped = unzip == 0 && QFileInfo(newRoot).isDir();
+#endif
+	if (!unzipped) {
 		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage,
 		     QString("No se pudo descomprimir %1 (código %2)").arg(QDir::toNativeSeparators(zipPath)).arg(unzip));
 		return;
 	}
 
 	QString root = installedRoot();
-	// Solo se actualiza un plugin en su propia carpeta (la que crean las instrucciones).
-	// Si está metido en la carpeta de OBS, reemplazar archivos ahí sería peligroso.
+	// Solo se actualiza un plugin instalado como dicen las instrucciones: en macOS en su
+	// propia carpeta; en Windows en la de OBS (el .dll en obs-plugins\64bit\).
+#ifdef _WIN32
+	QDir binDir = QFileInfo(QString::fromUtf8(obs_get_module_binary_path(obs_current_module()))).absoluteDir();
+	bool ownFolder = binDir.dirName() == "64bit" && QFileInfo(binDir.absolutePath()).dir().dirName() == "obs-plugins";
+#else
 	bool ownFolder = QFileInfo(root).fileName() == "obs-now-playing.plugin";
+#endif
 	if (!ownFolder) {
 		obs_log(LOG_WARNING, "plugin fuera de su carpeta (%s): no se actualiza solo", root.toUtf8().constData());
 		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage,
@@ -295,6 +354,22 @@ void Updater::install(const QString &version, const QString &zipPath)
 	}
 	bool ok = false;
 	QString problem;
+#ifdef _WIN32
+	QString script = QDir(workDir).filePath("instalar.ps1");
+	QFile scriptFile(script);
+	if (!scriptFile.open(QIODevice::WriteOnly) || scriptFile.write(kInstallScript) < 0) {
+		problem = QString("No se pudo escribir %1").arg(QDir::toNativeSeparators(script));
+	} else {
+		scriptFile.close();
+		QString params = QString("-NoProfile -ExecutionPolicy Bypass -File \"%1\" -Source \"%2\" -Obs \"%3\"")
+					 .arg(QDir::toNativeSeparators(script), QDir::toNativeSeparators(newRoot),
+					      QDir::toNativeSeparators(root));
+		int code = runElevated("powershell.exe", params, &problem);
+		ok = code == 0;
+		if (code > 0)
+			problem = QString("No se pudo copiar el plugin a %1 (código %2).").arg(QDir::toNativeSeparators(root)).arg(code);
+	}
+#else
 	// En macOS el binario cargado sigue funcionando aunque se reemplace el paquete.
 	QString backup = root + ".old";
 	QDir(backup).removeRecursively();
@@ -311,6 +386,7 @@ void Updater::install(const QString &version, const QString &zipPath)
 	} else {
 		problem = QString("No se pudo mover %1").arg(root);
 	}
+#endif
 
 	if (progress_) {
 		progress_->close();
