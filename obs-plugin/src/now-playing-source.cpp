@@ -23,16 +23,27 @@ void syncVideoWanted(); // abajo, junto a push_now_playing_sources()
 namespace {
 
 // Tamaño de la fuente para cada diseño y carátula: el justo para la tarjeta y su sombra
-// (medido con la tarjeta real). Se aplica solo al cambiar de diseño o de carátula.
+// (medido con la tarjeta real). Se aplica solo al cambiar de diseño, de carátula o a un
+// skin de Winamp y de vuelta (llevan barra de título y botones: son más altos).
 struct Size {
 	long long width, height;
 };
 
-Size suggestedSize(const char *layout, const char *art)
+bool isSkin(const char *style)
+{
+	return strncmp(style, "winamp", 6) == 0;
+}
+
+Size suggestedSize(const char *layout, const char *art, const char *style)
 {
 	bool vertical = strcmp(layout, "vertical") == 0;
 	bool hidden = strcmp(art, "hidden") == 0;
 	bool big = strcmp(art, "big") == 0;
+	if (isSkin(style)) {
+		if (vertical)
+			return hidden ? Size{280, 230} : Size{280, 450};
+		return big ? Size{520, 230} : Size{480, 200};
+	}
 	if (vertical)
 		return hidden ? Size{280, 140} : Size{280, 360};
 	return big ? Size{520, 180} : Size{480, 150};
@@ -218,7 +229,7 @@ void np_update(void *data, obs_data_t *settings)
 
 void np_defaults(obs_data_t *settings)
 {
-	Size size = suggestedSize("horizontal", "normal");
+	Size size = suggestedSize("horizontal", "normal", "solid");
 	obs_data_set_default_int(settings, "width", size.width);
 	obs_data_set_default_int(settings, "height", size.height);
 	obs_data_set_default_string(settings, "sized_for", "horizontal/normal");
@@ -244,12 +255,17 @@ bool np_size_modified(obs_properties_t *, obs_property_t *, obs_data_t *settings
 {
 	const char *layout = obs_data_get_string(settings, "layout");
 	const char *art = obs_data_get_string(settings, "art");
+	const char *style = obs_data_get_string(settings, "style");
+	// Los demás estilos miden lo mismo: solo los skins cambian la clave (así una fuente
+	// existente no cambia de tamaño al abrir sus Propiedades).
 	QString current = QString("%1/%2").arg(layout, art);
+	if (isSkin(style))
+		current += "/winamp";
 	QString sizedFor = QString::fromUtf8(obs_data_get_string(settings, "sized_for"));
 	if (sizedFor == current)
 		return false;
 	if (!sizedFor.isEmpty()) {
-		Size size = suggestedSize(layout, art);
+		Size size = suggestedSize(layout, art, style);
 		obs_data_set_int(settings, "width", size.width);
 		obs_data_set_int(settings, "height", size.height);
 	}
@@ -300,6 +316,9 @@ obs_properties_t *np_properties(void *)
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Cyber"), "cyber");
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Retro"), "retro");
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Glitch"), "glitch");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Winamp"), "winamp");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Winamp5"), "winamp5");
+	obs_property_set_modified_callback(style, np_size_modified);
 	obs_property_set_long_description(style, obs_module_text("NowPlaying.Style.Help"));
 
 	obs_property_t *opacity =
