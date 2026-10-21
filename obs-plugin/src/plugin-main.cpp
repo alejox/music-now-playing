@@ -42,9 +42,13 @@ void on_frontend_event(enum obs_frontend_event event, void *)
 	// Con OBS ya abierto, revisa si hay una versión nueva (sin apurar el arranque).
 	if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
 		QTimer::singleShot(5000, &Updater::instance(), [] { Updater::instance().check(false); });
-		// Con las escenas ya cargadas, el canal de música sigue a la app que suena.
-		QObject::connect(&MediaWatcher::instance(), &MediaWatcher::updated, &MediaWatcher::instance(),
-				 &follow_music_channel, Qt::UniqueConnection);
+		// Con las escenas ya cargadas, el canal de música sigue a la app que suena. Una
+		// sola vez: Qt::UniqueConnection no sirve con una función suelta (con el Qt de
+		// OBS 32 en Mac la conexión falla y el canal nunca seguía a la música).
+		static bool following = false;
+		if (!following)
+			following = static_cast<bool>(QObject::connect(&MediaWatcher::instance(), &MediaWatcher::updated,
+								       &MediaWatcher::instance(), &follow_music_channel));
 	}
 }
 
