@@ -21,6 +21,7 @@ jobs:
         run: |
           cmp media/windows.ps1 obs-plugin/data/media/windows.ps1
           cmp media/macos.js obs-plugin/data/media/macos.js
+          cmp media/linux.sh obs-plugin/data/media/linux.sh
           cmp ui.js obs-plugin/data/overlay/ui.js
 
   # El modo video de la tarjeta necesita YouTube de verdad: se prueba en un Chromium real.

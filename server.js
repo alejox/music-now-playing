@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // OBS Now Playing — servidor local que lee "lo que está sonando" del sistema
-// (Windows: controles multimedia SMTC; macOS: "Ahora suena") y lo sirve como
+// (Windows: controles multimedia SMTC; macOS: "Ahora suena"; Linux: MPRIS) y lo sirve como
 // overlay para una Fuente de navegador de OBS. Sin dependencias: Node 18+.
 'use strict';
 
@@ -135,6 +135,7 @@ function cleanUrl(v) {
 
 const BROWSERS = [
   ['chrome', 'Chrome'],
+  ['chromium', 'Chromium'],
   ['msedge', 'Edge'],
   ['firefox', 'Firefox'],
   ['brave', 'Brave'],
@@ -257,6 +258,7 @@ setInterval(refreshTextFile, 1000);
 // Lector del sistema: un proceso hijo que escribe una línea JSON por segundo.
 //   Windows: PowerShell + SMTC (viene con Windows 10/11).
 //   macOS:   osascript + MediaRemote (viene con macOS).
+//   Linux:   bash + playerctl (MPRIS; playerctl se instala aparte).
 // ---------------------------------------------------------------------------
 
 const system = { status: 'starting', error: '', lastLineAt: 0, startedAt: 0 };
@@ -274,6 +276,7 @@ function helperCommand() {
   if (process.platform === 'darwin') {
     return ['/usr/bin/osascript', ['-l', 'JavaScript', path.join(ROOT, 'media', 'macos.js')]];
   }
+  if (process.platform === 'linux') return ['bash', [path.join(ROOT, 'media', 'linux.sh')]];
   return null;
 }
 
@@ -371,11 +374,15 @@ const ACTIONS = new Set(['previous', 'playpause', 'next']);
 // Comandos para el userscript (plan B): se los entregamos en la respuesta de su próximo latido.
 const browserCommands = new Map();
 
-function runMacCommand(action) {
+// macOS y Linux: el lector se abre aparte con "command <acción>" y responde una línea JSON.
+function runReaderCommand(action, app) {
+  const [program, args, env] =
+    process.platform === 'darwin'
+      ? ['/usr/bin/osascript', ['-l', 'JavaScript', path.join(ROOT, 'media', 'macos.js'), 'command', action], process.env]
+      : // En Linux, el reproductor de la sesión (ver media/linux.sh).
+        ['bash', [path.join(ROOT, 'media', 'linux.sh'), 'command', action], { ...process.env, OBS_NOW_PLAYING_PLAYER: app }];
   return new Promise((resolve) => {
-    const child = spawn('/usr/bin/osascript', ['-l', 'JavaScript', path.join(ROOT, 'media', 'macos.js'), 'command', action], {
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
+    const child = spawn(program, args, { stdio: ['ignore', 'pipe', 'pipe'], env });
     let out = '';
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (out += d));
@@ -395,7 +402,9 @@ async function sendControl(action) {
     browserCommands.set(t.key, action);
     return { ok: true };
   }
-  if (process.platform === 'darwin' && !process.env.OBS_NOW_PLAYING_HELPER) return runMacCommand(action);
+  if ((process.platform === 'darwin' || process.platform === 'linux') && !process.env.OBS_NOW_PLAYING_HELPER) {
+    return runReaderCommand(action, t.app);
+  }
   if (!helper) return { ok: false, error: 'El lector del sistema no está corriendo.' };
   // El lector revisa este archivo cada 100 ms (ver media/windows.ps1).
   writeJson(COMMAND_PATH, { cmd: action, app: t.app });
@@ -496,14 +505,24 @@ const systemSilent = () =>
   system.status !== 'unsupported' && system.startedAt > 0 && Date.now() - Math.max(system.lastLineAt, system.startedAt) > 20000;
 
 function systemStatusHtml() {
-  const label = process.platform === 'darwin' ? '"Ahora suena" de macOS' : 'controles multimedia de Windows';
+  const label =
+    process.platform === 'darwin'
+      ? '"Ahora suena" de macOS'
+      : process.platform === 'linux'
+        ? 'reproductores MPRIS de Linux (con playerctl)'
+        : 'controles multimedia de Windows';
   if (system.status === 'unsupported') return `<span class="warn">no disponible en este sistema</span> — usa el plan B de abajo.`;
   if (system.status === 'error') {
     return `<span class="err">no funciona: ${escapeHtml(system.error)}</span><br><span class="muted">Usa el plan B de abajo mientras tanto.</span>`;
   }
   if (system.status === 'starting' || Date.now() - system.lastLineAt > STALE_MS) {
     if (systemSilent()) {
-      const hint = process.platform === 'win32' ? 'un antivirus o una política de la empresa puede estar bloqueando PowerShell' : 'revisa log.txt en la carpeta de datos';
+      const hint =
+        process.platform === 'win32'
+          ? 'un antivirus o una política de la empresa puede estar bloqueando PowerShell'
+          : process.platform === 'linux'
+            ? 'revisa que playerctl esté instalado (sudo apt install playerctl) y log.txt en la carpeta de datos'
+            : 'revisa log.txt en la carpeta de datos';
       return `<span class="err">no responde</span> (${hint}).<br><span class="muted">Usa el plan B de abajo mientras tanto.</span>`;
     }
     return `<span class="warn">iniciando…</span>`;
