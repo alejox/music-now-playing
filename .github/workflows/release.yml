@@ -100,6 +100,9 @@ jobs:
   # OBS. Se prueba que install.sh lo deja todo en su lugar y que la app abre y responde.
   linux:
     needs: [plugin]
+    # Si Linux falla, la Release de Windows y Mac sale igual (sin los archivos de Linux).
+    if: ${{ !cancelled() }}
+    continue-on-error: true
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5

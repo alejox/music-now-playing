@@ -264,7 +264,11 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 		if (manual)
 			fail(text("NowPlaying.Update.CheckFailed"), pageUrl,
 			     release.contains("message") ? "GitHub: " + release.value("message").toString()
+#ifdef __linux__
 							 : QString("La Release no trae obs-now-playing-plugin-…-%1").arg(kPlatform));
+#else
+							 : QString("La Release no trae obs-now-playing-plugin-…-%1.zip").arg(kPlatform));
+#endif
 		return;
 	}
 	if (compareVersions(version, QString::fromUtf8(PLUGIN_VERSION)) <= 0) {

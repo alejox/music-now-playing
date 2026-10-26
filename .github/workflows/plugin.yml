@@ -126,6 +126,8 @@ jobs:
   # tenga el PPA, cercana a la de buildspec.json) y el Qt 6 de Ubuntu. Sale un .deb (para
   # /usr, junto al OBS del PPA) y un .tar.gz con la forma de ~/.config/obs-studio/plugins.
   linux:
+    # Un fallo de Linux no bloquea la Release de Windows y Mac (release.yml usa este workflow).
+    continue-on-error: true
     runs-on: ubuntu-24.04
     defaults:
       run:

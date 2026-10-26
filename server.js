@@ -135,7 +135,6 @@ function cleanUrl(v) {
 
 const BROWSERS = [
   ['chrome', 'Chrome'],
-  ['chromium', 'Chromium'],
   ['msedge', 'Edge'],
   ['firefox', 'Firefox'],
   ['brave', 'Brave'],
@@ -143,6 +142,8 @@ const BROWSERS = [
   ['vivaldi', 'Vivaldi'],
   ['safari', 'Safari'],
   ['thebrowser', 'Arc'],
+  // En Linux el reproductor MPRIS de Chrome y Chromium se llama "chromium".
+  ...(process.platform === 'linux' ? [['chromium', 'Chromium']] : []),
 ];
 
 // kind decide el color del overlay; label, el texto "Escuchando en …".

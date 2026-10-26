@@ -52,9 +52,12 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 	if (id.contains("deezer"))
 		return {"other", "Deezer"};
 	static const QList<QPair<QString, QString>> browsers = {
-		{"chrome", "Chrome"}, {"chromium", "Chromium"}, {"msedge", "Edge"},     {"firefox", "Firefox"},
-		{"brave", "Brave"},   {"opera", "Opera"},       {"vivaldi", "Vivaldi"}, {"safari", "Safari"},
-		{"thebrowser", "Arc"},
+		{"chrome", "Chrome"}, {"msedge", "Edge"},     {"firefox", "Firefox"}, {"brave", "Brave"},
+		{"opera", "Opera"},   {"vivaldi", "Vivaldi"}, {"safari", "Safari"},   {"thebrowser", "Arc"},
+#ifdef __linux__
+		// En Linux el reproductor MPRIS de Chrome y Chromium se llama "chromium".
+		{"chromium", "Chromium"},
+#endif
 	};
 	for (const auto &browser : browsers) {
 		if (!id.contains(browser.first))

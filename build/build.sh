@@ -21,7 +21,8 @@ cd "$(dirname "$0")/.."
 
 TARGET="${1:-all}"
 case "$TARGET" in all | windows | mac | linux) ;; *) echo "Uso: $0 [all|windows|mac|linux]"; exit 1 ;; esac
-want() { [ "$TARGET" = all ] || [ "$TARGET" = "$1" ]; }
+# "all" sigue siendo Windows y Mac; Linux se pide aparte con "linux".
+want() { { [ "$TARGET" = all ] && [ "$1" != linux ]; } || [ "$TARGET" = "$1" ]; }
 
 VERSION="$(node -p "require('./package.json').version" 2>/dev/null || python3 -c "import json;print(json.load(open('package.json'))['version'])")"
 NODE_VERSION="${NODE_VERSION:-22.22.0}"
