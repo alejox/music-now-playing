@@ -41,9 +41,9 @@ Descarga el archivo de tu sistema desde **[Releases](../../releases/latest)** y 
 
 | | macOS (OBS 31+) | Windows (OBS 31+) | Linux x86_64 (OBS 31+) |
 |---|---|---|---|
-| **Archivo** | `obs-now-playing-plugin-<versión>-macos.zip` | `obs-now-playing-plugin-<versión>-windows-x64.zip` | `obs-now-playing-plugin-<versión>-linux-x86_64.tar.gz` (o el `.deb`) |
+| **Archivo** | `music-now-playing-plugin-<versión>-macos.zip` | `music-now-playing-plugin-<versión>-windows-x64.zip` | `music-now-playing-plugin-<versión>-linux-x86_64.tar.gz` (o el `.deb`) |
 | **1** | Descomprímelo: queda `obs-now-playing.plugin` | Descomprímelo (clic derecho → **Extraer todo**): quedan las carpetas `obs-plugins` y `data` | Instala `playerctl` (`sudo apt install playerctl`, `sudo dnf install playerctl` o `sudo pacman -S playerctl`) |
-| **2** | Cópialo a `~/Library/Application Support/obs-studio/plugins/` | Copia esas dos carpetas dentro de `C:\Program Files\obs-studio\` y acepta reemplazar y el permiso de administrador | Descomprímelo en `~/.config/obs-studio/plugins/` (queda `obs-now-playing/bin/64bit/obs-now-playing.so`). Con el OBS del PPA o de tu distribución puedes instalar el `.deb`: `sudo apt install ./obs-now-playing-plugin-<versión>-linux-x86_64.deb` |
+| **2** | Cópialo a `~/Library/Application Support/obs-studio/plugins/` | Copia esas dos carpetas dentro de `C:\Program Files\obs-studio\` y acepta reemplazar y el permiso de administrador | Descomprímelo en `~/.config/obs-studio/plugins/` (queda `obs-now-playing/bin/64bit/obs-now-playing.so`). Con el OBS del PPA o de tu distribución puedes instalar el `.deb`: `sudo apt install ./music-now-playing-plugin-<versión>-linux-x86_64.deb` |
 | **3** | Pega en la Terminal el comando de abajo (una vez) | Comprueba que quedó `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` | — |
 | **4** | Abre OBS | Abre OBS | Abre OBS |
 

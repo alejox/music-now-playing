@@ -17,6 +17,14 @@ on:
 permissions:
   contents: write
 
+env:
+  # PUENTE DE NOMBRES DEL PLUGIN. Los paquetes del plugin se llaman music-now-playing-plugin-….
+  # Los plugins instalados hasta la 1.0.33 solo reconocen obs-now-playing-plugin-… en la
+  # última Release: con 'true', publish sube además una copia idéntica de cada paquete con el
+  # nombre viejo para que esas versiones se puedan actualizar. Cuando ya no haga falta, pon
+  # 'false' y la Release solo tendrá music-now-playing-plugin-….
+  LEGACY_PLUGIN_ASSET_NAMES: 'true'
+
 jobs:
   # El instalador de Windows también instala el plugin: necesita el zip ya compilado.
   windows:
@@ -42,7 +50,7 @@ jobs:
           name: plugin-windows
           path: plugin-windows
       - name: Instalador de Windows (app + plugin de OBS)
-        run: PLUGIN_ZIP="$(ls plugin-windows/obs-now-playing-plugin-*-windows-x64.zip)" ./build/build.sh windows
+        run: PLUGIN_ZIP="$(ls plugin-windows/music-now-playing-plugin-*-windows-x64.zip)" ./build/build.sh windows
       - uses: actions/upload-artifact@v4
         with:
           name: windows
@@ -69,7 +77,7 @@ jobs:
       - name: Pillow
         run: python -m pip install pillow
       - name: Apps de macOS (con el plugin de OBS adentro)
-        run: PLUGIN_ZIP_MAC="$(ls "$PWD"/plugin-macos/obs-now-playing-plugin-*-macos.zip)" ./build/build.sh mac
+        run: PLUGIN_ZIP_MAC="$(ls "$PWD"/plugin-macos/music-now-playing-plugin-*-macos.zip)" ./build/build.sh mac
       - name: La app firmada abre y responde
         run: |
           app_dir="$RUNNER_TEMP/prueba"
@@ -116,7 +124,7 @@ jobs:
           name: plugin-linux
           path: plugin-linux
       - name: Paquete de Linux (app + plugin de OBS)
-        run: PLUGIN_TAR="$(ls "$PWD"/plugin-linux/obs-now-playing-plugin-*-linux-x86_64.tar.gz)" ./build/build.sh linux
+        run: PLUGIN_TAR="$(ls "$PWD"/plugin-linux/music-now-playing-plugin-*-linux-x86_64.tar.gz)" ./build/build.sh linux
       - name: install.sh instala y la app abre y responde
         run: |
           # El runner define XDG_CONFIG_HOME: sin esto install.sh usaría el ~/.config real.
@@ -158,6 +166,24 @@ jobs:
       - name: Versión
         id: version
         run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+      # Ver LEGACY_PLUGIN_ASSET_NAMES arriba: copias con el nombre viejo para los plugins <= 1.0.33.
+      - name: Copias del plugin con el nombre viejo
+        id: legacy
+        run: |
+          if [ "$LEGACY_PLUGIN_ASSET_NAMES" != "true" ]; then
+            echo "note=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          shopt -s nullglob
+          files=(dist/music-now-playing-plugin-*)
+          [ "${#files[@]}" -eq 4 ] || { echo "Esperaba 4 paquetes del plugin y hay ${#files[@]}: ${files[*]}"; exit 1; }
+          for f in "${files[@]}"; do
+            legacy="dist/obs-now-playing-plugin-${f#dist/music-now-playing-plugin-}"
+            cp "$f" "$legacy"
+            cmp "$f" "$legacy"
+            echo "$legacy"
+          done
+          echo 'note=Los archivos `obs-now-playing-plugin-…` son copias solo para que se actualicen automáticamente las versiones anteriores del plugin: descarga los `music-now-playing-plugin-…`.' >> "$GITHUB_OUTPUT"
       - name: Publicar Release
         uses: softprops/action-gh-release@v2
         with:
@@ -180,9 +206,11 @@ jobs:
             - **Linux x86_64:** `Music-Now-Playing-…-linux-x64.tar.gz` (la app y el plugin de OBS: descomprime y corre `./install.sh`; necesita `playerctl`)
 
             ### Plugin nativo para OBS (fuente "Now Playing" y dock "Música")
-            - **macOS:** `obs-now-playing-plugin-…-macos.zip`
-            - **Windows:** `obs-now-playing-plugin-…-windows-x64.zip`
-            - **Linux:** `obs-now-playing-plugin-…-linux-x86_64.deb` (OBS del PPA o de la distribución) o `obs-now-playing-plugin-…-linux-x86_64.tar.gz` (en `~/.config/obs-studio/plugins/`, también OBS en Flatpak)
+            - **macOS:** `music-now-playing-plugin-…-macos.zip`
+            - **Windows:** `music-now-playing-plugin-…-windows-x64.zip`
+            - **Linux:** `music-now-playing-plugin-…-linux-x86_64.deb` (OBS del PPA o de la distribución) o `music-now-playing-plugin-…-linux-x86_64.tar.gz` (en `~/.config/obs-studio/plugins/`, también OBS en Flatpak)
+
+            ${{ steps.legacy.outputs.note }}
 
             Cómo instalarlo: [obs-plugin/README](${{ github.server_url }}/${{ github.repository }}/tree/main/obs-plugin#instalar).
 

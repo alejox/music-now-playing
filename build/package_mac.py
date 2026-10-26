@@ -2,7 +2,7 @@
 
 Uso: python3 build/package_mac.py <version> <arch> <node_tar_gz> <icns> <lanzador> <salida.zip> [plugin.zip]
 
-Con plugin.zip (obs-now-playing-plugin-<versión>-macos.zip), la app lo lleva en
+Con plugin.zip (music-now-playing-plugin-<versión>-macos.zip), la app lo lleva en
 Contents/Resources/plugin/ y server.js lo instala en la carpeta de plugins de OBS.
 
 El ejecutable de la app es un lanzador compilado (build/macos/launcher.c) que
