@@ -20,12 +20,11 @@ jobs:
           node --check media/macos.js
           node --check now-playing.user.js
           node --check ui.js
-      - name: Sintaxis del lector de Linux
+      - name: Sintaxis del lector y los scripts de Linux
         run: |
-          bash -n media/linux.sh
-          bash -n test/fake-playerctl.sh
+          for f in media/linux.sh test/fake-playerctl.sh build/build.sh build/linux/install.sh build/linux/obs-now-playing; do bash -n "$f"; done
           shellcheck --version
-          shellcheck --severity=warning media/linux.sh test/fake-playerctl.sh
+          shellcheck --severity=warning media/linux.sh test/fake-playerctl.sh build/build.sh build/linux/install.sh build/linux/obs-now-playing
       - name: Sintaxis del lector de Windows
         shell: pwsh
         run: |
