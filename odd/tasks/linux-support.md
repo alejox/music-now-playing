@@ -25,7 +25,7 @@ The plugin compiles on Linux but does nothing useful there: `MediaWatcher` repor
 - [x] T1 Linux MPRIS reader `media/linux.sh` + copy in `obs-plugin/data/media/` + sync check + `server.js` helper/commands. Route: delegated (writer, 3+ files).
 - [x] T2 Plugin adaptations: `media-watcher.cpp`, `music-channel.cpp`, `updater.cpp`. Route: delegated (writer, 3 non-trivial C++ files).
 - [x] T3 Packaging and CI: `build/build.sh linux`, Linux launcher/.desktop, `plugin.yml` ubuntu job, `release.yml` linux jobs and assets, `ci.yml` reader check. Route: delegated (writer).
-- [ ] T4 Docs: READMEs, obs-plugin README, package.json, release notes. Route: delegated (writer).
+- [x] T4 Docs: READMEs, obs-plugin README, package.json, release notes. Route: delegated (writer).
 
 ## Acceptance criteria
 - `npm test` passes; `node --check` passes on JS files; `bash -n` and `shellcheck` (if available) pass on new shell scripts.
@@ -40,7 +40,8 @@ Strategy: ask-on-risk. Forecast: ~600-800 authored lines across 4 tasks (exceeds
 - Branch `feat/linux-support` created from `main` (5e0b642).
 - T1 done (delegated writer): `media/linux.sh` polls `playerctl --all-players metadata --format` once per second (bash 3.2+), same JSON-lines protocol; commands via `linux.sh command <action> [ms]` with `OBS_NOW_PLAYING_PLAYER`. Test `test/linux-reader.js` (fake playerctl) runs in `npm test`. Checks: `npm test` OK, `node --check server.js` OK, `bash -n` OK, `cmp` OK; shellcheck only in CI. Commit 014dda9.
 - T2 done (delegated writer): `media-watcher.cpp` runs `bash <data>/media/linux.sh watch <flag>` and commands with `OBS_NOW_PLAYING_PLAYER`; `music-channel.cpp` uses `pipewire_audio_application_capture` (dimtpap/obs-pipewire-audio-capture, keys `CaptureMode`/`TargetName`, verified against its source) or shows `NowPlaying.Channel.NeedsPipeWire`; `updater.cpp` matches `linux-x86_64.(tar.gz|deb)` and only opens the Release page. No local Linux compile: CI verifies. Commit 1288243.
-- T3 done (delegated writer): `plugin.yml` job `linux` (ubuntu-24.04, OBS PPA, `ubuntu-ci-x86_64` preset, cpack DEB + user-plugins tarball, artifact `plugin-linux`); `build/build.sh linux` (Node 22.22.0 linux-x64 with SHA check, launcher, `.desktop`, `install.sh`, `PLUGIN_TAR`); `release.yml` job `linux` + publishes `*.tar.gz`/`*.deb`; ci.yml shellcheck on Linux scripts. Checks: `./build/build.sh linux` built locally on macOS (no plugin), `install.sh` tested with a scratch HOME, YAML parsed with Ruby; plugin build and shellcheck only in CI.
+- T3 done (delegated writer): `plugin.yml` job `linux` (ubuntu-24.04, OBS PPA, `ubuntu-ci-x86_64` preset, cpack DEB + user-plugins tarball, artifact `plugin-linux`); `build/build.sh linux` (Node 22.22.0 linux-x64 with SHA check, launcher, `.desktop`, `install.sh`, `PLUGIN_TAR`); `release.yml` job `linux` + publishes `*.tar.gz`/`*.deb`; ci.yml shellcheck on Linux scripts. Checks: `./build/build.sh linux` built locally on macOS (no plugin), `install.sh` tested with a scratch HOME, YAML parsed with Ruby; plugin build and shellcheck only in CI. Commit a91c39a.
+- T4 done (delegated writer): README.md/README.es.md (Linux badge, plugin table column, Flatpak note using `--talk-name=org.freedesktop.Flatpak` because the reader runs host `playerctl` via `flatpak-spawn --host`, PipeWire music channel note, standalone app on Linux, `build.sh [all|windows|mac|linux]`), obs-plugin/README.md, package.json description; release notes updated in T3. Checks: structural readback. Commit: the T4 docs commit on `feat/linux-support`.
 
 ## Next step
-T4.
+Push the branch and watch CI (Linux plugin build, shellcheck, Release dry run); then the user decides on PR/chain strategy.
