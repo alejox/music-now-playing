@@ -21,6 +21,9 @@ QString text(const char *key)
 //            navegador (YouTube Music) suenan por el navegador: com.google.Chrome.app.<id>
 //            → com.google.Chrome.
 //   Windows: el .exe ("Spotify.exe"), que es como identifica la ventana la captura.
+//   Linux:   el programa ("spotify", "firefox"), que es el nombre del reproductor MPRIS sin
+//            su instancia ("firefox.instance_1_23" → "firefox"). La captura de PipeWire lo
+//            compara con el binario y con el nombre de la app, sin mayúsculas.
 QString audioTarget(const Track &track)
 {
 #ifdef _WIN32
@@ -36,17 +39,23 @@ QString audioTarget(const Track &track)
 	}
 	QString last = track.app.section(QRegularExpression("[\\\\/!]"), -1);
 	return last.endsWith(".exe", Qt::CaseInsensitive) ? last : QString();
-#else
+#elif defined(__APPLE__)
 	QString id = track.app;
 	id.remove(QRegularExpression("\\.app\\..*$"));
 	return id;
+#else
+	return track.app.section('.', 0, 0).toLower();
 #endif
 }
 
 #ifdef _WIN32
 constexpr const char *kSourceId = "wasapi_process_output_capture";
-#else
+#elif defined(__APPLE__)
 constexpr const char *kSourceId = "sck_audio_capture";
+#else
+// OBS no trae captura por aplicación en Linux: la da el plugin obs-pipewire-audio-capture
+// (github.com/dimtpap/obs-pipewire-audio-capture), si está instalado.
+constexpr const char *kSourceId = "pipewire_audio_application_capture";
 #endif
 
 obs_data_t *captureSettings(const QString &target)
@@ -56,9 +65,12 @@ obs_data_t *captureSettings(const QString &target)
 	// "título:clase:exe" con prioridad por ejecutable: sirve con cualquier ventana de la app.
 	obs_data_set_string(settings, "window", ("::" + target).toUtf8().constData());
 	obs_data_set_int(settings, "priority", 2); // WINDOW_PRIORITY_EXE
-#else
+#elif defined(__APPLE__)
 	obs_data_set_int(settings, "type", 1); // ScreenCaptureAudioApplicationStream
 	obs_data_set_string(settings, "application", target.toUtf8().constData());
+#else
+	obs_data_set_int(settings, "CaptureMode", 0); // CAPTURE_MODE_SINGLE: una sola app
+	obs_data_set_string(settings, "TargetName", target.toUtf8().constData());
 #endif
 	return settings;
 }
@@ -96,8 +108,10 @@ QString currentTarget(obs_source_t *source)
 	obs_data_t *settings = obs_source_get_settings(source);
 #ifdef _WIN32
 	QString target = QString::fromUtf8(obs_data_get_string(settings, "window")).section(':', 2);
-#else
+#elif defined(__APPLE__)
 	QString target = QString::fromUtf8(obs_data_get_string(settings, "application"));
+#else
+	QString target = QString::fromUtf8(obs_data_get_string(settings, "TargetName"));
 #endif
 	obs_data_release(settings);
 	return target;
@@ -114,7 +128,7 @@ void follow_music_channel()
 	QString target = audioTarget(track);
 	// El video de la tarjeta suena dentro de OBS (sin sonido): nunca es la música.
 	if (target.isEmpty() || target.contains("obsproject", Qt::CaseInsensitive) ||
-	    target.compare("obs64.exe", Qt::CaseInsensitive) == 0)
+	    target.compare("obs64.exe", Qt::CaseInsensitive) == 0 || target.compare("obs", Qt::CaseInsensitive) == 0)
 		return;
 
 	QByteArray name = text("NowPlaying.Channel.SourceName").toUtf8();
@@ -153,11 +167,17 @@ void create_music_channel(QWidget *parent)
 	}
 	QString target = audioTarget(track);
 	const char *sourceId = kSourceId;
-	// La captura por aplicación existe en macOS 13+ y Windows 10 2004+ (OBS solo la registra ahí).
+	// La captura por aplicación existe en macOS 13+ y Windows 10 2004+ (OBS solo la registra
+	// ahí); en Linux, solo con el plugin de PipeWire instalado.
+#ifdef __linux__
+	const char *unsupported = "NowPlaying.Channel.NeedsPipeWire";
+#else
+	const char *unsupported = "NowPlaying.Channel.Unsupported";
+#endif
 	if (target.isEmpty() || !obs_source_get_display_name(sourceId)) {
 		QMessageBox::warning(parent, text("NowPlaying.Channel.Title"),
 				     target.isEmpty() ? text("NowPlaying.Channel.UnknownApp").arg(track.label)
-						      : text("NowPlaying.Channel.Unsupported"));
+						      : text(unsupported));
 		return;
 	}
 
@@ -174,7 +194,7 @@ void create_music_channel(QWidget *parent)
 		source = obs_source_create(sourceId, name.constData(), settings, nullptr);
 	obs_data_release(settings);
 	if (!source) {
-		QMessageBox::warning(parent, text("NowPlaying.Channel.Title"), text("NowPlaying.Channel.Unsupported"));
+		QMessageBox::warning(parent, text("NowPlaying.Channel.Title"), text(unsupported));
 		return;
 	}
 

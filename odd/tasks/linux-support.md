@@ -23,7 +23,7 @@ The plugin compiles on Linux but does nothing useful there: `MediaWatcher` repor
 
 ## Tasks
 - [x] T1 Linux MPRIS reader `media/linux.sh` + copy in `obs-plugin/data/media/` + sync check + `server.js` helper/commands. Route: delegated (writer, 3+ files).
-- [ ] T2 Plugin adaptations: `media-watcher.cpp`, `music-channel.cpp`, `updater.cpp`. Route: delegated (writer, 3 non-trivial C++ files).
+- [x] T2 Plugin adaptations: `media-watcher.cpp`, `music-channel.cpp`, `updater.cpp`. Route: delegated (writer, 3 non-trivial C++ files).
 - [ ] T3 Packaging and CI: `build/build.sh linux`, Linux launcher/.desktop, `plugin.yml` ubuntu job, `release.yml` linux jobs and assets, `ci.yml` reader check. Route: delegated (writer).
 - [ ] T4 Docs: READMEs, obs-plugin README, package.json, release notes. Route: delegated (writer).
 
@@ -38,7 +38,8 @@ Strategy: ask-on-risk. Forecast: ~600-800 authored lines across 4 tasks (exceeds
 
 ## Progress
 - Branch `feat/linux-support` created from `main` (5e0b642).
-- T1 done (delegated writer): `media/linux.sh` polls `playerctl --all-players metadata --format` once per second (bash 3.2+), same JSON-lines protocol; commands via `linux.sh command <action> [ms]` with `OBS_NOW_PLAYING_PLAYER`. Test `test/linux-reader.js` (fake playerctl) runs in `npm test`. Checks: `npm test` OK, `node --check server.js` OK, `bash -n` OK, `cmp` OK; shellcheck only in CI.
+- T1 done (delegated writer): `media/linux.sh` polls `playerctl --all-players metadata --format` once per second (bash 3.2+), same JSON-lines protocol; commands via `linux.sh command <action> [ms]` with `OBS_NOW_PLAYING_PLAYER`. Test `test/linux-reader.js` (fake playerctl) runs in `npm test`. Checks: `npm test` OK, `node --check server.js` OK, `bash -n` OK, `cmp` OK; shellcheck only in CI. Commit 014dda9.
+- T2 done (delegated writer): `media-watcher.cpp` runs `bash <data>/media/linux.sh watch <flag>` and commands with `OBS_NOW_PLAYING_PLAYER`; `music-channel.cpp` uses `pipewire_audio_application_capture` (dimtpap/obs-pipewire-audio-capture, keys `CaptureMode`/`TargetName`, verified against its source) or shows `NowPlaying.Channel.NeedsPipeWire`; `updater.cpp` matches `linux-x86_64.(tar.gz|deb)` and only opens the Release page. No local Linux compile: CI verifies.
 
 ## Next step
-T2.
+T3.

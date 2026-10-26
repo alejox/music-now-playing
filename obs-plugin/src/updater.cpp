@@ -36,10 +36,18 @@ namespace {
 const char *kLatestRelease = "https://api.github.com/repos/alejox/obs-music-player/releases/latest";
 const char *kReleasesPage = "https://github.com/alejox/obs-music-player/releases/latest";
 
+// Los paquetes del plugin se llaman obs-now-playing-plugin-<versión>-<sistema>.<extensión>.
 #ifdef _WIN32
 const char *kPlatform = "windows-x64";
-#else
+const char *kPackage = "zip";
+#elif defined(__APPLE__)
 const char *kPlatform = "macos";
+const char *kPackage = "zip";
+#else
+// En Linux el plugin no se actualiza solo (lo instaló un .deb o el usuario en su carpeta):
+// solo se avisa y se abre la página de la Release.
+const char *kPlatform = "linux-x86_64";
+const char *kPackage = "(?:tar\\.gz|deb)";
 #endif
 
 QString text(const char *key)
@@ -99,6 +107,7 @@ QString installedRoot()
 	return dir.absolutePath();
 }
 
+#ifdef __APPLE__
 // Copia un árbol de carpetas encima de otro (crea lo que falte, pisa lo que exista).
 bool copyTree(const QString &from, const QString &to, QString *problem)
 {
@@ -122,6 +131,7 @@ bool copyTree(const QString &from, const QString &to, QString *problem)
 	}
 	return true;
 }
+#endif
 
 #ifdef _WIN32
 // La carpeta de OBS (Archivos de programa) pide permiso de administrador: la copia la hace
@@ -236,8 +246,8 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 	QJsonObject release = QJsonDocument::fromJson(json).object();
 	QString pageUrl = release.value("html_url").toString(kReleasesPage);
 
-	// Los zips del plugin se llaman obs-now-playing-plugin-<versión>-<sistema>.zip.
-	QRegularExpression pattern(QString("^obs-now-playing-plugin-(\\d+(?:\\.\\d+)*)-%1\\.zip$").arg(kPlatform));
+	QRegularExpression pattern(QString("^obs-now-playing-plugin-(\\d+(?:\\.\\d+)*)-%1\\.%2$")
+					   .arg(QString::fromUtf8(kPlatform), QString::fromUtf8(kPackage)));
 	QString version;
 	QString url;
 	const QJsonArray assets = release.value("assets").toArray();
@@ -254,7 +264,7 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 		if (manual)
 			fail(text("NowPlaying.Update.CheckFailed"), pageUrl,
 			     release.contains("message") ? "GitHub: " + release.value("message").toString()
-							 : QString("La Release no trae obs-now-playing-plugin-…-%1.zip").arg(kPlatform));
+							 : QString("La Release no trae obs-now-playing-plugin-…-%1").arg(kPlatform));
 		return;
 	}
 	if (compareVersions(version, QString::fromUtf8(PLUGIN_VERSION)) <= 0) {
@@ -281,11 +291,20 @@ void Updater::askToUpdate(const QString &version, const QString &url, const QStr
 	box.addButton(text("NowPlaying.Update.Later"), QMessageBox::RejectRole);
 	QPushButton *skip = box.addButton(text("NowPlaying.Update.Skip"), QMessageBox::DestructiveRole);
 	box.setDefaultButton(update);
+#ifdef __linux__
+	// En Linux no se instala solo: el botón abre la página para bajar el .deb o el .tar.gz.
+	update->setText(text("NowPlaying.Update.OpenPage"));
+#endif
 	box.exec();
 
-	if (box.clickedButton() == update)
+	if (box.clickedButton() == update) {
+#ifdef __linux__
+		Q_UNUSED(url)
+		QDesktopServices::openUrl(QUrl(pageUrl));
+#else
 		download(version, url);
-	else if (box.clickedButton() == skip)
+#endif
+	} else if (box.clickedButton() == skip)
 		skipVersion(version);
 }
 
@@ -326,10 +345,15 @@ void Updater::install(const QString &version, const QString &zipPath)
 	// El zip trae la forma de la carpeta de OBS: obs-plugins\64bit\…dll y data\obs-plugins\…
 	QString newRoot = extracted;
 	bool unzipped = unzip == 0 && QFileInfo::exists(QDir(extracted).filePath("obs-plugins/64bit/obs-now-playing.dll"));
-#else
+#elif defined(__APPLE__)
 	int unzip = QProcess::execute(systemTool("ditto"), {"-x", "-k", zipPath, extracted});
 	QString newRoot = QDir(extracted).filePath("obs-now-playing.plugin");
 	bool unzipped = unzip == 0 && QFileInfo(newRoot).isDir();
+#else
+	// Linux: no se llega aquí (askToUpdate abre la página); por si acaso, no se toca nada.
+	int unzip = -1;
+	QString newRoot;
+	bool unzipped = false;
 #endif
 	if (!unzipped) {
 		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage,
@@ -369,7 +393,7 @@ void Updater::install(const QString &version, const QString &zipPath)
 		if (code > 0)
 			problem = QString("No se pudo copiar el plugin a %1 (código %2).").arg(QDir::toNativeSeparators(root)).arg(code);
 	}
-#else
+#elif defined(__APPLE__)
 	// En macOS el binario cargado sigue funcionando aunque se reemplace el paquete.
 	QString backup = root + ".old";
 	QDir(backup).removeRecursively();
@@ -386,6 +410,8 @@ void Updater::install(const QString &version, const QString &zipPath)
 	} else {
 		problem = QString("No se pudo mover %1").arg(root);
 	}
+#else
+	(void)newRoot;
 #endif
 
 	if (progress_) {
