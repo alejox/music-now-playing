@@ -14,6 +14,8 @@ set(
   -fno-strict-aliasing
   -fopenmp-simd
   -Wdeprecated-declarations
+  # obs_properties_add_button sigue en uso (igual que en Mac y Windows): aviso, no error.
+  -Wno-error=deprecated-declarations
   -Wempty-body
   -Wenum-conversion
   -Werror=return-type
