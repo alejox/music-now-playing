@@ -27,8 +27,8 @@ struct Track {
 	qint64 progressNow(qint64 now) const;
 };
 
-// Lee "lo que está sonando" con el lector del sistema (media/windows.ps1 o
-// media/macos.js, en la carpeta de datos del plugin) y manda los comandos de los
+// Lee "lo que está sonando" con el lector del sistema (media/windows.ps1,
+// media/macos.js o media/linux.sh, en la carpeta de datos del plugin) y manda los comandos de los
 // botones. Vive en el hilo de la interfaz de OBS.
 class MediaWatcher : public QObject {
 	Q_OBJECT

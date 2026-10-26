@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=OBS Now Playing
+Comment=Muestra en OBS lo que está sonando (Spotify, YouTube Music…)
+Exec=@EXEC@
+Icon=@ICON@
+Terminal=false
+Categories=AudioVideo;Audio;
+Keywords=OBS;música;music;overlay;spotify;
