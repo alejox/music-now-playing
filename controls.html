@@ -157,7 +157,7 @@
       render(data.track);
     } catch {
       render(null);
-      $('error').textContent = $('error').dataset.offline = 'La app OBS Now Playing está cerrada.';
+      $('error').textContent = $('error').dataset.offline = 'La app Music Now Playing está cerrada.';
     }
     timer = setTimeout(poll, 1000);
   }

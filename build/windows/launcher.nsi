@@ -3,15 +3,15 @@
 Unicode true
 !include "FileFunc.nsh"
 
-Name "OBS Now Playing"
+Name "Music Now Playing"
 OutFile "${STAGE}\OBS Now Playing.exe"
 Icon "${STAGE}\icon.ico"
 RequestExecutionLevel user
 SilentInstall silent
 
 VIProductVersion "${VERSION}.0"
-VIAddVersionKey "ProductName" "OBS Now Playing"
-VIAddVersionKey "FileDescription" "OBS Now Playing"
+VIAddVersionKey "ProductName" "Music Now Playing"
+VIAddVersionKey "FileDescription" "Music Now Playing"
 VIAddVersionKey "FileVersion" "${VERSION}"
 VIAddVersionKey "ProductVersion" "${VERSION}"
 VIAddVersionKey "LegalCopyright" "MIT"

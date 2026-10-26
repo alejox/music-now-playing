@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Genera los instaladores en dist/:
-#   OBS-Now-Playing-Setup-<v>.exe        (Windows 10/11, x64)
-#   OBS-Now-Playing-<v>-mac-apple.zip    (Mac con chip Apple M1/M2/M3/M4…)
-#   OBS-Now-Playing-<v>-mac-intel.zip    (Mac con Intel)
-#   OBS-Now-Playing-<v>-linux-x64.tar.gz (Linux x86_64: app + install.sh)
+#   Music-Now-Playing-Setup-<v>.exe        (Windows 10/11, x64)
+#   Music-Now-Playing-<v>-mac-apple.zip    (Mac con chip Apple M1/M2/M3/M4…)
+#   Music-Now-Playing-<v>-mac-intel.zip    (Mac con Intel)
+#   Music-Now-Playing-<v>-linux-x64.tar.gz (Linux x86_64: app + install.sh)
 #
 # Uso: ./build/build.sh [all|windows|mac|linux]
 #
@@ -70,7 +70,7 @@ if want windows; then
     echo "Aviso: sin PLUGIN_ZIP el instalador no incluye el plugin de OBS."
   fi
   makensis -V2 -DSTAGE="$STAGE_ABS" -DVERSION="$VERSION" build/windows/launcher.nsi
-  makensis -V2 -DSTAGE="$STAGE_ABS" -DVERSION="$VERSION" ${PLUGIN_ARGS[@]+"${PLUGIN_ARGS[@]}"} -DOUTFILE="$(pwd)/$DIST/OBS-Now-Playing-Setup-$VERSION.exe" build/windows/installer.nsi
+  makensis -V2 -DSTAGE="$STAGE_ABS" -DVERSION="$VERSION" ${PLUGIN_ARGS[@]+"${PLUGIN_ARGS[@]}"} -DOUTFILE="$(pwd)/$DIST/Music-Now-Playing-Setup-$VERSION.exe" build/windows/installer.nsi
 fi
 
 # 4. macOS: lanzador compilado (build/macos/launcher.c) y una app por arquitectura.
@@ -94,7 +94,7 @@ if want mac; then
 
   for pair in "arm64:arm64:apple" "x64:x86_64:intel"; do
     IFS=: read -r node_arch launcher_arch label <<<"$pair"
-    zip="$DIST/OBS-Now-Playing-$VERSION-mac-$label.zip"
+    zip="$DIST/Music-Now-Playing-$VERSION-mac-$label.zip"
     python3 build/package_mac.py "$VERSION" "$node_arch" "$CACHE/node-v$NODE_VERSION-darwin-$node_arch.tar.gz" \
       "$STAGE/icons/AppIcon.icns" "$M/launcher-$launcher_arch" "$zip" "${PLUGIN_ZIP_MAC:-}"
 
@@ -137,7 +137,7 @@ if want linux; then
   else
     echo "Aviso: sin PLUGIN_TAR el paquete de Linux no incluye el plugin de OBS."
   fi
-  tar -czf "$DIST/OBS-Now-Playing-$VERSION-linux-x64.tar.gz" -C "$L" obs-now-playing
+  tar -czf "$DIST/Music-Now-Playing-$VERSION-linux-x64.tar.gz" -C "$L" obs-now-playing
 fi
 
 ls -lh "$DIST"

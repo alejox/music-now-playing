@@ -1,23 +1,26 @@
-; Instalador de OBS Now Playing para Windows. La app no pide permisos de administrador;
+; Instalador de Music Now Playing para Windows. La app no pide permisos de administrador;
 ; el plugin sí (va en la carpeta de OBS, en Archivos de programa): solo para copiarlo.
 Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
 
-!define APP "OBS Now Playing"
+; APP_NAME es el nombre visible. APP_ID es el nombre de siempre en rutas, el .exe y los
+; accesos directos: no cambia para que las instalaciones existentes se actualicen encima.
+!define APP_NAME "Music Now Playing"
+!define APP_ID "OBS Now Playing"
 !define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\OBSNowPlaying"
 
-Name "${APP}"
+Name "${APP_NAME}"
 OutFile "${OUTFILE}"
-InstallDir "$LOCALAPPDATA\Programs\${APP}"
+InstallDir "$LOCALAPPDATA\Programs\${APP_ID}"
 InstallDirRegKey HKCU "Software\OBSNowPlaying" "InstallDir"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
-BrandingText "${APP} ${VERSION}"
+BrandingText "${APP_NAME} ${VERSION}"
 
 VIProductVersion "${VERSION}.0"
-VIAddVersionKey /LANG=1034 "ProductName" "${APP}"
-VIAddVersionKey /LANG=1034 "FileDescription" "Instalador de ${APP}"
+VIAddVersionKey /LANG=1034 "ProductName" "${APP_NAME}"
+VIAddVersionKey /LANG=1034 "FileDescription" "Instalador de ${APP_NAME}"
 VIAddVersionKey /LANG=1034 "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=1034 "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=1034 "LegalCopyright" "MIT"
@@ -30,8 +33,8 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "MIT"
 !else
 !define MUI_WELCOMEPAGE_TEXT "Muestra en OBS la canción que suena en tu computador: Spotify, YouTube Music, Apple Music y más.$\r$\n$\r$\nNo hace falta instalar nada más ni tener permisos de administrador."
 !endif
-!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP}.exe"
-!define MUI_FINISHPAGE_RUN_TEXT "Abrir ${APP} ahora"
+!define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_ID}.exe"
+!define MUI_FINISHPAGE_RUN_TEXT "Abrir ${APP_NAME} ahora"
 
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_COMPONENTS
@@ -50,13 +53,13 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "MIT"
   ${EndIf}
 !macroend
 
-Section "${APP}" SecMain
+Section "${APP_NAME}" SecMain
   SectionIn RO
   !insertmacro StopRunning
 
   SetOutPath "$INSTDIR"
   File "${STAGE}\node.exe"
-  File "${STAGE}\${APP}.exe"
+  File "${STAGE}\${APP_ID}.exe"
   File "${STAGE}\icon.ico"
   SetOutPath "$INSTDIR\app"
   File "${STAGE}\app\server.js"
@@ -68,10 +71,10 @@ Section "${APP}" SecMain
   File "${STAGE}\app\media\windows.ps1"
 
   WriteUninstaller "$INSTDIR\Desinstalar.exe"
-  CreateShortcut "$SMPROGRAMS\${APP}.lnk" "$INSTDIR\${APP}.exe" "" "$INSTDIR\icon.ico"
+  CreateShortcut "$SMPROGRAMS\${APP_ID}.lnk" "$INSTDIR\${APP_ID}.exe" "" "$INSTDIR\icon.ico"
 
   WriteRegStr HKCU "Software\OBSNowPlaying" "InstallDir" "$INSTDIR"
-  WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${APP}"
+  WriteRegStr HKCU "${UNINST_KEY}" "DisplayName" "${APP_NAME}"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\icon.ico"
   WriteRegStr HKCU "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
@@ -132,11 +135,11 @@ SectionEnd
 !endif
 
 Section "Abrir al iniciar Windows" SecStartup
-  CreateShortcut "$SMSTARTUP\${APP}.lnk" "$INSTDIR\${APP}.exe" "--background" "$INSTDIR\icon.ico"
+  CreateShortcut "$SMSTARTUP\${APP_ID}.lnk" "$INSTDIR\${APP_ID}.exe" "--background" "$INSTDIR\icon.ico"
 SectionEnd
 
 Section /o "Acceso directo en el escritorio" SecDesktop
-  CreateShortcut "$DESKTOP\${APP}.lnk" "$INSTDIR\${APP}.exe" "" "$INSTDIR\icon.ico"
+  CreateShortcut "$DESKTOP\${APP_ID}.lnk" "$INSTDIR\${APP_ID}.exe" "" "$INSTDIR\icon.ico"
 SectionEnd
 
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
@@ -159,13 +162,13 @@ Section "Uninstall"
   RMDir "$INSTDIR\app\media"
   RMDir "$INSTDIR\app"
   Delete "$INSTDIR\node.exe"
-  Delete "$INSTDIR\${APP}.exe"
+  Delete "$INSTDIR\${APP_ID}.exe"
   Delete "$INSTDIR\icon.ico"
   Delete "$INSTDIR\Desinstalar.exe"
   RMDir "$INSTDIR"
-  Delete "$SMPROGRAMS\${APP}.lnk"
-  Delete "$SMSTARTUP\${APP}.lnk"
-  Delete "$DESKTOP\${APP}.lnk"
+  Delete "$SMPROGRAMS\${APP_ID}.lnk"
+  Delete "$SMSTARTUP\${APP_ID}.lnk"
+  Delete "$DESKTOP\${APP_ID}.lnk"
   ; El plugin solo se quita si lo instaló este instalador (la carpeta de OBS queda en el
   ; registro). Está en Archivos de programa: se borra con permiso de administrador.
   ReadRegStr $1 HKCU "Software\OBSNowPlaying" "PluginDir"

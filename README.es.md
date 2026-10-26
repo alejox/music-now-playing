@@ -1,10 +1,10 @@
 <div align="center">
 
-# 🎵 OBS Now Playing
+# 🎵 Music Now Playing
 
 **Muestra en tu stream la canción que estás escuchando, con su carátula, sus colores y botones para manejarla.**
 
-[![Última versión](https://img.shields.io/github/v/release/alejox/obs-music-player?label=versi%C3%B3n&color=1db954)](../../releases/latest)
+[![Última versión](https://img.shields.io/github/v/release/alejox/music-now-playing?label=versi%C3%B3n&color=1db954)](../../releases/latest)
 ![macOS](https://img.shields.io/badge/macOS-12%2B-000000?logo=apple&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black)
@@ -48,7 +48,7 @@ Descarga el archivo de tu sistema desde **[Releases](../../releases/latest)** y 
 | **4** | Abre OBS | Abre OBS | Abre OBS |
 
 > [!TIP]
-> En Windows, `OBS-Now-Playing-Setup-<versión>.exe` también instala el plugin en la carpeta de OBS (opción **Plugin para OBS**, marcada por defecto; pide permiso de administrador), sin descomprimir nada.
+> En Windows, `Music-Now-Playing-Setup-<versión>.exe` también instala el plugin en la carpeta de OBS (opción **Plugin para OBS**, marcada por defecto; pide permiso de administrador), sin descomprimir nada.
 
 > [!IMPORTANT]
 > En Windows, si antes lo instalaste en `C:\ProgramData\obs-studio\plugins\obs-now-playing`, borra esa carpeta: si no, OBS carga las dos copias.
@@ -137,15 +137,17 @@ La idea de leer los controles multimedia del sistema viene de [SMTC Bridge](http
 
 Descarga el instalador desde **[Releases](../../releases/latest)**. No necesitas Node.js ni la terminal.
 
-**Windows 10/11:** abre `OBS-Now-Playing-Setup-<versión>.exe`. Si sale **"Windows protegió su PC"**, pulsa **Más información → Ejecutar de todas formas**. Por defecto arranca con Windows. También instala el plugin de OBS (se puede desmarcar).
+> Music Now Playing es un plugin y una app para OBS Studio. Antes se llamaba "OBS Now Playing": la app instalada, sus accesos directos y sus carpetas conservan ese nombre para que las instalaciones existentes sigan funcionando y actualizándose.
 
-**macOS 11+:** descarga `…-mac-apple.zip` (chip Apple) o `…-mac-intel.zip` (Intel), descomprímelo, arrastra **OBS Now Playing** a la carpeta **Aplicaciones** (si la abres desde Descargas no queda instalada) y ábrela. Al abrirse instala también el **plugin de OBS** en `~/Library/Application Support/obs-studio/plugins/` (o lo actualiza si el que tienes es más viejo): abre o reinicia OBS y aparece **Fuentes → + → ♫ Now Playing (música)**. Si la bloquea: **Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente**. Si dice *"está dañado"*:
+**Windows 10/11:** abre `Music-Now-Playing-Setup-<versión>.exe`. Si sale **"Windows protegió su PC"**, pulsa **Más información → Ejecutar de todas formas**. Por defecto arranca con Windows. También instala el plugin de OBS (se puede desmarcar).
+
+**macOS 11+:** descarga `…-mac-apple.zip` (chip Apple) o `…-mac-intel.zip` (Intel), descomprímelo, arrastra **OBS Now Playing** (la app conserva su nombre anterior) a la carpeta **Aplicaciones** (si la abres desde Descargas no queda instalada) y ábrela. Al abrirse instala también el **plugin de OBS** en `~/Library/Application Support/obs-studio/plugins/` (o lo actualiza si el que tienes es más viejo): abre o reinicia OBS y aparece **Fuentes → + → ♫ Now Playing (música)**. Si la bloquea: **Ajustes del Sistema → Privacidad y seguridad → Abrir igualmente**. Si dice *"está dañado"*:
 
 ```bash
 xattr -cr "/Applications/OBS Now Playing.app" && open "/Applications/OBS Now Playing.app"
 ```
 
-**Linux x86_64:** descarga `OBS-Now-Playing-<versión>-linux-x64.tar.gz`, descomprímelo y corre `./install.sh` dentro de la carpeta `obs-now-playing`: instala la app en `~/.local/share/obs-now-playing`, agrega **OBS Now Playing** al menú de aplicaciones e instala el plugin de OBS en `~/.config/obs-studio/plugins/` (y en la carpeta del OBS de Flatpak si lo tienes). Necesita `playerctl` (`sudo apt install playerctl`). Para desinstalar: `./install.sh --uninstall`.
+**Linux x86_64:** descarga `Music-Now-Playing-<versión>-linux-x64.tar.gz`, descomprímelo y corre `./install.sh` dentro de la carpeta `obs-now-playing`: instala la app en `~/.local/share/obs-now-playing`, agrega **Music Now Playing** al menú de aplicaciones e instala el plugin de OBS en `~/.config/obs-studio/plugins/` (y en la carpeta del OBS de Flatpak si lo tienes). Necesita `playerctl` (`sudo apt install playerctl`). Para desinstalar: `./install.sh --uninstall`.
 
 La app no tiene ventana: al abrirla se abre su **panel** en **http://127.0.0.1:8787/** (qué suena, apps detectadas y la URL para OBS).
 

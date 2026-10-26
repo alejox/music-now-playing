@@ -33,8 +33,8 @@
 
 namespace {
 
-const char *kLatestRelease = "https://api.github.com/repos/alejox/obs-music-player/releases/latest";
-const char *kReleasesPage = "https://github.com/alejox/obs-music-player/releases/latest";
+const char *kLatestRelease = "https://api.github.com/repos/alejox/music-now-playing/releases/latest";
+const char *kReleasesPage = "https://github.com/alejox/music-now-playing/releases/latest";
 
 // Los paquetes del plugin se llaman obs-now-playing-plugin-<versión>-<sistema>.<extensión>.
 #ifdef _WIN32

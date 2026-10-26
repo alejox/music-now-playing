@@ -1,4 +1,4 @@
-# Now Playing — plugin para OBS Studio
+# Music Now Playing — plugin para OBS Studio
 
 Plugin nativo para OBS Studio (macOS, Windows y Linux) que agrega:
 
@@ -8,7 +8,7 @@ Plugin nativo para OBS Studio (macOS, Windows y Linux) que agrega:
 
 **Carátula:** si el reproductor no la entrega (en macOS 27 el sistema solo manda su identificador), la pide a la app de Spotify (la primera vez macOS pregunta si OBS puede controlar Spotify: responde Permitir) y, para YouTube Music y los demás, la busca por artista y canción en el catálogo público de Apple (iTunes Search); solo la usa si artista y título coinciden. Esa búsqueda manda a Apple el nombre de la canción y el artista, nada más. En Windows, si el reproductor no manda imagen, hace la misma búsqueda y, para YouTube en el navegador, usa la miniatura del video.
 
-Lee la música del sistema, como la app: en Windows los controles multimedia (SMTC), en macOS el "Ahora suena" y en Linux los reproductores MPRIS con `playerctl` (hay que instalarlo: `sudo apt install playerctl`). En Linux la carátula es la que entrega el reproductor (sin la búsqueda en el catálogo de Apple). Funciona con la app de Spotify, YouTube Music o Spotify en el navegador, Apple Music y cualquier reproductor que el sistema reconozca. No necesita la app OBS Now Playing ni ninguna cuenta.
+Lee la música del sistema, como la app: en Windows los controles multimedia (SMTC), en macOS el "Ahora suena" y en Linux los reproductores MPRIS con `playerctl` (hay que instalarlo: `sudo apt install playerctl`). En Linux la carátula es la que entrega el reproductor (sin la búsqueda en el catálogo de Apple). Funciona con la app de Spotify, YouTube Music o Spotify en el navegador, Apple Music y cualquier reproductor que el sistema reconozca. No necesita la app Music Now Playing ni ninguna cuenta.
 
 Está basado en la plantilla oficial `obs-plugintemplate` de OBS Project, igual que *Alejox Theme Panel*.
 
@@ -37,7 +37,7 @@ El zip tiene la misma forma que la carpeta de OBS: `obs-plugins\64bit\obs-now-pl
 5. Si antes lo instalaste en `C:\ProgramData\obs-studio\plugins\obs-now-playing`, borra esa carpeta (si no, OBS carga las dos copias).
 6. Abre OBS. En el registro (**Ayuda → Archivos de registro**) debe aparecer `[obs-now-playing] plugin loaded successfully (version …)` con la versión nueva.
 
-O usa `OBS-Now-Playing-Setup-….exe`: además de la app, copia el plugin a la carpeta de OBS (opción **Plugin para OBS**; pide permiso de administrador) y borra la copia vieja de ProgramData si la hay.
+O usa `Music-Now-Playing-Setup-….exe`: además de la app, copia el plugin a la carpeta de OBS (opción **Plugin para OBS**; pide permiso de administrador) y borra la copia vieja de ProgramData si la hay.
 
 ### Linux (OBS 31+, x86_64)
 
@@ -47,7 +47,7 @@ O usa `OBS-Now-Playing-Setup-….exe`: además de la app, copia el plugin a la c
    - **OBS en Flatpak:** descomprímelo en `~/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`. `playerctl` no viene dentro de la caja de arena: el lector usa el del sistema con `flatpak-spawn --host`, que necesita `flatpak override --user --talk-name=org.freedesktop.Flatpak com.obsproject.Studio`.
 3. Abre OBS.
 
-O usa `OBS-Now-Playing-…-linux-x64.tar.gz`: su `install.sh` instala la app y copia el plugin a esas carpetas.
+O usa `Music-Now-Playing-…-linux-x64.tar.gz`: su `install.sh` instala la app y copia el plugin a esas carpetas.
 
 ## Actualizaciones
 
