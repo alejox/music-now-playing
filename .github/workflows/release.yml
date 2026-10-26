@@ -119,6 +119,8 @@ jobs:
         run: PLUGIN_TAR="$(ls "$PWD"/plugin-linux/obs-now-playing-plugin-*-linux-x86_64.tar.gz)" ./build/build.sh linux
       - name: install.sh instala y la app abre y responde
         run: |
+          # El runner define XDG_CONFIG_HOME: sin esto install.sh usaría el ~/.config real.
+          unset XDG_CONFIG_HOME XDG_DATA_HOME
           work="$RUNNER_TEMP/prueba"
           mkdir -p "$work/home"
           tar -xzf dist/OBS-Now-Playing-*-linux-x64.tar.gz -C "$work"
