@@ -74,7 +74,7 @@ jobs:
         run: |
           app_dir="$RUNNER_TEMP/prueba"
           mkdir -p "$app_dir"
-          ditto -x -k dist/OBS-Now-Playing-*-mac-apple.zip "$app_dir"
+          ditto -x -k dist/Music-Now-Playing-*-mac-apple.zip "$app_dir"
           app="$app_dir/OBS Now Playing.app"
           codesign --verify --deep --strict --verbose=2 "$app"
           codesign -dv "$app" 2>&1 | grep -E "Identifier|Signature"
@@ -123,7 +123,7 @@ jobs:
           unset XDG_CONFIG_HOME XDG_DATA_HOME
           work="$RUNNER_TEMP/prueba"
           mkdir -p "$work/home"
-          tar -xzf dist/OBS-Now-Playing-*-linux-x64.tar.gz -C "$work"
+          tar -xzf dist/Music-Now-Playing-*-linux-x64.tar.gz -C "$work"
           HOME="$work/home" "$work/obs-now-playing/install.sh"
           app="$work/home/.local/share/obs-now-playing"
           test -f "$work/home/.local/share/applications/obs-now-playing.desktop"
@@ -163,7 +163,7 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: OBS Now Playing ${{ steps.version.outputs.tag }}
+          name: Music Now Playing ${{ steps.version.outputs.tag }}
           # Solo los instaladores y los paquetes: los demás artefactos (capturas de las
           # pruebas del modo video) no son descargas.
           files: |
@@ -174,10 +174,10 @@ jobs:
           generate_release_notes: true
           body: |
             ## Descargas
-            - **Windows 10/11:** `OBS-Now-Playing-Setup-….exe` (la app y el plugin de OBS)
-            - **Mac con chip Apple (M1/M2/M3/M4…):** `OBS-Now-Playing-…-mac-apple.zip` (la app; al abrirla instala el plugin de OBS)
-            - **Mac con Intel:** `OBS-Now-Playing-…-mac-intel.zip` (la app; al abrirla instala el plugin de OBS)
-            - **Linux x86_64:** `OBS-Now-Playing-…-linux-x64.tar.gz` (la app y el plugin de OBS: descomprime y corre `./install.sh`; necesita `playerctl`)
+            - **Windows 10/11:** `Music-Now-Playing-Setup-….exe` (la app y el plugin de OBS)
+            - **Mac con chip Apple (M1/M2/M3/M4…):** `Music-Now-Playing-…-mac-apple.zip` (la app; al abrirla instala el plugin de OBS)
+            - **Mac con Intel:** `Music-Now-Playing-…-mac-intel.zip` (la app; al abrirla instala el plugin de OBS)
+            - **Linux x86_64:** `Music-Now-Playing-…-linux-x64.tar.gz` (la app y el plugin de OBS: descomprime y corre `./install.sh`; necesita `playerctl`)
 
             ### Plugin nativo para OBS (fuente "Now Playing" y dock "Música")
             - **macOS:** `obs-now-playing-plugin-…-macos.zip`

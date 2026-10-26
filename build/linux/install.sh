@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Instala OBS Now Playing para este usuario (sin sudo):
+# Instala Music Now Playing para este usuario (sin sudo):
 #   - la app en ~/.local/share/obs-now-playing y su ícono en el menú de aplicaciones;
 #   - el plugin de OBS (si viene en la carpeta plugin/) en ~/.config/obs-studio/plugins y,
 #     si OBS está instalado como Flatpak, también en su carpeta de plugins.
@@ -16,7 +16,7 @@ if [ "${1:-}" = --uninstall ]; then
   if [ -x "$APP_DIR/obs-now-playing" ]; then "$APP_DIR/obs-now-playing" --stop || true; fi
   rm -rf "$APP_DIR" "$DESKTOP"
   for dir in "${PLUGIN_DIRS[@]}"; do rm -rf "$dir/obs-now-playing"; done
-  echo "OBS Now Playing desinstalado."
+  echo "Music Now Playing desinstalado."
   exit 0
 fi
 
@@ -36,7 +36,7 @@ done <"$SRC/obs-now-playing.desktop" >"$DESKTOP"
 if command -v update-desktop-database >/dev/null 2>&1; then
   update-desktop-database "$(dirname "$DESKTOP")" >/dev/null 2>&1 || true
 fi
-echo "App instalada en $APP_DIR (búscala como \"OBS Now Playing\" en el menú)."
+echo "App instalada en $APP_DIR (búscala como \"Music Now Playing\" en el menú)."
 
 if [ -d "$SRC/plugin/obs-now-playing" ]; then
   for dir in "${PLUGIN_DIRS[@]}"; do

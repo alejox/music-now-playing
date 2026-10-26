@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// OBS Now Playing — servidor local que lee "lo que está sonando" del sistema
+// Music Now Playing — servidor local que lee "lo que está sonando" del sistema
 // (Windows: controles multimedia SMTC; macOS: "Ahora suena"; Linux: MPRIS) y lo sirve como
 // overlay para una Fuente de navegador de OBS. Sin dependencias: Node 18+.
 'use strict';
@@ -557,8 +557,8 @@ function statusPage(notice = '') {
   const nowLabel = t ? (t.kind === 'browser' ? t.label : t.label || '') : '';
 
   return page(
-    'OBS Now Playing',
-    `<h1>🎵 OBS Now Playing</h1>
+    'Music Now Playing',
+    `<h1>🎵 Music Now Playing</h1>
 ${notice ? `<div class="box ok">${escapeHtml(notice)}</div>` : ''}
 ${pluginStatusHtml()}
 <div class="box"><b>Sonando ahora:</b> ${t ? `${escapeHtml(t.artist)}${t.artist ? ' — ' : ''}${escapeHtml(t.title)} <small class="muted">(${escapeHtml(nowLabel)})</small>` : '<span class="warn">nada</span>'}</div>
@@ -599,7 +599,7 @@ ${pluginStatusHtml()}
 
 <form method="post" action="/quit" class="foot">${token}
   <small class="muted">Versión ${VERSION}. La app sigue funcionando aunque cierres esta pestaña.</small>
-  <button type="submit" class="danger">Cerrar OBS Now Playing</button>
+  <button type="submit" class="danger">Cerrar Music Now Playing</button>
 </form>
 <script>
   function copy(id, btn) {
@@ -660,7 +660,7 @@ async function route(req, res) {
 
     case 'POST /quit': {
       if (!(await readForm(req))) return forbidden(res);
-      sendHtml(res, 200, page('OBS Now Playing', '<h1>OBS Now Playing se cerró</h1><p>Para volver a usarlo, abre la app otra vez.</p>'));
+      sendHtml(res, 200, page('Music Now Playing', '<h1>Music Now Playing se cerró</h1><p>Para volver a usarlo, abre la app otra vez.</p>'));
       return setTimeout(shutdown, 300);
     }
 
@@ -837,7 +837,7 @@ function pluginStatusHtml() {
 }
 
 server.listen(PORT, '127.0.0.1', () => {
-  console.log(`🎵 OBS Now Playing ${VERSION} listo`);
+  console.log(`🎵 Music Now Playing ${VERSION} listo`);
   console.log(`   Panel:                   ${ORIGIN}/`);
   console.log(`   Fuente de navegador OBS: ${ORIGIN}/overlay`);
   console.log(`   Carpeta de datos:        ${DATA_DIR}`);

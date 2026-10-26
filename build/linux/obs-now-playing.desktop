@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
-Name=OBS Now Playing
+Name=Music Now Playing
 Comment=Muestra en OBS lo que está sonando (Spotify, YouTube Music…)
 Exec=@EXEC@
 Icon=@ICON@

@@ -25,8 +25,8 @@ INFO_PLIST = f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>CFBundleName</key><string>OBS Now Playing</string>
-  <key>CFBundleDisplayName</key><string>OBS Now Playing</string>
+  <key>CFBundleName</key><string>Music Now Playing</string>
+  <key>CFBundleDisplayName</key><string>Music Now Playing</string>
   <key>CFBundleIdentifier</key><string>io.github.obs-now-playing</string>
   <key>CFBundleVersion</key><string>{version}</string>
   <key>CFBundleShortVersionString</key><string>{version}</string>

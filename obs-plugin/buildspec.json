@@ -37,9 +37,9 @@
         }
     },
     "name": "obs-now-playing",
-    "displayName": "Now Playing",
+    "displayName": "Music Now Playing",
     "version": "1.0.32",
     "author": "Alejandro (Alejoxgaming)",
-    "website": "https://github.com/alejox/obs-music-player",
+    "website": "https://github.com/alejox/music-now-playing",
     "email": "me@example.com"
 }
