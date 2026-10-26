@@ -72,7 +72,7 @@ jobs:
           codesign -dv "$plugin" 2>&1 | grep -E "Identifier|Signature|Format"
           ls "$plugin/Contents/Resources" "$plugin/Contents/Resources/media"
           mkdir -p ../dist
-          ditto -c -k --keepParent "$plugin" "../dist/obs-now-playing-plugin-${{ steps.version.outputs.v }}-macos.zip"
+          ditto -c -k --keepParent "$plugin" "../dist/music-now-playing-plugin-${{ steps.version.outputs.v }}-macos.zip"
       - uses: actions/upload-artifact@v4
         with:
           name: plugin-macos
@@ -105,10 +105,10 @@ jobs:
           Copy-Item "$built/data" package/data/obs-plugins/obs-now-playing -Recurse
           Get-ChildItem -Recurse package | Select-Object -ExpandProperty FullName
           New-Item -ItemType Directory -Force ../dist | Out-Null
-          Compress-Archive -Path package/* -DestinationPath "../dist/obs-now-playing-plugin-${{ steps.version.outputs.v }}-windows-x64.zip"
+          Compress-Archive -Path package/* -DestinationPath "../dist/music-now-playing-plugin-${{ steps.version.outputs.v }}-windows-x64.zip"
       - name: El zip trae la forma de la carpeta de OBS
         run: |
-          $zip = Get-Item "../dist/obs-now-playing-plugin-*-windows-x64.zip"
+          $zip = Get-Item "../dist/music-now-playing-plugin-*-windows-x64.zip"
           $dir = Join-Path $env:RUNNER_TEMP $zip.BaseName
           Expand-Archive $zip.FullName -DestinationPath $dir
           foreach ($file in 'obs-plugins\64bit\obs-now-playing.dll', 'data\obs-plugins\obs-now-playing\media\windows.ps1',
@@ -156,9 +156,9 @@ jobs:
           for deb in release/*.deb; do
             case "$deb" in *dbgsym*) continue ;; esac
             dpkg-deb -c "$deb"
-            cp "$deb" "../dist/obs-now-playing-plugin-$v-linux-x86_64.deb"
+            cp "$deb" "../dist/music-now-playing-plugin-$v-linux-x86_64.deb"
           done
-          test -f "../dist/obs-now-playing-plugin-$v-linux-x86_64.deb"
+          test -f "../dist/music-now-playing-plugin-$v-linux-x86_64.deb"
           # La forma de la carpeta de plugins del usuario: obs-now-playing/bin/64bit/*.so y
           # obs-now-playing/data/… (se descomprime en ~/.config/obs-studio/plugins/).
           cmake --install build_x86_64 --prefix "$PWD/release/staging"
@@ -169,10 +169,10 @@ jobs:
           cp "$so" "$pkg/bin/64bit/obs-now-playing.so"
           cp -R release/staging/share/obs/obs-plugins/obs-now-playing "$pkg/data"
           chmod 755 "$pkg/data/media/linux.sh"
-          tar -czf "../dist/obs-now-playing-plugin-$v-linux-x86_64.tar.gz" -C release/tar obs-now-playing
+          tar -czf "../dist/music-now-playing-plugin-$v-linux-x86_64.tar.gz" -C release/tar obs-now-playing
       - name: El .tar.gz trae la forma de la carpeta de plugins
         run: |
-          list="$(tar -tzf ../dist/obs-now-playing-plugin-*-linux-x86_64.tar.gz)"
+          list="$(tar -tzf ../dist/music-now-playing-plugin-*-linux-x86_64.tar.gz)"
           echo "$list"
           for file in obs-now-playing/bin/64bit/obs-now-playing.so obs-now-playing/data/media/linux.sh \
                       obs-now-playing/data/overlay/index.html obs-now-playing/data/locale/es-ES.ini; do

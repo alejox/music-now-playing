@@ -1,6 +1,6 @@
 {
   "name": "obs-now-playing",
-  "version": "2.4.25",
+  "version": "2.4.26",
   "description": "Music Now Playing: overlay para OBS Studio que muestra lo que suena en tu computador (Spotify, YouTube Music, Apple Music…) en macOS, Windows y Linux.",
   "main": "server.js",
   "scripts": {

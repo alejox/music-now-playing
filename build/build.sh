@@ -8,7 +8,7 @@
 # Uso: ./build/build.sh [all|windows|mac|linux]
 #
 # Windows se arma en Linux/WSL (python3 con Pillow y makensis/NSIS). Con
-# PLUGIN_ZIP=<obs-now-playing-plugin-…-windows-x64.zip> el instalador también instala el
+# PLUGIN_ZIP=<music-now-playing-plugin-…-windows-x64.zip> el instalador también instala el
 # plugin de OBS (la Release siempre lo hace). PLUGIN_ZIP_MAC=<…-macos.zip>: lo mismo para
 # la app de Mac (lo instala al abrirse). PLUGIN_TAR=<…-linux-x86_64.tar.gz>: el plugin va
 # en el .tar.gz de Linux y su install.sh lo copia a la carpeta de plugins de OBS.

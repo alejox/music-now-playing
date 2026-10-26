@@ -14,7 +14,7 @@ Está basado en la plantilla oficial `obs-plugintemplate` de OBS Project, igual 
 
 ## Instalar
 
-Descarga el zip de tu sistema desde **[Releases](../../../releases/latest)** (`obs-now-playing-plugin-…`). Cierra OBS antes.
+Descarga el zip de tu sistema desde **[Releases](../../../releases/latest)** (`music-now-playing-plugin-…`). Cierra OBS antes.
 
 ### macOS (OBS 31+, macOS 12+)
 
@@ -42,8 +42,8 @@ O usa `Music-Now-Playing-Setup-….exe`: además de la app, copia el plugin a la
 ### Linux (OBS 31+, x86_64)
 
 1. Instala `playerctl` (`sudo apt install playerctl`, `sudo dnf install playerctl` o `sudo pacman -S playerctl`).
-2. Descomprime `obs-now-playing-plugin-…-linux-x86_64.tar.gz` en `~/.config/obs-studio/plugins/`: queda `obs-now-playing/bin/64bit/obs-now-playing.so` y `obs-now-playing/data/…`.
-   - Con el OBS del PPA (`ppa:obsproject/obs-studio`) o de la distribución también sirve el `.deb`: `sudo apt install ./obs-now-playing-plugin-…-linux-x86_64.deb` (lo deja en `/usr/lib/x86_64-linux-gnu/obs-plugins/`).
+2. Descomprime `music-now-playing-plugin-…-linux-x86_64.tar.gz` en `~/.config/obs-studio/plugins/`: queda `obs-now-playing/bin/64bit/obs-now-playing.so` y `obs-now-playing/data/…`.
+   - Con el OBS del PPA (`ppa:obsproject/obs-studio`) o de la distribución también sirve el `.deb`: `sudo apt install ./music-now-playing-plugin-…-linux-x86_64.deb` (lo deja en `/usr/lib/x86_64-linux-gnu/obs-plugins/`).
    - **OBS en Flatpak:** descomprímelo en `~/.var/app/com.obsproject.Studio/config/obs-studio/plugins/`. `playerctl` no viene dentro de la caja de arena: el lector usa el del sistema con `flatpak-spawn --host`, que necesita `flatpak override --user --talk-name=org.freedesktop.Flatpak com.obsproject.Studio`.
 3. Abre OBS.
 

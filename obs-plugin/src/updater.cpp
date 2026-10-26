@@ -36,7 +36,9 @@ namespace {
 const char *kLatestRelease = "https://api.github.com/repos/alejox/music-now-playing/releases/latest";
 const char *kReleasesPage = "https://github.com/alejox/music-now-playing/releases/latest";
 
-// Los paquetes del plugin se llaman obs-now-playing-plugin-<versión>-<sistema>.<extensión>.
+// Los paquetes del plugin se llaman music-now-playing-plugin-<versión>-<sistema>.<extensión>.
+// Hasta la 1.0.33 se llamaban obs-now-playing-plugin-…: se aceptan los dos nombres y, si la
+// Release trae ambos, se prefiere el nuevo.
 #ifdef _WIN32
 const char *kPlatform = "windows-x64";
 const char *kPackage = "zip";
@@ -246,18 +248,24 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 	QJsonObject release = QJsonDocument::fromJson(json).object();
 	QString pageUrl = release.value("html_url").toString(kReleasesPage);
 
-	QRegularExpression pattern(QString("^obs-now-playing-plugin-(\\d+(?:\\.\\d+)*)-%1\\.%2$")
+	QRegularExpression pattern(QString("^(music|obs)-now-playing-plugin-(\\d+(?:\\.\\d+)*)-%1\\.%2$")
 					   .arg(QString::fromUtf8(kPlatform), QString::fromUtf8(kPackage)));
 	QString version;
 	QString url;
+	bool newName = false;
 	const QJsonArray assets = release.value("assets").toArray();
 	for (qsizetype i = 0; i < assets.size(); ++i) {
 		QJsonObject asset = assets.at(i).toObject();
 		QRegularExpressionMatch match = pattern.match(asset.value("name").toString());
-		if (match.hasMatch()) {
-			version = match.captured(1);
-			url = asset.value("browser_download_url").toString();
-		}
+		if (!match.hasMatch())
+			continue;
+		// Un paquete con el nombre viejo solo se usa si la Release no trae el nuevo.
+		bool isNew = match.captured(1) == "music";
+		if (newName && !isNew)
+			continue;
+		newName = newName || isNew;
+		version = match.captured(2);
+		url = asset.value("browser_download_url").toString();
 	}
 
 	if (version.isEmpty() || !url.startsWith("https://github.com/")) {
@@ -265,9 +273,9 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 			fail(text("NowPlaying.Update.CheckFailed"), pageUrl,
 			     release.contains("message") ? "GitHub: " + release.value("message").toString()
 #ifdef __linux__
-							 : QString("La Release no trae obs-now-playing-plugin-…-%1").arg(kPlatform));
+							 : QString("La Release no trae music-now-playing-plugin-…-%1").arg(kPlatform));
 #else
-							 : QString("La Release no trae obs-now-playing-plugin-…-%1.zip").arg(kPlatform));
+							 : QString("La Release no trae music-now-playing-plugin-…-%1.zip").arg(kPlatform));
 #endif
 		return;
 	}
