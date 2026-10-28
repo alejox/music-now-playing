@@ -20,18 +20,17 @@ jobs:
           node --check media/macos.js
           node --check now-playing.user.js
           node --check ui.js
-      - name: Sintaxis del lector y los scripts de Linux
+      - name: Sintaxis del script de compilación
         run: |
-          for f in media/linux.sh test/fake-playerctl.sh build/build.sh build/linux/install.sh build/linux/obs-now-playing; do bash -n "$f"; done
+          bash -n build/build.sh
           shellcheck --version
-          shellcheck --severity=warning media/linux.sh test/fake-playerctl.sh build/build.sh build/linux/install.sh build/linux/obs-now-playing
+          shellcheck --severity=warning build/build.sh
       - name: Sintaxis del lector de Windows
         shell: pwsh
         run: |
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile("$PWD/media/windows.ps1", [ref]$null, [ref]$errors) | Out-Null
           if ($errors) { $errors | ForEach-Object { Write-Error "$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
-      # Incluye el lector de Linux con un playerctl falso (test/linux-reader.js).
       - name: Prueba de humo
         run: npm test
 

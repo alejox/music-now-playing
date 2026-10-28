@@ -45,11 +45,6 @@ const char *kPackage = "zip";
 #elif defined(__APPLE__)
 const char *kPlatform = "macos";
 const char *kPackage = "zip";
-#else
-// En Linux el plugin no se actualiza solo (lo instaló un .deb o el usuario en su carpeta):
-// solo se avisa y se abre la página de la Release.
-const char *kPlatform = "linux-x86_64";
-const char *kPackage = "(?:tar\\.gz|deb)";
 #endif
 
 QString text(const char *key)
@@ -272,11 +267,7 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 		if (manual)
 			fail(text("NowPlaying.Update.CheckFailed"), pageUrl,
 			     release.contains("message") ? "GitHub: " + release.value("message").toString()
-#ifdef __linux__
-							 : QString("La Release no trae music-now-playing-plugin-…-%1").arg(kPlatform));
-#else
 							 : QString("La Release no trae music-now-playing-plugin-…-%1.zip").arg(kPlatform));
-#endif
 		return;
 	}
 	if (compareVersions(version, QString::fromUtf8(PLUGIN_VERSION)) <= 0) {
@@ -303,19 +294,10 @@ void Updater::askToUpdate(const QString &version, const QString &url, const QStr
 	box.addButton(text("NowPlaying.Update.Later"), QMessageBox::RejectRole);
 	QPushButton *skip = box.addButton(text("NowPlaying.Update.Skip"), QMessageBox::DestructiveRole);
 	box.setDefaultButton(update);
-#ifdef __linux__
-	// En Linux no se instala solo: el botón abre la página para bajar el .deb o el .tar.gz.
-	update->setText(text("NowPlaying.Update.OpenPage"));
-#endif
 	box.exec();
 
 	if (box.clickedButton() == update) {
-#ifdef __linux__
-		Q_UNUSED(url)
-		QDesktopServices::openUrl(QUrl(pageUrl));
-#else
 		download(version, url);
-#endif
 	} else if (box.clickedButton() == skip)
 		skipVersion(version);
 }
@@ -361,11 +343,6 @@ void Updater::install(const QString &version, const QString &zipPath)
 	int unzip = QProcess::execute(systemTool("ditto"), {"-x", "-k", zipPath, extracted});
 	QString newRoot = QDir(extracted).filePath("obs-now-playing.plugin");
 	bool unzipped = unzip == 0 && QFileInfo(newRoot).isDir();
-#else
-	// Linux: no se llega aquí (askToUpdate abre la página); por si acaso, no se toca nada.
-	int unzip = -1;
-	QString newRoot;
-	bool unzipped = false;
 #endif
 	if (!unzipped) {
 		fail(text("NowPlaying.Update.InstallFailed"), kReleasesPage,
@@ -422,8 +399,6 @@ void Updater::install(const QString &version, const QString &zipPath)
 	} else {
 		problem = QString("No se pudo mover %1").arg(root);
 	}
-#else
-	(void)newRoot;
 #endif
 
 	if (progress_) {
