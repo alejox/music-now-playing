@@ -21,9 +21,10 @@ env:
   # PUENTE DE NOMBRES DEL PLUGIN. Los paquetes del plugin se llaman music-now-playing-plugin-….
   # Los plugins instalados hasta la 1.0.33 solo reconocen obs-now-playing-plugin-… en la
   # última Release: con 'true', publish sube además una copia idéntica de cada paquete con el
-  # nombre viejo para que esas versiones se puedan actualizar. Cuando ya no haga falta, pon
-  # 'false' y la Release solo tendrá music-now-playing-plugin-….
-  LEGACY_PLUGIN_ASSET_NAMES: 'true'
+  # nombre viejo para que esas versiones se puedan actualizar. Con 'false' (desde la 1.0.35) la
+  # Release solo tiene music-now-playing-plugin-…: quien tenga la 1.0.33 o una anterior la
+  # descarga a mano una vez.
+  LEGACY_PLUGIN_ASSET_NAMES: 'false'
 
 jobs:
   # El instalador de Windows también instala el plugin: necesita el zip ya compilado.
@@ -131,6 +132,7 @@ jobs:
           fi
           shopt -s nullglob
           files=(dist/music-now-playing-plugin-*)
+          # El de macOS y el de Windows.
           [ "${#files[@]}" -eq 2 ] || { echo "Esperaba 2 paquetes del plugin y hay ${#files[@]}: ${files[*]}"; exit 1; }
           for f in "${files[@]}"; do
             legacy="dist/obs-now-playing-plugin-${f#dist/music-now-playing-plugin-}"
@@ -139,6 +141,20 @@ jobs:
             echo "$legacy"
           done
           echo 'note=Los archivos `obs-now-playing-plugin-…` son copias solo para que se actualicen automáticamente las versiones anteriores del plugin: descarga los `music-now-playing-plugin-…`.' >> "$GITHUB_OUTPUT"
+      # Los 5 archivos de la Release, uno de cada uno (más las copias con el nombre viejo si el
+      # puente está activo).
+      - name: Archivos de la Release
+        run: |
+          shopt -s nullglob
+          v="$(node -p "require('./package.json').version")"
+          pv="$(node -p "require('./obs-plugin/buildspec.json').version")"
+          for f in "dist/Music-Now-Playing-Setup-$v.exe" "dist/Music-Now-Playing-$v-mac-apple.zip" "dist/Music-Now-Playing-$v-mac-intel.zip" \
+                   "dist/music-now-playing-plugin-$pv-macos.zip" "dist/music-now-playing-plugin-$pv-windows-x64.zip"; do
+            test -f "$f" || { echo "Falta $f"; ls dist; exit 1; }
+            echo "$f"
+          done
+          files=(dist/*.exe dist/Music-Now-Playing-*.zip dist/music-now-playing-plugin-*.zip)
+          [ "${#files[@]}" -eq 5 ] || { echo "Esperaba 5 archivos y hay ${#files[@]}: ${files[*]}"; exit 1; }
       - name: Publicar Release
         uses: softprops/action-gh-release@v2
         with:
@@ -148,10 +164,16 @@ jobs:
           # Solo los instaladores y los paquetes: los demás artefactos (capturas de las
           # pruebas del modo video) no son descargas.
           files: |
-            dist/*.exe
-            dist/*.zip
+            dist/Music-Now-Playing-Setup-*.exe
+            dist/Music-Now-Playing-*-mac-apple.zip
+            dist/Music-Now-Playing-*-mac-intel.zip
+            dist/music-now-playing-plugin-*-macos.zip
+            dist/music-now-playing-plugin-*-windows-x64.zip
+            dist/obs-now-playing-plugin-*.zip
           generate_release_notes: true
           body: |
+            > Desde esta versión ya no hay versión para Linux: solo Windows y macOS. Si tienes el plugin 1.0.33 o una versión anterior, no se actualiza solo a esta: descarga el paquete de tu sistema una vez (abajo); desde ahí las actualizaciones vuelven a ser automáticas.
+
             ## Descargas
             - **Windows 10/11:** `Music-Now-Playing-Setup-….exe` (la app y el plugin de OBS)
             - **Mac con chip Apple (M1/M2/M3/M4…):** `Music-Now-Playing-…-mac-apple.zip` (la app; al abrirla instala el plugin de OBS)
