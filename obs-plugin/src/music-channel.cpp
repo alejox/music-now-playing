@@ -21,6 +21,9 @@ QString text(const char *key)
 //            navegador (YouTube Music) suenan por el navegador: com.google.Chrome.app.<id>
 //            → com.google.Chrome.
 //   Windows: el .exe ("Spotify.exe"), que es como identifica la ventana la captura.
+//   Linux:   el programa ("spotify", "firefox"), que es el nombre del reproductor MPRIS sin
+//            su instancia ("firefox.instance_1_23" → "firefox"). La captura de PipeWire lo
+//            compara con el binario y con el nombre de la app, sin mayúsculas.
 QString audioTarget(const Track &track)
 {
 #ifdef _WIN32
@@ -41,7 +44,7 @@ QString audioTarget(const Track &track)
 	id.remove(QRegularExpression("\\.app\\..*$"));
 	return id;
 #else
-	return QString();
+	return track.app.section('.', 0, 0).toLower();
 #endif
 }
 
@@ -50,7 +53,9 @@ constexpr const char *kSourceId = "wasapi_process_output_capture";
 #elif defined(__APPLE__)
 constexpr const char *kSourceId = "sck_audio_capture";
 #else
-constexpr const char *kSourceId = "";
+// OBS no trae captura por aplicación en Linux: la da el plugin obs-pipewire-audio-capture
+// (github.com/dimtpap/obs-pipewire-audio-capture), si está instalado.
+constexpr const char *kSourceId = "pipewire_audio_application_capture";
 #endif
 
 obs_data_t *captureSettings(const QString &target)
@@ -64,7 +69,8 @@ obs_data_t *captureSettings(const QString &target)
 	obs_data_set_int(settings, "type", 1); // ScreenCaptureAudioApplicationStream
 	obs_data_set_string(settings, "application", target.toUtf8().constData());
 #else
-	(void)target;
+	obs_data_set_int(settings, "CaptureMode", 0); // CAPTURE_MODE_SINGLE: una sola app
+	obs_data_set_string(settings, "TargetName", target.toUtf8().constData());
 #endif
 	return settings;
 }
@@ -162,8 +168,12 @@ void create_music_channel(QWidget *parent)
 	QString target = audioTarget(track);
 	const char *sourceId = kSourceId;
 	// La captura por aplicación existe en macOS 13+ y Windows 10 2004+ (OBS solo la registra
-	// ahí).
+	// ahí); en Linux, solo con el plugin de PipeWire instalado.
+#ifdef __linux__
+	const char *unsupported = "NowPlaying.Channel.NeedsPipeWire";
+#else
 	const char *unsupported = "NowPlaying.Channel.Unsupported";
+#endif
 	if (target.isEmpty() || !obs_source_get_display_name(sourceId)) {
 		QMessageBox::warning(parent, text("NowPlaying.Channel.Title"),
 				     target.isEmpty() ? text("NowPlaying.Channel.UnknownApp").arg(track.label)

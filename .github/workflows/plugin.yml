@@ -1,7 +1,8 @@
 name: Plugin de OBS
 
-# Compila el plugin nativo (obs-plugin/) en un Mac con Xcode y en un Windows con
-# Visual Studio. Release lo reutiliza para adjuntar los zips a la Release.
+# Compila el plugin nativo (obs-plugin/) en un Mac con Xcode, en un Windows con
+# Visual Studio y en un Ubuntu con la libobs del PPA de OBS. Release lo reutiliza para
+# adjuntar los zips, el .deb y el .tar.gz a la Release.
 on:
   push:
     branches: [main]
@@ -12,7 +13,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  # El plugin lleva copias de los lectores y de ui.js: tienen que ser iguales a las de la app.
+  # El plugin lleva copias de los lectores y de ui.js: tienen que ser iguales a las de la app
+  # (el de Linux, obs-plugin/data/media/linux.sh, solo existe en el plugin).
   sync:
     runs-on: ubuntu-24.04
     steps:
@@ -118,4 +120,68 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: plugin-windows
+          path: dist/*
+
+  # Linux: contra la libobs y obs-frontend-api del PPA oficial de OBS (la versión que
+  # tenga el PPA, cercana a la de buildspec.json) y el Qt 6 de Ubuntu. Sale un .deb (para
+  # /usr, junto al OBS del PPA) y un .tar.gz con la forma de ~/.config/obs-studio/plugins.
+  linux:
+    # Un fallo de Linux no bloquea la Release de Windows y Mac (release.yml usa este workflow).
+    continue-on-error: true
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: obs-plugin
+    steps:
+      - uses: actions/checkout@v5
+      - name: Versión
+        id: version
+        run: echo "v=$(python3 -c "import json;print(json.load(open('buildspec.json'))['version'])")" >> "$GITHUB_OUTPUT"
+      - name: Dependencias (OBS del PPA, Qt 6)
+        run: |
+          sudo add-apt-repository --yes ppa:obsproject/obs-studio
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build pkg-config ccache \
+            obs-studio qt6-base-dev qt6-base-private-dev libqt6svg6-dev libsimde-dev libgles2-mesa-dev
+          echo "OBS del PPA: $(dpkg-query -W -f='${Version}' obs-studio)"
+      - name: Configurar
+        run: cmake --preset ubuntu-ci-x86_64
+      - name: Compilar
+        run: cmake --build --preset ubuntu-ci-x86_64
+      - name: Empaquetar (.deb y .tar.gz)
+        run: |
+          v="${{ steps.version.outputs.v }}"
+          mkdir -p ../dist
+          (cd build_x86_64 && cpack -G DEB)
+          for deb in release/*.deb; do
+            case "$deb" in *dbgsym*) continue ;; esac
+            dpkg-deb -c "$deb"
+            cp "$deb" "../dist/music-now-playing-plugin-$v-linux-x86_64.deb"
+          done
+          test -f "../dist/music-now-playing-plugin-$v-linux-x86_64.deb"
+          # La forma de la carpeta de plugins del usuario: obs-now-playing/bin/64bit/*.so y
+          # obs-now-playing/data/… (se descomprime en ~/.config/obs-studio/plugins/).
+          cmake --install build_x86_64 --prefix "$PWD/release/staging"
+          so="$(find release/staging -name 'obs-now-playing.so' | head -1)"
+          test -n "$so"
+          pkg=release/tar/obs-now-playing
+          mkdir -p "$pkg/bin/64bit"
+          cp "$so" "$pkg/bin/64bit/obs-now-playing.so"
+          cp -R release/staging/share/obs/obs-plugins/obs-now-playing "$pkg/data"
+          chmod 755 "$pkg/data/media/linux.sh"
+          tar -czf "../dist/music-now-playing-plugin-$v-linux-x86_64.tar.gz" -C release/tar obs-now-playing
+      - name: El .tar.gz trae la forma de la carpeta de plugins
+        run: |
+          list="$(tar -tzf ../dist/music-now-playing-plugin-*-linux-x86_64.tar.gz)"
+          echo "$list"
+          for file in obs-now-playing/bin/64bit/obs-now-playing.so obs-now-playing/data/media/linux.sh \
+                      obs-now-playing/data/overlay/index.html obs-now-playing/data/locale/es-ES.ini; do
+            echo "$list" | grep -qx "$file" || { echo "Falta $file en el .tar.gz"; exit 1; }
+          done
+          # El .so carga sin símbolos sin resolver de más (libobs, Qt) y exporta el módulo.
+          nm -D --defined-only release/tar/obs-now-playing/bin/64bit/obs-now-playing.so | grep -q obs_module_load
+          ldd release/tar/obs-now-playing/bin/64bit/obs-now-playing.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-linux
           path: dist/*
