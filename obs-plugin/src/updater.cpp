@@ -37,20 +37,17 @@ namespace {
 const char *kLatestRelease = "https://api.github.com/repos/alejox/music-now-playing/releases/latest";
 const char *kReleasesPage = "https://github.com/alejox/music-now-playing/releases/latest";
 
-// Los paquetes del plugin se llaman music-now-playing-plugin-<versión>-<sistema>.<extensión>.
-// Hasta la 1.0.33 se llamaban obs-now-playing-plugin-…: se aceptan los dos nombres y, si la
-// Release trae ambos, se prefiere el nuevo.
+// Desde la 1.0.36 los paquetes del plugin se llaman music-now-playing-<versión>-<sistema>.zip y
+// traen la carpeta que se copia tal cual en la de plugins de OBS. Los de antes
+// (music-now-playing-plugin-…, obs-now-playing-plugin-…) traían otra forma: no se aceptan.
 #ifdef _WIN32
 const char *kPlatform = "windows-x64";
-const char *kPackage = "zip";
 #elif defined(__APPLE__)
 const char *kPlatform = "macos";
-const char *kPackage = "zip";
 #else
-// En Linux el plugin no se actualiza solo (lo instaló un .deb o el usuario en su carpeta):
+// En Linux el plugin no se actualiza solo (el usuario lo copió en su carpeta de plugins):
 // solo se avisa y se abre la página de la Release.
 const char *kPlatform = "linux-x86_64";
-const char *kPackage = "(?:tar\\.gz|deb)";
 #endif
 
 QString text(const char *key)
@@ -163,27 +160,6 @@ int runElevated(const QString &program, const QString &params, QString *problem)
 	CloseHandle(info.hProcess);
 	return int(code);
 }
-
-// Copia el zip descomprimido (obs-plugins\, data\) encima de la carpeta de OBS. El .dll
-// cargado no se puede pisar, pero sí renombrar: queda como .old (se borra en la próxima
-// actualización) y el nuevo se usa al reiniciar OBS. Si la copia falla, vuelve el de antes.
-const char *kInstallScript = R"PS(param([string]$Source, [string]$Obs)
-$ErrorActionPreference = 'Stop'
-$dir = Join-Path $Obs 'obs-plugins\64bit'
-$dll = Join-Path $dir 'obs-now-playing.dll'
-Get-ChildItem -LiteralPath $dir -Filter 'obs-now-playing.dll.*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
-$old = ''
-if (Test-Path -LiteralPath $dll) {
-  $old = "$dll.$([DateTimeOffset]::Now.ToUnixTimeSeconds()).old"
-  Rename-Item -LiteralPath $dll -NewName (Split-Path $old -Leaf)
-}
-robocopy $Source $Obs /E /NFL /NDL /NJH /NJS /NP | Out-Null
-if ($LASTEXITCODE -ge 8) {
-  if ($old -and -not (Test-Path -LiteralPath $dll)) { Rename-Item -LiteralPath $old -NewName 'obs-now-playing.dll' }
-  exit 1
-}
-exit 0
-)PS";
 
 // OBS 33 carga los plugins de C:\ProgramData\obs-studio\plugins\<nombre>\ (el .dll ahí y los
 // datos en data\) y, hasta OBS 34, también los de las carpetas de antes: <OBS>\obs-plugins\64bit
@@ -465,35 +441,26 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 	QJsonObject release = QJsonDocument::fromJson(json).object();
 	QString pageUrl = release.value("html_url").toString(kReleasesPage);
 
-	QRegularExpression pattern(QString("^(music|obs)-now-playing-plugin-(\\d+(?:\\.\\d+)*)-%1\\.%2$")
-					   .arg(QString::fromUtf8(kPlatform), QString::fromUtf8(kPackage)));
+	QRegularExpression pattern(
+		QString("^music-now-playing-(\\d+(?:\\.\\d+)*)-%1\\.zip$").arg(QString::fromUtf8(kPlatform)));
 	QString version;
 	QString url;
-	bool newName = false;
 	const QJsonArray assets = release.value("assets").toArray();
 	for (qsizetype i = 0; i < assets.size(); ++i) {
 		QJsonObject asset = assets.at(i).toObject();
 		QRegularExpressionMatch match = pattern.match(asset.value("name").toString());
 		if (!match.hasMatch())
 			continue;
-		// Un paquete con el nombre viejo solo se usa si la Release no trae el nuevo.
-		bool isNew = match.captured(1) == "music";
-		if (newName && !isNew)
-			continue;
-		newName = newName || isNew;
-		version = match.captured(2);
+		version = match.captured(1);
 		url = asset.value("browser_download_url").toString();
+		break;
 	}
 
 	if (version.isEmpty() || !url.startsWith("https://github.com/")) {
 		if (manual)
 			fail(text("NowPlaying.Update.CheckFailed"), pageUrl,
 			     release.contains("message") ? "GitHub: " + release.value("message").toString()
-#ifdef __linux__
-							 : QString("La Release no trae music-now-playing-plugin-…-%1").arg(kPlatform));
-#else
-							 : QString("La Release no trae music-now-playing-plugin-…-%1.zip").arg(kPlatform));
-#endif
+							 : QString("La Release no trae music-now-playing-…-%1.zip").arg(kPlatform));
 		return;
 	}
 	if (compareVersions(version, QString::fromUtf8(PLUGIN_VERSION)) <= 0) {
@@ -502,6 +469,17 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 						 text("NowPlaying.Update.UpToDate").arg(QString::fromUtf8(PLUGIN_VERSION)));
 		return;
 	}
+#ifdef _WIN32
+	// El zip trae la carpeta de OBS 33 (obs-now-playing\obs-now-playing.dll y data\), que OBS 31
+	// y 32 no cargan: con esas versiones no se ofrece; en la revisión manual se explica por qué.
+	if (!obsUsesNewPluginFolder()) {
+		obs_log(LOG_INFO, "hay una versión nueva (%s), pero necesita OBS 33 o superior", version.toUtf8().constData());
+		if (manual)
+			QMessageBox::information(mainWindow(), text("NowPlaying.Update.Title"),
+						 text("NowPlaying.Update.NeedsObs33").arg(version, QString::fromUtf8(PLUGIN_VERSION)));
+		return;
+	}
+#endif
 	if (!manual && version == skippedVersion())
 		return;
 	askToUpdate(version, url, pageUrl);
@@ -521,7 +499,7 @@ void Updater::askToUpdate(const QString &version, const QString &url, const QStr
 	QPushButton *skip = box.addButton(text("NowPlaying.Update.Skip"), QMessageBox::DestructiveRole);
 	box.setDefaultButton(update);
 #ifdef __linux__
-	// En Linux no se instala solo: el botón abre la página para bajar el .deb o el .tar.gz.
+	// En Linux no se instala solo: el botón abre la página para bajar el zip.
 	update->setText(text("NowPlaying.Update.OpenPage"));
 #endif
 	box.exec();
@@ -571,9 +549,11 @@ void Updater::install(const QString &version, const QString &zipPath)
 
 #ifdef _WIN32
 	int unzip = QProcess::execute(systemTool("tar"), {"-xf", zipPath, "-C", extracted});
-	// El zip trae la forma de la carpeta de OBS: obs-plugins\64bit\…dll y data\obs-plugins\…
-	QString newRoot = extracted;
-	bool unzipped = unzip == 0 && QFileInfo::exists(QDir(extracted).filePath("obs-plugins/64bit/obs-now-playing.dll"));
+	// El zip trae la carpeta de OBS 33: obs-now-playing\obs-now-playing.dll y sus datos en
+	// obs-now-playing\data (se copia tal cual en C:\ProgramData\obs-studio\plugins).
+	QString newRoot = QDir(extracted).filePath("obs-now-playing");
+	bool unzipped = unzip == 0 && QFileInfo::exists(QDir(newRoot).filePath("obs-now-playing.dll")) &&
+			QFileInfo::exists(QDir(newRoot).filePath("data/overlay/index.html"));
 #elif defined(__APPLE__)
 	int unzip = QProcess::execute(systemTool("ditto"), {"-x", "-k", zipPath, extracted});
 	QString newRoot = QDir(extracted).filePath("obs-now-playing.plugin");
@@ -592,15 +572,11 @@ void Updater::install(const QString &version, const QString &zipPath)
 
 	QString root = installedRoot();
 	// Solo se actualiza un plugin instalado como dicen las instrucciones: en macOS en su
-	// propia carpeta; en Windows en la de OBS (el .dll en obs-plugins\64bit\).
+	// propia carpeta; en Windows (OBS 33+) en la carpeta nueva o en una de las de antes, y
+	// siempre se instala en la nueva (se quitan las copias de antes).
 #ifdef _WIN32
-	QDir binDir = QFileInfo(QString::fromUtf8(obs_get_module_binary_path(obs_current_module()))).absoluteDir();
-	bool ownFolder = binDir.dirName() == "64bit" && QFileInfo(binDir.absolutePath()).dir().dirName() == "obs-plugins";
-	// En la carpeta de OBS 33, o en una de antes con OBS 33+: se instala en la carpeta nueva
-	// (el zip trae la forma de la de antes) y se quitan las copias de antes.
 	PluginLocation where = pluginLocation();
-	bool toNewFolder = where == PluginLocation::NewFolder || (obsUsesNewPluginFolder() && where != PluginLocation::Other);
-	ownFolder = ownFolder || toNewFolder;
+	bool ownFolder = obsUsesNewPluginFolder() && where != PluginLocation::Other;
 #else
 	bool ownFolder = QFileInfo(root).fileName() == "obs-now-playing.plugin";
 #endif
@@ -613,25 +589,8 @@ void Updater::install(const QString &version, const QString &zipPath)
 	bool ok = false;
 	QString problem;
 #ifdef _WIN32
-	if (toNewFolder) {
-		ok = installToNewFolder(workDir, QDir(newRoot).filePath("obs-plugins/64bit/obs-now-playing.dll"),
-					QDir(newRoot).filePath("data/obs-plugins/obs-now-playing"), where, &problem);
-	} else {
-		QString script = QDir(workDir).filePath("instalar.ps1");
-		QFile scriptFile(script);
-		if (!scriptFile.open(QIODevice::WriteOnly) || scriptFile.write(kInstallScript) < 0) {
-			problem = QString("No se pudo escribir %1").arg(QDir::toNativeSeparators(script));
-		} else {
-			scriptFile.close();
-			QString params = QString("-NoProfile -ExecutionPolicy Bypass -File \"%1\" -Source \"%2\" -Obs \"%3\"")
-						 .arg(QDir::toNativeSeparators(script), QDir::toNativeSeparators(newRoot),
-						      QDir::toNativeSeparators(root));
-			int code = runElevated("powershell.exe", params, &problem);
-			ok = code == 0;
-			if (code > 0)
-				problem = QString("No se pudo copiar el plugin a %1 (código %2).").arg(QDir::toNativeSeparators(root)).arg(code);
-		}
-	}
+	ok = installToNewFolder(workDir, QDir(newRoot).filePath("obs-now-playing.dll"), QDir(newRoot).filePath("data"),
+				where, &problem);
 #elif defined(__APPLE__)
 	// En macOS el binario cargado sigue funcionando aunque se reemplace el paquete.
 	QString backup = root + ".old";

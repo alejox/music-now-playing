@@ -2,7 +2,7 @@ name: Plugin de OBS
 
 # Compila el plugin nativo (obs-plugin/) en un Mac con Xcode, en un Windows con
 # Visual Studio y en un Ubuntu con la libobs del PPA de OBS. Release lo reutiliza para
-# adjuntar los zips, el .deb y el .tar.gz a la Release.
+# adjuntar sus 3 zips (uno por sistema, con la carpeta que se copia en la de plugins de OBS).
 on:
   push:
     branches: [main]
@@ -72,7 +72,16 @@ jobs:
           codesign -dv "$plugin" 2>&1 | grep -E "Identifier|Signature|Format"
           ls "$plugin/Contents/Resources" "$plugin/Contents/Resources/media"
           mkdir -p ../dist
-          ditto -c -k --keepParent "$plugin" "../dist/music-now-playing-plugin-${{ steps.version.outputs.v }}-macos.zip"
+          # En la raíz del zip, obs-now-playing.plugin: se copia tal cual en la carpeta de plugins.
+          ditto -c -k --keepParent "$plugin" "../dist/music-now-playing-${{ steps.version.outputs.v }}-macos.zip"
+      - name: El zip trae solo obs-now-playing.plugin
+        run: |
+          zip="$(ls ../dist/music-now-playing-*-macos.zip)"
+          # (los metadatos de macOS que pueda agregar ditto, __MACOSX y ._*, no cuentan)
+          roots="$(unzip -Z1 "$zip" | cut -d/ -f1 | grep -v -e '^__MACOSX$' -e '^\._' | sort -u)"
+          echo "$roots"
+          [ "$roots" = "obs-now-playing.plugin" ] || { echo "El zip trae de más: $roots"; exit 1; }
+          unzip -Z1 "$zip" | grep -qx 'obs-now-playing.plugin/Contents/Resources/overlay/index.html' || { echo "Falta overlay/index.html"; exit 1; }
       - uses: actions/upload-artifact@v4
         with:
           name: plugin-macos
@@ -96,38 +105,38 @@ jobs:
       - name: Empaquetar
         run: |
           cmake --install build_x64 --prefix release --config RelWithDebInfo
-          # Con la forma de la carpeta de OBS (C:\Program Files\obs-studio): el .dll en
-          # obs-plugins\64bit y los datos en data\obs-plugins\obs-now-playing. Se instala
-          # copiando las dos carpetas del zip encima de la de OBS. Sin los símbolos .pdb.
+          # Con la forma de la carpeta de plugins de OBS 33: una carpeta obs-now-playing con el
+          # .dll y data\. Se instala copiándola en C:\ProgramData\obs-studio\plugins\. Sin los
+          # símbolos .pdb.
           $built = "release/obs-now-playing"
-          New-Item -ItemType Directory -Force package/obs-plugins/64bit, package/data/obs-plugins | Out-Null
-          Copy-Item "$built/bin/64bit/obs-now-playing.dll" package/obs-plugins/64bit/
-          Copy-Item "$built/data" package/data/obs-plugins/obs-now-playing -Recurse
+          New-Item -ItemType Directory -Force package/obs-now-playing | Out-Null
+          Copy-Item "$built/bin/64bit/obs-now-playing.dll" package/obs-now-playing/
+          Copy-Item "$built/data" package/obs-now-playing/data -Recurse
           Get-ChildItem -Recurse package | Select-Object -ExpandProperty FullName
           New-Item -ItemType Directory -Force ../dist | Out-Null
-          Compress-Archive -Path package/* -DestinationPath "../dist/music-now-playing-plugin-${{ steps.version.outputs.v }}-windows-x64.zip"
-      - name: El zip trae la forma de la carpeta de OBS
+          Compress-Archive -Path package/obs-now-playing -DestinationPath "../dist/music-now-playing-${{ steps.version.outputs.v }}-windows-x64.zip"
+      - name: El zip trae la carpeta obs-now-playing de OBS 33
         run: |
-          $zip = Get-Item "../dist/music-now-playing-plugin-*-windows-x64.zip"
+          $zip = Get-Item "../dist/music-now-playing-*-windows-x64.zip"
           $dir = Join-Path $env:RUNNER_TEMP $zip.BaseName
           Expand-Archive $zip.FullName -DestinationPath $dir
-          foreach ($file in 'obs-plugins\64bit\obs-now-playing.dll', 'data\obs-plugins\obs-now-playing\media\windows.ps1',
-                            'data\obs-plugins\obs-now-playing\overlay\index.html', 'data\obs-plugins\obs-now-playing\locale\es-ES.ini') {
+          foreach ($file in 'obs-now-playing\obs-now-playing.dll', 'obs-now-playing\data\media\windows.ps1',
+                            'obs-now-playing\data\overlay\index.html', 'obs-now-playing\data\locale\es-ES.ini') {
             if (-not (Test-Path (Join-Path $dir $file))) { throw "Falta $file en el zip" }
           }
-          $extra = Get-ChildItem $dir | Where-Object { $_.Name -notin 'obs-plugins', 'data' }
-          if ($extra) { throw "El zip trae de más: $($extra.Name -join ', ')" }
+          $extra = Get-ChildItem $dir | Where-Object { $_.Name -ne 'obs-now-playing' }
+          if ($extra) { throw "El zip trae de más en la raíz: $($extra.Name -join ', ')" }
+          $extra = Get-ChildItem (Join-Path $dir 'obs-now-playing') | Where-Object { $_.Name -notin 'obs-now-playing.dll', 'data' }
+          if ($extra) { throw "La carpeta obs-now-playing trae de más: $($extra.Name -join ', ')" }
       - uses: actions/upload-artifact@v4
         with:
           name: plugin-windows
           path: dist/*
 
   # Linux: contra la libobs y obs-frontend-api del PPA oficial de OBS (la versión que
-  # tenga el PPA, cercana a la de buildspec.json) y el Qt 6 de Ubuntu. Sale un .deb (para
-  # /usr, junto al OBS del PPA) y un .tar.gz con la forma de ~/.config/obs-studio/plugins.
+  # tenga el PPA, cercana a la de buildspec.json) y el Qt 6 de Ubuntu. Sale un zip con la
+  # carpeta obs-now-playing, que se copia tal cual en ~/.config/obs-studio/plugins/.
   linux:
-    # Un fallo de Linux no bloquea la Release de Windows y Mac (release.yml usa este workflow).
-    continue-on-error: true
     runs-on: ubuntu-24.04
     defaults:
       run:
@@ -141,46 +150,42 @@ jobs:
         run: |
           sudo add-apt-repository --yes ppa:obsproject/obs-studio
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build pkg-config ccache \
+          sudo apt-get install -y --no-install-recommends build-essential cmake ninja-build pkg-config ccache zip unzip \
             obs-studio qt6-base-dev qt6-base-private-dev libqt6svg6-dev libsimde-dev libgles2-mesa-dev
           echo "OBS del PPA: $(dpkg-query -W -f='${Version}' obs-studio)"
       - name: Configurar
         run: cmake --preset ubuntu-ci-x86_64
       - name: Compilar
         run: cmake --build --preset ubuntu-ci-x86_64
-      - name: Empaquetar (.deb y .tar.gz)
+      - name: Empaquetar
         run: |
           v="${{ steps.version.outputs.v }}"
           mkdir -p ../dist
-          (cd build_x86_64 && cpack -G DEB)
-          for deb in release/*.deb; do
-            case "$deb" in *dbgsym*) continue ;; esac
-            dpkg-deb -c "$deb"
-            cp "$deb" "../dist/music-now-playing-plugin-$v-linux-x86_64.deb"
-          done
-          test -f "../dist/music-now-playing-plugin-$v-linux-x86_64.deb"
           # La forma de la carpeta de plugins del usuario: obs-now-playing/bin/64bit/*.so y
-          # obs-now-playing/data/… (se descomprime en ~/.config/obs-studio/plugins/).
+          # obs-now-playing/data/… (se copia en ~/.config/obs-studio/plugins/).
           cmake --install build_x86_64 --prefix "$PWD/release/staging"
           so="$(find release/staging -name 'obs-now-playing.so' | head -1)"
           test -n "$so"
-          pkg=release/tar/obs-now-playing
+          pkg=release/zip/obs-now-playing
           mkdir -p "$pkg/bin/64bit"
           cp "$so" "$pkg/bin/64bit/obs-now-playing.so"
           cp -R release/staging/share/obs/obs-plugins/obs-now-playing "$pkg/data"
           chmod 755 "$pkg/data/media/linux.sh"
-          tar -czf "../dist/music-now-playing-plugin-$v-linux-x86_64.tar.gz" -C release/tar obs-now-playing
-      - name: El .tar.gz trae la forma de la carpeta de plugins
+          (cd release/zip && zip -r -X "../../../dist/music-now-playing-$v-linux-x86_64.zip" obs-now-playing)
+      - name: El zip trae la carpeta obs-now-playing
         run: |
-          list="$(tar -tzf ../dist/music-now-playing-plugin-*-linux-x86_64.tar.gz)"
+          zip="$(ls ../dist/music-now-playing-*-linux-x86_64.zip)"
+          list="$(unzip -Z1 "$zip")"
           echo "$list"
+          roots="$(echo "$list" | cut -d/ -f1 | sort -u)"
+          [ "$roots" = "obs-now-playing" ] || { echo "El zip trae de más en la raíz: $roots"; exit 1; }
           for file in obs-now-playing/bin/64bit/obs-now-playing.so obs-now-playing/data/media/linux.sh \
                       obs-now-playing/data/overlay/index.html obs-now-playing/data/locale/es-ES.ini; do
-            echo "$list" | grep -qx "$file" || { echo "Falta $file en el .tar.gz"; exit 1; }
+            echo "$list" | grep -qx "$file" || { echo "Falta $file en el zip"; exit 1; }
           done
           # El .so carga sin símbolos sin resolver de más (libobs, Qt) y exporta el módulo.
-          nm -D --defined-only release/tar/obs-now-playing/bin/64bit/obs-now-playing.so | grep -q obs_module_load
-          ldd release/tar/obs-now-playing/bin/64bit/obs-now-playing.so
+          nm -D --defined-only release/zip/obs-now-playing/bin/64bit/obs-now-playing.so | grep -q obs_module_load
+          ldd release/zip/obs-now-playing/bin/64bit/obs-now-playing.so
       - uses: actions/upload-artifact@v4
         with:
           name: plugin-linux

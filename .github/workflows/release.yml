@@ -3,188 +3,75 @@ name: Release
 # Publicar una versión: sube la versión en package.json, haz commit y luego
 #   - empuja un tag:  git tag v2.0.1 && git push origin v2.0.1
 #   - o en GitHub: Actions → Release → Run workflow (crea el tag v<versión> solo).
-# Esto genera los instaladores y los adjunta a la Release de ese tag.
+# Esto compila el plugin de OBS y adjunta sus 3 zips (macOS, Windows, Linux) a la Release.
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publicar la Release v<versión de package.json> (si no, solo deja los instaladores como artefacto)'
+        description: 'Publicar la Release v<versión de package.json> (si no, solo deja los zips del plugin como artefacto)'
         type: boolean
         default: true
 
 permissions:
   contents: write
 
-env:
-  # PUENTE DE NOMBRES DEL PLUGIN. Los paquetes del plugin se llaman music-now-playing-plugin-….
-  # Los plugins instalados hasta la 1.0.33 solo reconocen obs-now-playing-plugin-… en la
-  # última Release: con 'true', publish sube además una copia idéntica de cada paquete con el
-  # nombre viejo para que esas versiones se puedan actualizar. Con 'false' (desde la 1.0.35) la
-  # Release solo tiene music-now-playing-plugin-…: quien tenga la 1.0.33 o una anterior la
-  # descarga a mano una vez.
-  LEGACY_PLUGIN_ASSET_NAMES: 'false'
-
 jobs:
-  # El instalador de Windows también instala el plugin: necesita el zip ya compilado.
-  windows:
+  # El plugin nativo de OBS (obs-plugin/), compilado en Mac, Windows y Linux.
+  plugin:
+    uses: ./.github/workflows/plugin.yml
+
+  publish:
     needs: [plugin]
+    if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish }}
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-      - name: Herramientas (NSIS y Pillow)
-        run: sudo apt-get update && sudo apt-get install -y nsis python3-pil
       - name: Versión
+        id: version
         run: |
           tag="v$(node -p "require('./package.json').version")"
           if [[ "$GITHUB_REF" == refs/tags/* && "$GITHUB_REF_NAME" != "$tag" ]]; then
             echo "El tag es $GITHUB_REF_NAME pero package.json dice $tag"; exit 1
           fi
-      - name: Prueba de humo
-        run: npm test
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "pv=$(node -p "require('./obs-plugin/buildspec.json').version")" >> "$GITHUB_OUTPUT"
       - uses: actions/download-artifact@v4
         with:
-          name: plugin-windows
-          path: plugin-windows
-      - name: Instalador de Windows (app + plugin de OBS)
-        run: PLUGIN_ZIP="$(ls plugin-windows/music-now-playing-plugin-*-windows-x64.zip)" ./build/build.sh windows
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: dist/*
-
-  # En un Mac de verdad: la app queda firmada ad hoc entera (sin eso, macOS la da por
-  # "dañada" al descargarla) y se prueba que abre.
-  mac:
-    # La app de Mac lleva el plugin de OBS y lo instala al abrirse: necesita el zip compilado.
-    needs: [plugin]
-    runs-on: macos-15
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
-        with:
-          name: plugin-macos
-          path: plugin-macos
-      - uses: actions/setup-node@v5
-        with:
-          node-version: 22
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: Pillow
-        run: python -m pip install pillow
-      - name: Apps de macOS (con el plugin de OBS adentro)
-        run: PLUGIN_ZIP_MAC="$(ls "$PWD"/plugin-macos/music-now-playing-plugin-*-macos.zip)" ./build/build.sh mac
-      - name: La app firmada abre y responde
-        run: |
-          app_dir="$RUNNER_TEMP/prueba"
-          mkdir -p "$app_dir"
-          ditto -x -k dist/Music-Now-Playing-*-mac-apple.zip "$app_dir"
-          app="$app_dir/OBS Now Playing.app"
-          codesign --verify --deep --strict --verbose=2 "$app"
-          codesign -dv "$app" 2>&1 | grep -E "Identifier|Signature"
-          open "$app"
-          for i in $(seq 1 30); do curl -fs http://127.0.0.1:8787/ >/dev/null && break; sleep 1; done
-          sleep 4
-          curl -fs http://127.0.0.1:8787/api/now-playing
-          echo
-          curl -fs http://127.0.0.1:8787/ | grep -o 'Lector del sistema:</b>.\{0,200\}' | sed 's/<[^>]*>//g'
-          echo "--- log"; cat "$HOME/Library/Application Support/OBS Now Playing/log.txt"
-          # La app instaló el plugin en la carpeta de plugins de OBS.
-          plugin="$HOME/Library/Application Support/obs-studio/plugins/obs-now-playing.plugin"
-          test -f "$plugin/Contents/MacOS/obs-now-playing" || { echo "La app no instaló el plugin de OBS"; exit 1; }
-          test -f "$plugin/Contents/Resources/overlay/index.html" || { echo "El plugin instalado está incompleto"; exit 1; }
-          codesign --verify --deep "$plugin"
-          plutil -extract CFBundleShortVersionString raw "$plugin/Contents/Info.plist" || true
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mac
-          path: dist/*
-
-  # El plugin nativo de OBS (obs-plugin/), compilado en Mac y Windows.
-  plugin:
-    uses: ./.github/workflows/plugin.yml
-
-  publish:
-    needs: [windows, mac, plugin]
-    if: ${{ startsWith(github.ref, 'refs/tags/') || inputs.publish }}
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/download-artifact@v4
-        with:
+          pattern: plugin-*
           path: dist
           merge-multiple: true
-      - name: Versión
-        id: version
-        run: echo "tag=v$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
-      # Ver LEGACY_PLUGIN_ASSET_NAMES arriba: copias con el nombre viejo para los plugins <= 1.0.33.
-      - name: Copias del plugin con el nombre viejo
-        id: legacy
-        run: |
-          if [ "$LEGACY_PLUGIN_ASSET_NAMES" != "true" ]; then
-            echo "note=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          shopt -s nullglob
-          files=(dist/music-now-playing-plugin-*)
-          # El de macOS y el de Windows.
-          [ "${#files[@]}" -eq 2 ] || { echo "Esperaba 2 paquetes del plugin y hay ${#files[@]}: ${files[*]}"; exit 1; }
-          for f in "${files[@]}"; do
-            legacy="dist/obs-now-playing-plugin-${f#dist/music-now-playing-plugin-}"
-            cp "$f" "$legacy"
-            cmp "$f" "$legacy"
-            echo "$legacy"
-          done
-          echo 'note=Los archivos `obs-now-playing-plugin-…` son copias solo para que se actualicen automáticamente las versiones anteriores del plugin: descarga los `music-now-playing-plugin-…`.' >> "$GITHUB_OUTPUT"
-      # Los 5 archivos de la Release, uno de cada uno (más las copias con el nombre viejo si el
-      # puente está activo).
+      # Los 3 archivos de la Release, uno por sistema, y nada más.
       - name: Archivos de la Release
         run: |
           shopt -s nullglob
-          v="$(node -p "require('./package.json').version")"
-          pv="$(node -p "require('./obs-plugin/buildspec.json').version")"
-          for f in "dist/Music-Now-Playing-Setup-$v.exe" "dist/Music-Now-Playing-$v-mac-apple.zip" "dist/Music-Now-Playing-$v-mac-intel.zip" \
-                   "dist/music-now-playing-plugin-$pv-macos.zip" "dist/music-now-playing-plugin-$pv-windows-x64.zip"; do
+          pv="${{ steps.version.outputs.pv }}"
+          for f in "dist/music-now-playing-$pv-macos.zip" "dist/music-now-playing-$pv-windows-x64.zip" \
+                   "dist/music-now-playing-$pv-linux-x86_64.zip"; do
             test -f "$f" || { echo "Falta $f"; ls dist; exit 1; }
             echo "$f"
           done
-          files=(dist/*.exe dist/Music-Now-Playing-*.zip dist/music-now-playing-plugin-*.zip)
-          [ "${#files[@]}" -eq 5 ] || { echo "Esperaba 5 archivos y hay ${#files[@]}: ${files[*]}"; exit 1; }
+          files=(dist/*)
+          [ "${#files[@]}" -eq 3 ] || { echo "Esperaba 3 archivos y hay ${#files[@]}: ${files[*]}"; exit 1; }
       - name: Publicar Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           target_commitish: ${{ github.sha }}
           name: Music Now Playing ${{ steps.version.outputs.tag }}
-          # Solo los instaladores y los paquetes: los demás artefactos (capturas de las
-          # pruebas del modo video) no son descargas.
           files: |
-            dist/Music-Now-Playing-Setup-*.exe
-            dist/Music-Now-Playing-*-mac-apple.zip
-            dist/Music-Now-Playing-*-mac-intel.zip
-            dist/music-now-playing-plugin-*-macos.zip
-            dist/music-now-playing-plugin-*-windows-x64.zip
-            dist/obs-now-playing-plugin-*.zip
+            dist/music-now-playing-${{ steps.version.outputs.pv }}-macos.zip
+            dist/music-now-playing-${{ steps.version.outputs.pv }}-windows-x64.zip
+            dist/music-now-playing-${{ steps.version.outputs.pv }}-linux-x86_64.zip
           generate_release_notes: true
           body: |
-            > Desde esta versión ya no hay versión para Linux: solo Windows y macOS. Si tienes el plugin 1.0.33 o una versión anterior, no se actualiza solo a esta: descarga el paquete de tu sistema una vez (abajo); desde ahí las actualizaciones vuelven a ser automáticas.
+            > Desde esta versión solo se publica el plugin de OBS, para instalar copiando y pegando una carpeta. Si tienes el plugin 1.0.35 o una versión anterior, no se actualiza solo a esta: descarga el zip de tu sistema una vez (abajo); desde ahí las actualizaciones vuelven a ser automáticas.
 
-            ## Descargas
-            - **Windows 10/11:** `Music-Now-Playing-Setup-….exe` (la app y el plugin de OBS)
-            - **Mac con chip Apple (M1/M2/M3/M4…):** `Music-Now-Playing-…-mac-apple.zip` (la app; al abrirla instala el plugin de OBS)
-            - **Mac con Intel:** `Music-Now-Playing-…-mac-intel.zip` (la app; al abrirla instala el plugin de OBS)
+            ## Instalar (fuente "Now Playing" y dock "Música")
+            Cierra OBS, descomprime el zip de tu sistema y copia la carpeta que trae:
+            - **Windows 10/11 (OBS 33 o superior):** `music-now-playing-…-windows-x64.zip` → copia la carpeta `obs-now-playing` en `C:\ProgramData\obs-studio\plugins\`. Si tenías una copia de antes, borra `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` y `C:\Program Files\obs-studio\data\obs-plugins\obs-now-playing`.
+            - **macOS (OBS 31 o superior):** `music-now-playing-…-macos.zip` → copia `obs-now-playing.plugin` en `~/Library/Application Support/obs-studio/plugins/` y ejecuta en Terminal: `xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin`
+            - **Linux x86_64 (OBS 31 o superior):** `music-now-playing-…-linux-x86_64.zip` → copia la carpeta `obs-now-playing` en `~/.config/obs-studio/plugins/` e instala `playerctl` (por ejemplo `sudo apt install playerctl`).
 
-            ### Plugin nativo para OBS (fuente "Now Playing" y dock "Música")
-            - **macOS:** `music-now-playing-plugin-…-macos.zip`
-            - **Windows:** `music-now-playing-plugin-…-windows-x64.zip`. Con OBS 33+ va en `C:\ProgramData\obs-studio\plugins\obs-now-playing\` (el `.dll` ahí y el contenido de `data\obs-plugins\obs-now-playing\` en su `data\`); con OBS 31/32, las carpetas del zip dentro de `C:\Program Files\obs-studio\`. El instalador `.exe` elige solo, y el plugin instalado en la carpeta de antes se mueve solo a la nueva al actualizarse con OBS 33.
-
-            ${{ steps.legacy.outputs.note }}
-
-            Cómo instalarlo: [obs-plugin/README](${{ github.server_url }}/${{ github.repository }}/tree/main/obs-plugin#instalar).
-
-            Cómo instalar y qué hacer con los avisos de Windows/macOS: [README](${{ github.server_url }}/${{ github.repository }}/blob/main/README.es.md).
+            Abre OBS. Más detalles: [obs-plugin/README](${{ github.server_url }}/${{ github.repository }}/tree/main/obs-plugin#instalar).
