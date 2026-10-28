@@ -11,10 +11,11 @@ class QProgressDialog;
 // Al abrir OBS (y desde Herramientas → "Now Playing: buscar actualizaciones") revisa la
 // última Release; si trae un plugin más nuevo para este sistema, pregunta con un modal.
 // Si se acepta, lo instala solo: descarga el zip con el curl del sistema, lo descomprime
-// (ditto en macOS, tar en Windows) y reemplaza el plugin. En Windows el plugin está en la
-// carpeta de OBS: la copia pide permiso de administrador. El cambio se aplica al reiniciar OBS.
-// Con OBS 33+ en Windows va en C:\ProgramData\obs-studio\plugins\obs-now-playing: si el plugin
-// está en una carpeta de antes, ofrece moverlo ahí, y las actualizaciones se instalan ahí.
+// (ditto en macOS, tar en Windows) y reemplaza el plugin. El cambio se aplica al reiniciar OBS.
+// En Windows se instala en C:\ProgramData\obs-studio\plugins\obs-now-playing (la carpeta de
+// OBS 33, la forma del zip) con permiso de administrador; si el plugin está en una carpeta de
+// antes, ofrece moverlo ahí. Con OBS 31 o 32 no se ofrece: esas versiones no cargan esa forma.
+// En Linux no se instala solo: el aviso abre la página de la Release.
 class Updater : public QObject {
 	Q_OBJECT
 
