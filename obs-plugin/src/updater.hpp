@@ -13,6 +13,8 @@ class QProgressDialog;
 // Si se acepta, lo instala solo: descarga el zip con el curl del sistema, lo descomprime
 // (ditto en macOS, tar en Windows) y reemplaza el plugin. En Windows el plugin está en la
 // carpeta de OBS: la copia pide permiso de administrador. El cambio se aplica al reiniciar OBS.
+// Con OBS 33+ en Windows va en C:\ProgramData\obs-studio\plugins\obs-now-playing: si el plugin
+// está en una carpeta de antes, ofrece moverlo ahí, y las actualizaciones se instalan ahí.
 class Updater : public QObject {
 	Q_OBJECT
 

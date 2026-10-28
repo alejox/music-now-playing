@@ -38,19 +38,21 @@ Funciona con **Spotify** (app o web), **YouTube Music**, **Apple Music** y cualq
 
 Descarga el archivo de tu sistema desde **[Releases](../../releases/latest)** y **cierra OBS antes**.
 
-| | macOS (OBS 31+) | Windows (OBS 31+) |
+| | macOS (OBS 31+) | Windows (OBS 33+) |
 |---|---|---|
 | **Archivo** | `music-now-playing-plugin-<versión>-macos.zip` | `music-now-playing-plugin-<versión>-windows-x64.zip` |
 | **1** | Descomprímelo: queda `obs-now-playing.plugin` | Descomprímelo (clic derecho → **Extraer todo**): quedan las carpetas `obs-plugins` y `data` |
-| **2** | Cópialo a `~/Library/Application Support/obs-studio/plugins/` | Copia esas dos carpetas dentro de `C:\Program Files\obs-studio\` y acepta reemplazar y el permiso de administrador |
-| **3** | Pega en la Terminal el comando de abajo (una vez) | Comprueba que quedó `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` |
-| **4** | Abre OBS | Abre OBS |
+| **2** | Cópialo a `~/Library/Application Support/obs-studio/plugins/` | Crea `C:\ProgramData\obs-studio\plugins\obs-now-playing\` y copia ahí `obs-plugins\64bit\obs-now-playing.dll` (acepta el permiso de administrador) |
+| **3** | Pega en la Terminal el comando de abajo (una vez) | Crea dentro una carpeta `data` y copia ahí el contenido de `data\obs-plugins\obs-now-playing\` |
+| **4** | Abre OBS | Borra las copias de antes, si hay (ver abajo), y abre OBS |
 
 > [!TIP]
-> En Windows, `Music-Now-Playing-Setup-<versión>.exe` también instala el plugin en la carpeta de OBS (opción **Plugin para OBS**, marcada por defecto; pide permiso de administrador), sin descomprimir nada.
+> En Windows, lo más fácil es `Music-Now-Playing-Setup-<versión>.exe`: también instala el plugin en la carpeta que corresponde a tu versión de OBS y quita las copias de antes (opción **Plugin para OBS**, marcada por defecto; pide permiso de administrador), sin descomprimir nada.
 
 > [!IMPORTANT]
-> En Windows, si antes lo instalaste en `C:\ProgramData\obs-studio\plugins\obs-now-playing`, borra esa carpeta: si no, OBS carga las dos copias.
+> **Windows y OBS 33:** OBS 33 [cambió la carpeta de los plugins](https://obsproject.com/kb/legacy-plugin-developer-info) a `C:\ProgramData\obs-studio\plugins\`. Con el plugin en la carpeta nueva, borra las copias de antes: `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll`, `C:\Program Files\obs-studio\data\obs-plugins\obs-now-playing\` y la carpeta `bin` de `C:\ProgramData\obs-studio\plugins\obs-now-playing\`. Si actualizas OBS a la 33 con el plugin en la carpeta de antes, el plugin (1.0.35 o más nuevo) ofrece moverse solo al abrir OBS: acepta el permiso de administrador y reinicia OBS.
+>
+> **OBS 31 o 32:** copia las carpetas `obs-plugins` y `data` del zip dentro de `C:\Program Files\obs-studio\` (acepta reemplazar y el permiso de administrador) y comprueba que quedó `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll`.
 
 ```bash
 xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin
@@ -99,7 +101,7 @@ Pega el comando `xattr -cr …` de los pasos de instalación. Pasa porque el plu
 <details>
 <summary><b>¿Cómo se actualiza?</b></summary>
 
-Al abrir OBS, si hay una versión nueva sale un aviso con **Actualizar ahora**: la descarga, reemplaza el plugin y pide reiniciar OBS. En Windows, como el plugin está en la carpeta de OBS, Windows pide permiso de administrador para copiarlo. También en **Herramientas → Now Playing: buscar actualizaciones**.
+Al abrir OBS, si hay una versión nueva sale un aviso con **Actualizar ahora**: la descarga, reemplaza el plugin y pide reiniciar OBS. En Windows, como el plugin está en una carpeta de administrador, Windows pide permiso para copiarlo; con OBS 33+ la actualización lo deja en la carpeta nueva y quita la copia de antes. También en **Herramientas → Now Playing: buscar actualizaciones**.
 </details>
 
 ## 🖥️ App aparte (opcional)

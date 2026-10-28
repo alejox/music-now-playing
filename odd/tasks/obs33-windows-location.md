@@ -20,14 +20,15 @@ Ship app 2.4.27 / plugin 1.0.35 for OBS 33: Windows plugin in the new OBS 33 loc
 
 ## Tasks
 - [x] T1 Remove Linux (workflows, build.sh, build/linux, media/linux.sh + copy, tests, package.json, server.js, C++ __linux__ branches, locale key, presets, READMEs, release notes). Route: delegated writer.
-- [ ] T2 Windows OBS 33 location: self-migration, updater install target, NSIS installer + uninstall, README/obs-plugin README manual steps, release notes. Route: delegated writer.
+- [x] T2 Windows OBS 33 location: self-migration, updater install target, NSIS installer + uninstall, README/obs-plugin README manual steps, release notes. Route: delegated writer.
 - [ ] T3 Release cleanup + versions: legacy switch off, legacy step adjusted, version 2.4.27 / 1.0.35. Route: delegated writer.
 - [ ] T4 Verify: local checks, CI + plugin + dry-run release on branch, asset list = 5, diff audit that macOS behavior is unchanged.
 - [ ] T5 Merge + publish after user OK.
 
 ## Progress
 - Branch `feat/obs33-windows-location` from main 79ca849.
-- T1 done (delegated writer): Linux jobs/assets/scripts/tests/C++ branches/locale key/presets/docs removed. Kept generic non-Win/non-Mac fallbacks in server.js (data dir, xdg-open) because CI runs `npm test` on Ubuntu; build.sh still mentions Linux/WSL only as a build host for the Windows installer. `cmake/linux/*` kept (template). Checks: `npm test` OK, `node --check server.js` OK, `bash -n build/build.sh` OK, CMakePresets JSON parses.
+- T1 done (delegated writer): Linux jobs/assets/scripts/tests/C++ branches/locale key/presets/docs removed. Kept generic non-Win/non-Mac fallbacks in server.js (data dir, xdg-open) because CI runs `npm test` on Ubuntu; build.sh still mentions Linux/WSL only as a build host for the Windows installer. `cmake/linux/*` kept (template). Checks: `npm test` OK, `node --check server.js` OK, `bash -n build/build.sh` OK, CMakePresets JSON parses. Commit 12dc16e.
+- T2 done (delegated writer): updater.cpp (Windows only) detects OBS >= 33 and the module location (new / legacy Program Files / legacy ProgramData bin\64bit); offers a one-step elevated move at startup (once per session; flag `moved-to-obs33-folder.txt` = plugin version after success); updates from the new location, or from a legacy one on OBS 33+, install into the new folder from the legacy-shaped zip and clean legacy copies; OBS < 33 keeps the old path unchanged. NSIS reads obs64.exe file version: >= 33 installs to `%ProgramData%\obs-studio\plugins\obs-now-playing` (one elevated cmd: robocopy dll + data, then delete legacy copies only if both copies succeeded), else legacy; uninstall also removes the new folder. Docs + release body updated. Not compiled locally (no MSVC/makensis): CI must confirm.
 
 ## Next step
 T1-T3 (one writer, one commit per task).

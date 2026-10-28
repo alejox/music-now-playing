@@ -178,6 +178,213 @@ if ($LASTEXITCODE -ge 8) {
 }
 exit 0
 )PS";
+
+// OBS 33 carga los plugins de C:\ProgramData\obs-studio\plugins\<nombre>\ (el .dll ahí y los
+// datos en data\) y, hasta OBS 34, también los de las carpetas de antes: <OBS>\obs-plugins\64bit
+// con <OBS>\data\obs-plugins\<nombre>, o …\plugins\<nombre>\bin\64bit. Si encuentra dos copias,
+// usa la de la carpeta nueva. https://obsproject.com/kb/legacy-plugin-developer-info
+#ifndef MAKE_SEMANTIC_VERSION
+#define MAKE_SEMANTIC_VERSION(major, minor, patch) ((major << 24) | (minor << 16) | patch)
+#endif
+
+bool obsUsesNewPluginFolder()
+{
+	return obs_get_version() >= static_cast<uint32_t>(MAKE_SEMANTIC_VERSION(33, 0, 0));
+}
+
+// C:\ProgramData\obs-studio\plugins\obs-now-playing (vacío si no se sabe dónde está ProgramData).
+QString newPluginFolder()
+{
+	QString programData = qEnvironmentVariable("ProgramData");
+	if (programData.isEmpty())
+		programData = qEnvironmentVariable("ALLUSERSPROFILE");
+	if (programData.isEmpty())
+		return QString();
+	return QDir::cleanPath(programData + "/obs-studio/plugins/obs-now-playing");
+}
+
+// El .dll cargado, con ruta completa (en la carpeta de OBS llega relativa a bin\64bit).
+QString moduleBinary()
+{
+	return QDir::cleanPath(
+		QFileInfo(QString::fromUtf8(obs_get_module_binary_path(obs_current_module()))).absoluteFilePath());
+}
+
+enum class PluginLocation { NewFolder, LegacyObsFolder, LegacyProgramData, Other };
+
+PluginLocation pluginLocation()
+{
+	QString binDir = QFileInfo(moduleBinary()).absolutePath();
+	QString target = newPluginFolder();
+	if (!target.isEmpty() && binDir.compare(target, Qt::CaseInsensitive) == 0)
+		return PluginLocation::NewFolder;
+	if (!target.isEmpty() && binDir.compare(target + "/bin/64bit", Qt::CaseInsensitive) == 0)
+		return PluginLocation::LegacyProgramData;
+	QDir dir(binDir);
+	if (dir.dirName() == "64bit" && QFileInfo(dir.absolutePath()).dir().dirName() == "obs-plugins")
+		return PluginLocation::LegacyObsFolder;
+	return PluginLocation::Other;
+}
+
+// Copia el plugin a la carpeta de OBS 33 y después quita las copias de antes. El .dll cargado
+// no se puede borrar, pero sí renombrar: queda como .old (se borra en la próxima
+// actualización). Si la copia falla, no queda un .dll a medias en la carpeta nueva y la copia
+// de antes sigue como estaba.
+const char *kNewFolderScript = R"PS(param([string]$Dll, [string]$Target, [string]$Data = '', [string]$OldDll = '', [string]$OldData = '', [string]$OldBin = '')
+$ErrorActionPreference = 'Stop'
+$newDll = Join-Path $Target 'obs-now-playing.dll'
+$backup = ''
+$copying = $false
+try {
+  New-Item -ItemType Directory -Force -Path $Target | Out-Null
+  Get-ChildItem -LiteralPath $Target -Filter 'obs-now-playing.dll.*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+  if (Test-Path -LiteralPath $newDll) {
+    $name = "obs-now-playing.dll.$([DateTimeOffset]::Now.ToUnixTimeSeconds()).old"
+    Rename-Item -LiteralPath $newDll -NewName $name
+    $backup = Join-Path $Target $name
+  }
+  $copying = $true
+  Copy-Item -LiteralPath $Dll -Destination $newDll -Force
+  $pdb = [IO.Path]::ChangeExtension($Dll, '.pdb')
+  if (Test-Path -LiteralPath $pdb) { Copy-Item -LiteralPath $pdb -Destination (Join-Path $Target 'obs-now-playing.pdb') -Force }
+  if ($Data) {
+    robocopy $Data (Join-Path $Target 'data') /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopy $LASTEXITCODE" }
+  }
+} catch {
+  if ($copying) { Remove-Item -LiteralPath $newDll -Force -ErrorAction SilentlyContinue }
+  if ($backup) { Rename-Item -LiteralPath $backup -NewName 'obs-now-playing.dll' -ErrorAction SilentlyContinue }
+  exit 1
+}
+if ($OldDll -and (Test-Path -LiteralPath $OldDll)) {
+  Get-ChildItem -LiteralPath (Split-Path $OldDll) -Filter 'obs-now-playing.dll.*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+  Rename-Item -LiteralPath $OldDll -NewName "obs-now-playing.dll.$([DateTimeOffset]::Now.ToUnixTimeSeconds()).old" -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath ([IO.Path]::ChangeExtension($OldDll, '.pdb')) -Force -ErrorAction SilentlyContinue
+}
+if ($OldData -and (Test-Path -LiteralPath $OldData)) { Remove-Item -LiteralPath $OldData -Recurse -Force -ErrorAction SilentlyContinue }
+if ($OldBin -and (Test-Path -LiteralPath $OldBin)) { Remove-Item -LiteralPath $OldBin -Recurse -Force -ErrorAction SilentlyContinue }
+exit 0
+)PS";
+
+// Instala dll y data (data vacío si ya está en su lugar) en la carpeta de OBS 33 con permiso de
+// administrador y quita las copias de la carpeta de donde se cargó el plugin (from).
+bool installToNewFolder(const QString &workDir, const QString &dll, const QString &data, PluginLocation from,
+			QString *problem)
+{
+	QString target = newPluginFolder();
+	if (target.isEmpty()) {
+		*problem = QString("No se encontró la carpeta ProgramData.");
+		return false;
+	}
+	QDir().mkpath(workDir);
+	QString script = QDir(workDir).filePath("instalar-obs33.ps1");
+	QFile scriptFile(script);
+	if (!scriptFile.open(QIODevice::WriteOnly) || scriptFile.write(kNewFolderScript) < 0) {
+		*problem = QString("No se pudo escribir %1").arg(QDir::toNativeSeparators(script));
+		return false;
+	}
+	scriptFile.close();
+
+	auto arg = [](const char *name, const QString &value) {
+		return QString(" -%1 \"%2\"").arg(QString::fromUtf8(name), QDir::toNativeSeparators(value));
+	};
+	QString params = QString("-NoProfile -ExecutionPolicy Bypass -File \"%1\"").arg(QDir::toNativeSeparators(script));
+	params += arg("Dll", dll) + arg("Target", target);
+	if (!data.isEmpty())
+		params += arg("Data", data);
+	if (from == PluginLocation::LegacyObsFolder) {
+		params += arg("OldDll", moduleBinary());
+		params += arg("OldData", installedRoot() + "/data/obs-plugins/obs-now-playing");
+	}
+	if (from == PluginLocation::LegacyProgramData)
+		params += arg("OldDll", moduleBinary());
+	// La carpeta bin\ de antes (lo que quede de ella) está dentro de la carpeta nueva.
+	if (QFileInfo(target + "/bin").isDir())
+		params += arg("OldBin", target + "/bin");
+
+	int code = runElevated("powershell.exe", params, problem);
+	if (code > 0)
+		*problem = QString("No se pudo copiar el plugin a %1 (código %2).").arg(QDir::toNativeSeparators(target)).arg(code);
+	return code == 0;
+}
+
+QString movedFile()
+{
+	char *path = obs_module_config_path("moved-to-obs33-folder.txt");
+	QString result = QString::fromUtf8(path);
+	bfree(path);
+	return result;
+}
+
+// Con OBS 33+ y el plugin en una carpeta de antes, ofrece moverlo a la nueva: una vez por
+// sesión de OBS y, si ya se movió en esta versión, no otra vez. Devuelve true si se movió.
+bool offerMoveToNewFolder()
+{
+	static bool offered = false;
+	if (offered || !obsUsesNewPluginFolder())
+		return false;
+	PluginLocation where = pluginLocation();
+	if (where != PluginLocation::LegacyObsFolder && where != PluginLocation::LegacyProgramData)
+		return false;
+	QString target = newPluginFolder();
+	QFile moved(movedFile());
+	if (target.isEmpty() ||
+	    (moved.open(QIODevice::ReadOnly) && QString::fromUtf8(moved.readAll()).trimmed() == QString::fromUtf8(PLUGIN_VERSION)))
+		return false;
+	moved.close();
+	offered = true;
+
+	QMessageBox box(mainWindow());
+	box.setWindowTitle(text("NowPlaying.Update.Title"));
+	box.setIcon(QMessageBox::Information);
+	box.setTextFormat(Qt::RichText);
+	box.setText(text("NowPlaying.Update.Move").arg(QDir::toNativeSeparators(target).toHtmlEscaped()));
+	QPushButton *move = box.addButton(text("NowPlaying.Update.MoveNow"), QMessageBox::AcceptRole);
+	box.addButton(text("NowPlaying.Update.Later"), QMessageBox::RejectRole);
+	box.setDefaultButton(move);
+	box.exec();
+	if (box.clickedButton() != move) {
+		obs_log(LOG_INFO, "no se movió el plugin a la carpeta de OBS 33 (se vuelve a ofrecer al abrir OBS)");
+		return false;
+	}
+
+	// Lo que se copia: el .dll cargado y su carpeta de datos (la que tiene overlay\index.html).
+	char *index = obs_module_file("overlay/index.html");
+	QString data = index ? QDir::cleanPath(QFileInfo(QString::fromUtf8(index)).absolutePath() + "/..") : QString();
+	bfree(index);
+	if (data.compare(target + "/data", Qt::CaseInsensitive) == 0)
+		data.clear(); // ya está en su lugar (…\obs-now-playing\data)
+
+	QString problem;
+	bool ok = false;
+	if (data.isEmpty() && where == PluginLocation::LegacyObsFolder)
+		problem = QString("No se encontró la carpeta de datos del plugin.");
+	else
+		ok = installToNewFolder(QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
+						.filePath("obs-now-playing-update"),
+					moduleBinary(), data, where, &problem);
+	if (!ok) {
+		obs_log(LOG_WARNING, "no se pudo mover el plugin a %s: %s", target.toUtf8().constData(),
+			problem.toUtf8().constData());
+		QMessageBox warning(mainWindow());
+		warning.setWindowTitle(text("NowPlaying.Update.Title"));
+		warning.setIcon(QMessageBox::Warning);
+		warning.setText(text("NowPlaying.Update.MoveFailed"));
+		warning.setInformativeText(problem);
+		warning.exec();
+		return false;
+	}
+
+	QDir().mkpath(QFileInfo(movedFile()).absolutePath());
+	QSaveFile flag(movedFile());
+	if (flag.open(QIODevice::WriteOnly)) {
+		flag.write(PLUGIN_VERSION);
+		flag.commit();
+	}
+	obs_log(LOG_INFO, "plugin movido a %s; se usa al reiniciar OBS", target.toUtf8().constData());
+	QMessageBox::information(mainWindow(), text("NowPlaying.Update.Title"), text("NowPlaying.Update.Moved"));
+	return true;
+}
 #endif
 
 } // namespace
@@ -211,6 +418,11 @@ void Updater::check(bool manual)
 {
 	if (busy_)
 		return;
+#ifdef _WIN32
+	// OBS 33+: primero el plugin a la carpeta nueva (si se movió, lo demás espera al reinicio).
+	if (!manual && offerMoveToNewFolder())
+		return;
+#endif
 	busy_ = true;
 	auto *curl = new QProcess(this);
 	connect(curl, &QProcess::finished, this, [this, curl, manual](int code, QProcess::ExitStatus) {
@@ -356,6 +568,11 @@ void Updater::install(const QString &version, const QString &zipPath)
 #ifdef _WIN32
 	QDir binDir = QFileInfo(QString::fromUtf8(obs_get_module_binary_path(obs_current_module()))).absoluteDir();
 	bool ownFolder = binDir.dirName() == "64bit" && QFileInfo(binDir.absolutePath()).dir().dirName() == "obs-plugins";
+	// En la carpeta de OBS 33, o en una de antes con OBS 33+: se instala en la carpeta nueva
+	// (el zip trae la forma de la de antes) y se quitan las copias de antes.
+	PluginLocation where = pluginLocation();
+	bool toNewFolder = where == PluginLocation::NewFolder || (obsUsesNewPluginFolder() && where != PluginLocation::Other);
+	ownFolder = ownFolder || toNewFolder;
 #else
 	bool ownFolder = QFileInfo(root).fileName() == "obs-now-playing.plugin";
 #endif
@@ -368,19 +585,24 @@ void Updater::install(const QString &version, const QString &zipPath)
 	bool ok = false;
 	QString problem;
 #ifdef _WIN32
-	QString script = QDir(workDir).filePath("instalar.ps1");
-	QFile scriptFile(script);
-	if (!scriptFile.open(QIODevice::WriteOnly) || scriptFile.write(kInstallScript) < 0) {
-		problem = QString("No se pudo escribir %1").arg(QDir::toNativeSeparators(script));
+	if (toNewFolder) {
+		ok = installToNewFolder(workDir, QDir(newRoot).filePath("obs-plugins/64bit/obs-now-playing.dll"),
+					QDir(newRoot).filePath("data/obs-plugins/obs-now-playing"), where, &problem);
 	} else {
-		scriptFile.close();
-		QString params = QString("-NoProfile -ExecutionPolicy Bypass -File \"%1\" -Source \"%2\" -Obs \"%3\"")
-					 .arg(QDir::toNativeSeparators(script), QDir::toNativeSeparators(newRoot),
-					      QDir::toNativeSeparators(root));
-		int code = runElevated("powershell.exe", params, &problem);
-		ok = code == 0;
-		if (code > 0)
-			problem = QString("No se pudo copiar el plugin a %1 (código %2).").arg(QDir::toNativeSeparators(root)).arg(code);
+		QString script = QDir(workDir).filePath("instalar.ps1");
+		QFile scriptFile(script);
+		if (!scriptFile.open(QIODevice::WriteOnly) || scriptFile.write(kInstallScript) < 0) {
+			problem = QString("No se pudo escribir %1").arg(QDir::toNativeSeparators(script));
+		} else {
+			scriptFile.close();
+			QString params = QString("-NoProfile -ExecutionPolicy Bypass -File \"%1\" -Source \"%2\" -Obs \"%3\"")
+						 .arg(QDir::toNativeSeparators(script), QDir::toNativeSeparators(newRoot),
+						      QDir::toNativeSeparators(root));
+			int code = runElevated("powershell.exe", params, &problem);
+			ok = code == 0;
+			if (code > 0)
+				problem = QString("No se pudo copiar el plugin a %1 (código %2).").arg(QDir::toNativeSeparators(root)).arg(code);
+		}
 	}
 #elif defined(__APPLE__)
 	// En macOS el binario cargado sigue funcionando aunque se reemplace el paquete.

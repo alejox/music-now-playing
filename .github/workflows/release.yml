@@ -159,7 +159,7 @@ jobs:
 
             ### Plugin nativo para OBS (fuente "Now Playing" y dock "Música")
             - **macOS:** `music-now-playing-plugin-…-macos.zip`
-            - **Windows:** `music-now-playing-plugin-…-windows-x64.zip`
+            - **Windows:** `music-now-playing-plugin-…-windows-x64.zip`. Con OBS 33+ va en `C:\ProgramData\obs-studio\plugins\obs-now-playing\` (el `.dll` ahí y el contenido de `data\obs-plugins\obs-now-playing\` en su `data\`); con OBS 31/32, las carpetas del zip dentro de `C:\Program Files\obs-studio\`. El instalador `.exe` elige solo, y el plugin instalado en la carpeta de antes se mueve solo a la nueva al actualizarse con OBS 33.
 
             ${{ steps.legacy.outputs.note }}
 

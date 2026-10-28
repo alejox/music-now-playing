@@ -28,23 +28,32 @@ Descarga el zip de tu sistema desde **[Releases](../../../releases/latest)** (`m
 
 ### Windows (OBS 31+, Windows 10/11)
 
-El zip tiene la misma forma que la carpeta de OBS: `obs-plugins\64bit\obs-now-playing.dll` y `data\obs-plugins\obs-now-playing\…`.
+Lo más fácil es `Music-Now-Playing-Setup-….exe`: además de la app, instala el plugin en la carpeta que corresponde a tu versión de OBS (opción **Plugin para OBS**; pide permiso de administrador) y quita las copias de antes.
 
-1. Cierra OBS.
-2. Descomprime el zip (clic derecho → **Extraer todo**): quedan las carpetas `obs-plugins` y `data`.
-3. Copia esas dos carpetas dentro de `C:\Program Files\obs-studio\` (la carpeta donde está instalado OBS). Windows pregunta si quieres reemplazar archivos y pide permiso de administrador: acepta las dos cosas.
-4. Comprueba que quedaron `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` y `C:\Program Files\obs-studio\data\obs-plugins\obs-now-playing\`.
-5. Si antes lo instalaste en `C:\ProgramData\obs-studio\plugins\obs-now-playing`, borra esa carpeta (si no, OBS carga las dos copias).
-6. Abre OBS. En el registro (**Ayuda → Archivos de registro**) debe aparecer `[obs-now-playing] plugin loaded successfully (version …)` con la versión nueva.
+A mano: el zip tiene la forma de la carpeta de OBS, `obs-plugins\64bit\obs-now-playing.dll` y `data\obs-plugins\obs-now-playing\…`. Cierra OBS y descomprime el zip (clic derecho → **Extraer todo**).
 
-O usa `Music-Now-Playing-Setup-….exe`: además de la app, copia el plugin a la carpeta de OBS (opción **Plugin para OBS**; pide permiso de administrador) y borra la copia vieja de ProgramData si la hay.
+**OBS 33 o más nuevo** ([la carpeta nueva de plugins](https://obsproject.com/kb/legacy-plugin-developer-info)):
+
+1. Crea la carpeta `C:\ProgramData\obs-studio\plugins\obs-now-playing\` (`C:\ProgramData` está oculta: pega la ruta en la barra del Explorador).
+2. Copia ahí `obs-plugins\64bit\obs-now-playing.dll` del zip.
+3. Crea `C:\ProgramData\obs-studio\plugins\obs-now-playing\data\` y copia ahí el contenido de `data\obs-plugins\obs-now-playing\` del zip (las carpetas `locale`, `media`, `overlay`…).
+4. Si tenías una copia de antes, bórrala: `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` y `C:\Program Files\obs-studio\data\obs-plugins\obs-now-playing\`, y la carpeta `bin` de `C:\ProgramData\obs-studio\plugins\obs-now-playing\`.
+5. Abre OBS. En el registro (**Ayuda → Archivos de registro**) debe aparecer `[obs-now-playing] plugin loaded successfully (version …)` con la versión nueva.
+
+**OBS 31 o 32:**
+
+1. Copia las carpetas `obs-plugins` y `data` del zip dentro de `C:\Program Files\obs-studio\` (la carpeta donde está instalado OBS). Windows pregunta si quieres reemplazar archivos y pide permiso de administrador: acepta las dos cosas.
+2. Comprueba que quedaron `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` y `C:\Program Files\obs-studio\data\obs-plugins\obs-now-playing\`.
+3. Abre OBS y revisa el registro como arriba.
+
+Si actualizas a OBS 33 con el plugin en la carpeta de antes, el plugin (1.0.35 o más nuevo) ofrece moverse solo a la carpeta nueva al abrir OBS: acepta el permiso de administrador y reinicia OBS. OBS 33 todavía carga la carpeta de antes, pero OBS 34 dejará de hacerlo.
 
 ## Actualizaciones
 
 Desde la versión 1.0.3, al abrir OBS el plugin revisa si hay una versión nueva en las Releases de GitHub. Si la hay, muestra un aviso con **Actualizar ahora**, **Más tarde** u **Omitir esta versión**: "Actualizar ahora" la descarga, reemplaza el plugin y pide reiniciar OBS. También se puede revisar a mano en **Herramientas → Now Playing: buscar actualizaciones**.
 
 - **macOS:** solo si está en su propia carpeta (`…/plugins/obs-now-playing.plugin`), como dicen las instrucciones de arriba.
-- **Windows:** solo si está en la carpeta de OBS (`…\obs-studio\obs-plugins\64bit\obs-now-playing.dll`). Esa carpeta es de administrador: al actualizar, Windows pide permiso una vez para copiar el plugin.
+- **Windows:** solo si está en `C:\ProgramData\obs-studio\plugins\obs-now-playing\` (OBS 33+) o en la carpeta de OBS (`…\obs-studio\obs-plugins\64bit\obs-now-playing.dll`). Esas carpetas son de administrador: al actualizar, Windows pide permiso una vez para copiar el plugin. Con OBS 33+ la actualización siempre queda en la carpeta nueva y quita la copia de antes.
 
 Si no está donde dicen las instrucciones, el aviso ofrece abrir la página de descargas.
 

@@ -38,19 +38,21 @@ Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any 
 
 Download the file for your system from **[Releases](../../releases/latest)** and **close OBS first**.
 
-| | macOS (OBS 31+) | Windows (OBS 31+) |
+| | macOS (OBS 31+) | Windows (OBS 33+) |
 |---|---|---|
 | **File** | `music-now-playing-plugin-<version>-macos.zip` | `music-now-playing-plugin-<version>-windows-x64.zip` |
 | **1** | Unzip it: you get `obs-now-playing.plugin` | Unzip it (right click → **Extract All**): you get the `obs-plugins` and `data` folders |
-| **2** | Copy it to `~/Library/Application Support/obs-studio/plugins/` | Copy those two folders into `C:\Program Files\obs-studio\`, accepting to replace and the administrator prompt |
-| **3** | Run the Terminal command below (once) | Check that `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` is there |
-| **4** | Open OBS | Open OBS |
+| **2** | Copy it to `~/Library/Application Support/obs-studio/plugins/` | Create `C:\ProgramData\obs-studio\plugins\obs-now-playing\` and copy `obs-plugins\64bit\obs-now-playing.dll` into it (accept the administrator prompt) |
+| **3** | Run the Terminal command below (once) | Create a `data` folder inside it and copy into it the contents of `data\obs-plugins\obs-now-playing\` |
+| **4** | Open OBS | Delete old copies, if any (see below), and open OBS |
 
 > [!TIP]
-> On Windows, `Music-Now-Playing-Setup-<version>.exe` also installs the plugin into the OBS folder (option **Plugin para OBS**, checked by default; asks for administrator permission), no zip needed.
+> On Windows, the easiest way is `Music-Now-Playing-Setup-<version>.exe`: it also installs the plugin in the right folder for your OBS version and removes old copies (option **Plugin para OBS**, checked by default; asks for administrator permission), no zip needed.
 
 > [!IMPORTANT]
-> On Windows, if you installed it before in `C:\ProgramData\obs-studio\plugins\obs-now-playing`, delete that folder: otherwise OBS loads both copies.
+> **Windows and OBS 33:** OBS 33 [moved the plugins folder](https://obsproject.com/kb/legacy-plugin-developer-info) to `C:\ProgramData\obs-studio\plugins\`. With the plugin in the new folder, delete the old copies: `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll`, `C:\Program Files\obs-studio\data\obs-plugins\obs-now-playing\` and the `bin` folder of `C:\ProgramData\obs-studio\plugins\obs-now-playing\`. If you update OBS to 33 with the plugin in the old folder, the plugin (1.0.35+) offers to move itself when OBS opens: accept the administrator prompt and restart OBS.
+>
+> **OBS 31 or 32:** copy the zip's `obs-plugins` and `data` folders into `C:\Program Files\obs-studio\` (accept replacing and the administrator prompt) and check that `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` is there.
 
 ```bash
 xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin
