@@ -1,5 +1,7 @@
 # Feature: Linux support
 
+> Superseded: Linux support was removed in app 2.4.27 / plugin 1.0.35 (see `odd/tasks/obs33-windows-location.md`, T1).
+
 ## Objective
 Ship OBS Now Playing on Linux with the same experience as macOS and Windows: plugin, standalone app, CI artifacts, release assets and docs.
 

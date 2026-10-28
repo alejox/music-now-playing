@@ -54,10 +54,6 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 	static const QList<QPair<QString, QString>> browsers = {
 		{"chrome", "Chrome"}, {"msedge", "Edge"},     {"firefox", "Firefox"}, {"brave", "Brave"},
 		{"opera", "Opera"},   {"vivaldi", "Vivaldi"}, {"safari", "Safari"},   {"thebrowser", "Arc"},
-#ifdef __linux__
-		// En Linux el reproductor MPRIS de Chrome y Chromium se llama "chromium".
-		{"chromium", "Chromium"},
-#endif
 	};
 	for (const auto &browser : browsers) {
 		if (!id.contains(browser.first))
@@ -108,7 +104,7 @@ MediaWatcher &MediaWatcher::instance()
 void MediaWatcher::start()
 {
 	stopping_ = false;
-#if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
+#if defined(_WIN32) || defined(__APPLE__)
 	// Los comandos para el lector de Windows van por este archivo (ver media/windows.ps1).
 	QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
 	commandFile_ = QDir(dir).filePath("obs-now-playing-command.json");
@@ -157,11 +153,6 @@ void MediaWatcher::launch()
 	// el lector corre en osascript y no dentro de OBS.
 	program = "/usr/bin/osascript";
 	args = {"-l", "JavaScript", moduleFile("media/macos.js"), "watch", videoFlagFile_};
-#else
-	// Linux: los reproductores MPRIS por medio de playerctl (ver media/linux.sh). Con bash
-	// y no ejecutando el archivo: así no importa si perdió el permiso de ejecución.
-	program = "bash";
-	args = {moduleFile("media/linux.sh"), "watch", videoFlagFile_};
 #endif
 
 	process_ = new QProcess(this);
@@ -371,7 +362,7 @@ void MediaWatcher::runCommand(const QString &action, qint64 positionMs)
 		file.commit();
 	}
 #else
-	// macOS y Linux: el lector se abre aparte con "command <acción>" y responde una línea JSON.
+	// macOS: el lector se abre aparte con "command <acción>" y responde una línea JSON.
 	auto *command = new QProcess(this);
 	connect(command, &QProcess::finished, this, [this, command](int, QProcess::ExitStatus) {
 		QByteArray out = command->readAllStandardOutput().trimmed();
@@ -389,17 +380,8 @@ void MediaWatcher::runCommand(const QString &action, qint64 positionMs)
 			obs_log(LOG_INFO, "botón por: %s", result.value("via").toString().toUtf8().constData());
 		}
 	});
-#ifdef __APPLE__
 	QString program = "/usr/bin/osascript";
 	QStringList args{"-l", "JavaScript", moduleFile("media/macos.js"), "command", action};
-#else
-	// El reproductor de la sesión (spotify, firefox…): playerctl le manda el botón a ese.
-	QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-	env.insert("OBS_NOW_PLAYING_PLAYER", track.app);
-	command->setProcessEnvironment(env);
-	QString program = "bash";
-	QStringList args{moduleFile("media/linux.sh"), "command", action};
-#endif
 	if (positionMs >= 0)
 		args << QString::number(positionMs);
 	command->start(program, args);

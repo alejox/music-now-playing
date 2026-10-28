@@ -3,15 +3,13 @@
 #   Music-Now-Playing-Setup-<v>.exe        (Windows 10/11, x64)
 #   Music-Now-Playing-<v>-mac-apple.zip    (Mac con chip Apple M1/M2/M3/M4…)
 #   Music-Now-Playing-<v>-mac-intel.zip    (Mac con Intel)
-#   Music-Now-Playing-<v>-linux-x64.tar.gz (Linux x86_64: app + install.sh)
 #
-# Uso: ./build/build.sh [all|windows|mac|linux]
+# Uso: ./build/build.sh [all|windows|mac]
 #
 # Windows se arma en Linux/WSL (python3 con Pillow y makensis/NSIS). Con
 # PLUGIN_ZIP=<music-now-playing-plugin-…-windows-x64.zip> el instalador también instala el
 # plugin de OBS (la Release siempre lo hace). PLUGIN_ZIP_MAC=<…-macos.zip>: lo mismo para
-# la app de Mac (lo instala al abrirse). PLUGIN_TAR=<…-linux-x86_64.tar.gz>: el plugin va
-# en el .tar.gz de Linux y su install.sh lo copia a la carpeta de plugins de OBS.
+# la app de Mac (lo instala al abrirse).
 # Mac se arma mejor EN UN MAC (python3 con Pillow y las herramientas de Xcode): ahí la
 # app queda firmada ad hoc entera. En Linux también se arma (clang + lld), pero sin
 # firmar el paquete, y macOS la da por "dañada" al descargarla. La Release la arma en
@@ -20,9 +18,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 TARGET="${1:-all}"
-case "$TARGET" in all | windows | mac | linux) ;; *) echo "Uso: $0 [all|windows|mac|linux]"; exit 1 ;; esac
-# "all" sigue siendo Windows y Mac; Linux se pide aparte con "linux".
-want() { { [ "$TARGET" = all ] && [ "$1" != linux ]; } || [ "$TARGET" = "$1" ]; }
+case "$TARGET" in all | windows | mac) ;; *) echo "Uso: $0 [all|windows|mac]"; exit 1 ;; esac
+want() { [ "$TARGET" = all ] || [ "$TARGET" = "$1" ]; }
 
 VERSION="$(node -p "require('./package.json').version" 2>/dev/null || python3 -c "import json;print(json.load(open('package.json'))['version'])")"
 NODE_VERSION="${NODE_VERSION:-22.22.0}"
@@ -37,7 +34,6 @@ BASE="https://nodejs.org/dist/v$NODE_VERSION"
 FILES=()
 want windows && FILES+=("node-v$NODE_VERSION-win-x64.zip")
 want mac && FILES+=("node-v$NODE_VERSION-darwin-arm64.tar.gz" "node-v$NODE_VERSION-darwin-x64.tar.gz")
-want linux && FILES+=("node-v$NODE_VERSION-linux-x64.tar.xz")
 curl -sSfL -o "$CACHE/SHASUMS256-$NODE_VERSION.txt" "$BASE/SHASUMS256.txt"
 for f in "${FILES[@]}"; do
   [ -f "$CACHE/$f" ] || curl -sSfL -o "$CACHE/$f" "$BASE/$f"
@@ -61,7 +57,8 @@ if want windows; then
   PLUGIN_ARGS=()
   if [ -n "${PLUGIN_ZIP:-}" ]; then
     # El zip trae la forma de la carpeta de OBS: obs-plugins/64bit/obs-now-playing.dll y
-    # data/obs-plugins/obs-now-playing/… (el instalador lo copia encima de la de OBS).
+    # data/obs-plugins/obs-now-playing/… (el instalador lo copia encima de la de OBS o, con
+    # OBS 33+, reparte el .dll y data/ en la carpeta nueva de plugins de ProgramData).
     python3 -c "import zipfile,sys; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])" "$PLUGIN_ZIP" "$W/plugin"
     find "$W/plugin" -name '*.pdb' -delete
     [ -f "$W/plugin/obs-plugins/64bit/obs-now-playing.dll" ] || { echo "$PLUGIN_ZIP no trae el plugin"; exit 1; }
@@ -112,32 +109,6 @@ if want mac; then
       echo "Aviso: $zip queda sin firmar como paquete (solo se puede en un Mac)."
     fi
   done
-fi
-
-# 5. Linux: carpeta con node, la app, el lanzador, el .desktop e install.sh, en un .tar.gz.
-if want linux; then
-  L="$STAGE/linux"
-  rm -rf "$L"
-  P="$L/obs-now-playing"
-  mkdir -p "$P/app/media" "$P/node"
-  cp server.js overlay.html controls.html ui.js now-playing.user.js "$P/app/"
-  cp media/linux.sh "$P/app/media/"
-  tar -xJf "$CACHE/node-v$NODE_VERSION-linux-x64.tar.xz" -C "$L" \
-    "node-v$NODE_VERSION-linux-x64/bin/node" "node-v$NODE_VERSION-linux-x64/LICENSE"
-  mv "$L/node-v$NODE_VERSION-linux-x64/bin/node" "$L/node-v$NODE_VERSION-linux-x64/LICENSE" "$P/node/"
-  cp build/linux/obs-now-playing build/linux/obs-now-playing.desktop build/linux/install.sh "$P/"
-  cp "$STAGE/icons/icon.png" "$P/"
-  chmod 755 "$P/obs-now-playing" "$P/install.sh" "$P/node/node" "$P/app/media/linux.sh"
-  if [ -n "${PLUGIN_TAR:-}" ]; then
-    # El tar del plugin trae obs-now-playing/{bin/64bit/obs-now-playing.so,data/…}: la forma
-    # de ~/.config/obs-studio/plugins/.
-    mkdir -p "$P/plugin"
-    tar -xzf "$PLUGIN_TAR" -C "$P/plugin"
-    [ -f "$P/plugin/obs-now-playing/bin/64bit/obs-now-playing.so" ] || { echo "$PLUGIN_TAR no trae el plugin"; exit 1; }
-  else
-    echo "Aviso: sin PLUGIN_TAR el paquete de Linux no incluye el plugin de OBS."
-  fi
-  tar -czf "$DIST/Music-Now-Playing-$VERSION-linux-x64.tar.gz" -C "$L" obs-now-playing
 fi
 
 ls -lh "$DIST"

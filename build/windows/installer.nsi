@@ -1,5 +1,5 @@
 ; Instalador de Music Now Playing para Windows. La app no pide permisos de administrador;
-; el plugin sí (va en la carpeta de OBS, en Archivos de programa): solo para copiarlo.
+; el plugin sí (va en la carpeta de plugins de OBS): solo para copiarlo.
 Unicode true
 !include "MUI2.nsh"
 !include "LogicLib.nsh"
@@ -29,7 +29,7 @@ VIAddVersionKey /LANG=1034 "LegalCopyright" "MIT"
 !define MUI_UNICON "${STAGE}\icon.ico"
 !define MUI_ABORTWARNING
 !ifdef PLUGIN
-!define MUI_WELCOMEPAGE_TEXT "Muestra en OBS la canción que suena en tu computador: Spotify, YouTube Music, Apple Music y más.$\r$\n$\r$\nInstala la app y el plugin para OBS (fuente Now Playing y dock Música). Cierra OBS antes.$\r$\n$\r$\nEl plugin va en la carpeta de OBS: Windows pedirá permiso para copiarlo."
+!define MUI_WELCOMEPAGE_TEXT "Muestra en OBS la canción que suena en tu computador: Spotify, YouTube Music, Apple Music y más.$\r$\n$\r$\nInstala la app y el plugin para OBS (fuente Now Playing y dock Música). Cierra OBS antes.$\r$\n$\r$\nEl plugin va en la carpeta de plugins de OBS: Windows pedirá permiso para copiarlo."
 !else
 !define MUI_WELCOMEPAGE_TEXT "Muestra en OBS la canción que suena en tu computador: Spotify, YouTube Music, Apple Music y más.$\r$\n$\r$\nNo hace falta instalar nada más ni tener permisos de administrador."
 !endif
@@ -84,10 +84,15 @@ Section "${APP_NAME}" SecMain
 SectionEnd
 
 !ifdef PLUGIN
-; El plugin de OBS (fuente "Now Playing", dock "Música", diseño vertical…) va en la
-; carpeta de OBS: el .dll en obs-plugins\64bit y los datos en data\obs-plugins\obs-now-playing.
-; Esa carpeta es de administrador: los archivos se preparan en $PLUGINSDIR y se copian con
-; robocopy, que pide permiso (solo esa copia; el resto del instalador no lo necesita).
+; El plugin de OBS (fuente "Now Playing", dock "Música", diseño vertical…).
+;   OBS 33+: en C:\ProgramData\obs-studio\plugins\obs-now-playing (el .dll ahí y los datos en
+;            data\), la carpeta nueva de OBS 33; se quitan las copias de las carpetas de antes.
+;            https://obsproject.com/kb/legacy-plugin-developer-info
+;   OBS 31/32: en la carpeta de OBS: el .dll en obs-plugins\64bit y los datos en
+;            data\obs-plugins\obs-now-playing.
+; Esas carpetas son de administrador: los archivos se preparan en $PLUGINSDIR (con la forma de
+; la carpeta de OBS, como el zip) y se copian con robocopy, que pide permiso (solo esa copia; el
+; resto del instalador no lo necesita).
 Section "Plugin para OBS" SecPlugin
   ; Dónde está OBS: lo dice su instalador en el registro.
   SetRegView 64
@@ -114,22 +119,49 @@ Section "Plugin para OBS" SecPlugin
     obs_retry:
   ${Loop}
 
+  ; La versión de OBS (la de su .exe): con OBS 33+ el plugin va en la carpeta nueva ($3). Si no
+  ; se puede leer, o no hay ProgramData, va en la de OBS como en OBS 31/32.
+  StrCpy $3 ""
+  ReadEnvStr $2 "ProgramData"
+  ClearErrors
+  GetDLLVersion "$1\bin\64bit\obs64.exe" $R0 $R1
+  ${IfNot} ${Errors}
+    IntOp $R2 $R0 >> 16
+    ${If} $R2 >= 33
+    ${AndIf} $2 != ""
+      StrCpy $3 "$2\obs-studio\plugins\obs-now-playing"
+    ${EndIf}
+  ${EndIf}
+
   SetOutPath "$PLUGINSDIR\plugin"
   File /r "${PLUGIN}\*"
   SetOutPath "$INSTDIR"
-  ExecShellWait "runas" "robocopy.exe" '"$PLUGINSDIR\plugin" "$1" /E /NFL /NDL /NJH /NJS /NP' SW_HIDE
 
-  ${If} ${FileExists} "$1\data\obs-plugins\obs-now-playing\overlay\index.html"
-  ${AndIf} ${FileExists} "$1\obs-plugins\64bit\obs-now-playing.dll"
-    WriteRegStr HKCU "Software\OBSNowPlaying" "PluginDir" "$1"
-    ; Una copia de antes en ProgramData se cargaría junto a esta: se quita.
-    ReadEnvStr $2 "ProgramData"
-    ${If} $2 != ""
-    ${AndIf} ${FileExists} "$2\obs-studio\plugins\obs-now-playing\bin\64bit\obs-now-playing.dll"
-      RMDir /r "$2\obs-studio\plugins\obs-now-playing"
+  ${If} $3 != ""
+    ; Un solo permiso: copia el .dll y los datos a la carpeta nueva y, solo si salió bien, quita
+    ; las copias de antes (en la carpeta de OBS y en …\obs-now-playing\bin de ProgramData).
+    ExecShellWait "runas" "cmd.exe" '/c robocopy "$PLUGINSDIR\plugin\obs-plugins\64bit" "$3" obs-now-playing.dll /NFL /NDL /NJH /NJS /NP & if not errorlevel 8 robocopy "$PLUGINSDIR\plugin\data\obs-plugins\obs-now-playing" "$3\data" /E /NFL /NDL /NJH /NJS /NP & if not errorlevel 8 (del /f /q "$1\obs-plugins\64bit\obs-now-playing.dll*" & del /f /q "$1\obs-plugins\64bit\obs-now-playing.pdb" & rmdir /s /q "$1\data\obs-plugins\obs-now-playing" & rmdir /s /q "$3\bin")' SW_HIDE
+
+    ${If} ${FileExists} "$3\data\overlay\index.html"
+    ${AndIf} ${FileExists} "$3\obs-now-playing.dll"
+      WriteRegStr HKCU "Software\OBSNowPlaying" "PluginDir" "$3"
+    ${Else}
+      MessageBox MB_ICONEXCLAMATION|MB_OK "No se pudo copiar el plugin a $3 (¿se canceló el permiso?).$\r$\n$\r$\nVuelve a abrir el instalador, o instala el plugin a mano con el zip (ver README)."
     ${EndIf}
   ${Else}
-    MessageBox MB_ICONEXCLAMATION|MB_OK "No se pudo copiar el plugin a $1 (¿se canceló el permiso?).$\r$\n$\r$\nVuelve a abrir el instalador, o instala el plugin a mano con el zip (ver README)."
+    ExecShellWait "runas" "robocopy.exe" '"$PLUGINSDIR\plugin" "$1" /E /NFL /NDL /NJH /NJS /NP' SW_HIDE
+
+    ${If} ${FileExists} "$1\data\obs-plugins\obs-now-playing\overlay\index.html"
+    ${AndIf} ${FileExists} "$1\obs-plugins\64bit\obs-now-playing.dll"
+      WriteRegStr HKCU "Software\OBSNowPlaying" "PluginDir" "$1"
+      ; Una copia de antes en ProgramData se cargaría junto a esta: se quita.
+      ${If} $2 != ""
+      ${AndIf} ${FileExists} "$2\obs-studio\plugins\obs-now-playing\bin\64bit\obs-now-playing.dll"
+        RMDir /r "$2\obs-studio\plugins\obs-now-playing"
+      ${EndIf}
+    ${Else}
+      MessageBox MB_ICONEXCLAMATION|MB_OK "No se pudo copiar el plugin a $1 (¿se canceló el permiso?).$\r$\n$\r$\nVuelve a abrir el instalador, o instala el plugin a mano con el zip (ver README)."
+    ${EndIf}
   ${EndIf}
 SectionEnd
 !endif
@@ -145,7 +177,7 @@ SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
   !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "La app y su panel de configuración."
 !ifdef PLUGIN
-  !insertmacro MUI_DESCRIPTION_TEXT ${SecPlugin} "La fuente Now Playing (horizontal o vertical), el dock Música, el canal de música y las actualizaciones automáticas para OBS 31+. Va en la carpeta de OBS (Windows pide permiso). Cierra OBS antes."
+  !insertmacro MUI_DESCRIPTION_TEXT ${SecPlugin} "La fuente Now Playing (horizontal o vertical), el dock Música, el canal de música y las actualizaciones automáticas para OBS 31+. Va en la carpeta de plugins de OBS (en OBS 33+, C:\ProgramData\obs-studio\plugins; Windows pide permiso). Cierra OBS antes."
 !endif
   !insertmacro MUI_DESCRIPTION_TEXT ${SecStartup} "Arranca en segundo plano al encender el computador, para que el overlay ya esté listo cuando abras OBS."
   !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "Agrega un ícono en el escritorio."
@@ -169,8 +201,8 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\${APP_ID}.lnk"
   Delete "$SMSTARTUP\${APP_ID}.lnk"
   Delete "$DESKTOP\${APP_ID}.lnk"
-  ; El plugin solo se quita si lo instaló este instalador (la carpeta de OBS queda en el
-  ; registro). Está en Archivos de programa: se borra con permiso de administrador.
+  ; El plugin solo se quita si lo instaló este instalador (su carpeta queda en el registro).
+  ; Está en una carpeta de administrador: se borra con permiso.
   ReadRegStr $1 HKCU "Software\OBSNowPlaying" "PluginDir"
   ${If} $1 != ""
   ${AndIf} ${FileExists} "$1\obs-plugins\64bit\obs-now-playing.dll"
@@ -178,6 +210,13 @@ Section "Uninstall"
   ${ElseIf} $1 != ""
   ${AndIf} ${FileExists} "$1\bin\64bit\obs-now-playing.dll"
     RMDir /r "$1" ; instalaciones de antes, en ProgramData
+  ${EndIf}
+  ; OBS 33+: la carpeta nueva (la dejó este instalador o el plugin se movió ahí solo).
+  ReadEnvStr $2 "ProgramData"
+  ${If} $1 != ""
+  ${AndIf} $2 != ""
+  ${AndIf} ${FileExists} "$2\obs-studio\plugins\obs-now-playing\obs-now-playing.dll"
+    ExecShellWait "runas" "cmd.exe" '/c rmdir /s /q "$2\obs-studio\plugins\obs-now-playing"' SW_HIDE
   ${EndIf}
   DeleteRegKey HKCU "${UNINST_KEY}"
   DeleteRegKey HKCU "Software\OBSNowPlaying"

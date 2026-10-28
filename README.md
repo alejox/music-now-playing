@@ -7,7 +7,6 @@
 [![Latest release](https://img.shields.io/github/v/release/alejox/music-now-playing?label=release&color=1db954)](../../releases/latest)
 ![macOS](https://img.shields.io/badge/macOS-12%2B-000000?logo=apple&logoColor=white)
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white)
-![Linux](https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black)
 ![OBS](https://img.shields.io/badge/OBS-31%2B-302E31?logo=obsstudio&logoColor=white)
 
 **English** · [Español](README.es.md)
@@ -29,29 +28,31 @@ Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any 
 | 🎨 **Cover art colors** | The card takes the colors of each song's cover, with a smooth transition. |
 | 🪟 **Solid or glass** | A solid card or a translucent "glass" one, with adjustable opacity. Light or dark theme. |
 | 📐 **Horizontal or vertical** | A bar or a vertical card; the source size adjusts itself. |
-| 🎬 **Video mode** | The YouTube video instead of the cover (muted and in sync), on Mac, Windows and Linux: the one in the YouTube Music / YouTube tab and, with Spotify (app or web) or other apps, the one found by searching the song on YouTube. On Linux, browsers usually do not share the tab address, so it is almost always the search result. |
+| 🎬 **Video mode** | The YouTube video instead of the cover (muted and in sync), on Mac and Windows: the one in the YouTube Music / YouTube tab and, with Spotify (app or web) or other apps, the one found by searching the song on YouTube. |
 | 🖼️ **Your logo** | An image of your own for songs without a cover. |
 | ⏯️ **Control dock** | Previous / pause / next, back and forward 10 s and a draggable progress bar to jump around, inside OBS and off-stream. |
 | 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound; it follows you when you switch players. |
-| 🔄 **Updates** | OBS tells you when there's a new version and installs it for you (on Linux it opens the download page instead). |
+| 🔄 **Updates** | OBS tells you when there's a new version and installs it for you. |
 
 ## 📦 Install the plugin
 
 Download the file for your system from **[Releases](../../releases/latest)** and **close OBS first**.
 
-| | macOS (OBS 31+) | Windows (OBS 31+) | Linux x86_64 (OBS 31+) |
-|---|---|---|---|
-| **File** | `music-now-playing-plugin-<version>-macos.zip` | `music-now-playing-plugin-<version>-windows-x64.zip` | `music-now-playing-plugin-<version>-linux-x86_64.tar.gz` (or the `.deb`) |
-| **1** | Unzip it: you get `obs-now-playing.plugin` | Unzip it (right click → **Extract All**): you get the `obs-plugins` and `data` folders | Install `playerctl` (`sudo apt install playerctl`, `sudo dnf install playerctl` or `sudo pacman -S playerctl`) |
-| **2** | Copy it to `~/Library/Application Support/obs-studio/plugins/` | Copy those two folders into `C:\Program Files\obs-studio\`, accepting to replace and the administrator prompt | Unpack it into `~/.config/obs-studio/plugins/` (you get `obs-now-playing/bin/64bit/obs-now-playing.so`). With OBS from the PPA or your distro you can install the `.deb` instead: `sudo apt install ./music-now-playing-plugin-<version>-linux-x86_64.deb` |
-| **3** | Run the Terminal command below (once) | Check that `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` is there | — |
-| **4** | Open OBS | Open OBS | Open OBS |
+| | macOS (OBS 31+) | Windows (OBS 33+) |
+|---|---|---|
+| **File** | `music-now-playing-plugin-<version>-macos.zip` | `music-now-playing-plugin-<version>-windows-x64.zip` |
+| **1** | Unzip it: you get `obs-now-playing.plugin` | Unzip it (right click → **Extract All**): you get the `obs-plugins` and `data` folders |
+| **2** | Copy it to `~/Library/Application Support/obs-studio/plugins/` | Create `C:\ProgramData\obs-studio\plugins\obs-now-playing\` and copy `obs-plugins\64bit\obs-now-playing.dll` into it (accept the administrator prompt) |
+| **3** | Run the Terminal command below (once) | Create a `data` folder inside it and copy into it the contents of `data\obs-plugins\obs-now-playing\` |
+| **4** | Open OBS | Delete old copies, if any (see below), and open OBS |
 
 > [!TIP]
-> On Windows, `Music-Now-Playing-Setup-<version>.exe` also installs the plugin into the OBS folder (option **Plugin para OBS**, checked by default; asks for administrator permission), no zip needed.
+> On Windows, the easiest way is `Music-Now-Playing-Setup-<version>.exe`: it also installs the plugin in the right folder for your OBS version and removes old copies (option **Plugin para OBS**, checked by default; asks for administrator permission), no zip needed.
 
 > [!IMPORTANT]
-> On Windows, if you installed it before in `C:\ProgramData\obs-studio\plugins\obs-now-playing`, delete that folder: otherwise OBS loads both copies.
+> **Windows and OBS 33:** OBS 33 [moved the plugins folder](https://obsproject.com/kb/legacy-plugin-developer-info) to `C:\ProgramData\obs-studio\plugins\`. With the plugin in the new folder, delete the old copies: `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll`, `C:\Program Files\obs-studio\data\obs-plugins\obs-now-playing\` and the `bin` folder of `C:\ProgramData\obs-studio\plugins\obs-now-playing\`. If you update OBS to 33 with the plugin in the old folder, the plugin (1.0.35+) offers to move itself when OBS opens: accept the administrator prompt and restart OBS.
+>
+> **OBS 31 or 32:** copy the zip's `obs-plugins` and `data` folders into `C:\Program Files\obs-studio\` (accept replacing and the administrator prompt) and check that `C:\Program Files\obs-studio\obs-plugins\64bit\obs-now-playing.dll` is there.
 
 ```bash
 xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plugin
@@ -60,17 +61,11 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 > [!TIP]
 > In Finder, use **Go → Go to Folder…** and paste the path. Create the `plugins` folder if it doesn't exist.
 
-> [!NOTE]
-> **Linux:** the plugin reads what's playing from the MPRIS players (Spotify, Firefox, Chromium/Chrome/Brave, VLC…) through `playerctl`. **OBS as a Flatpak:** unpack the `.tar.gz` into `~/.var/app/com.obsproject.Studio/config/obs-studio/plugins/` and, since `playerctl` isn't inside the sandbox, install it on the system and let OBS run it there: `flatpak override --user --talk-name=org.freedesktop.Flatpak com.obsproject.Studio`.
-
 ## 🎛️ Use it
 
 1. **Sources → + → ♫ Now Playing (music)** to add the card. Open its **Properties** to change the style.
 2. **Docks → Música** for the buttons.
 3. Optional: in the source Properties, **Crear canal de música** (Create music channel) to control the music volume separately.
-
-> [!NOTE]
-> On Linux, the music channel needs the [obs-pipewire-audio-capture](https://github.com/dimtpap/obs-pipewire-audio-capture) plugin (OBS has no per-application audio capture of its own there).
 
 > [!NOTE]
 > On Mac, for the YouTube Music buttons to work, turn on once in Chrome: **View → Developer → Allow JavaScript from Apple Events**.
@@ -90,14 +85,13 @@ On recent macOS versions the system no longer passes the image. The plugin asks 
 
 - **YouTube Music (Mac):** enable *Allow JavaScript from Apple Events* (see above).
 - **Others (Mac):** media keys are simulated, which needs **System Settings → Privacy & Security → Accessibility → OBS**.
-- **Linux:** the buttons go to the player through `playerctl`; if a player doesn't support jumping, the dock says so.
 - The dock shows a message under the buttons explaining what's missing.
 </details>
 
 <details>
 <summary><b>The dock says the system reader doesn't work</b></summary>
 
-The message says why (on Linux it's usually that `playerctl` is missing). The OBS log (**Help → Log Files**) has the `[obs-now-playing]` lines.
+The message says why. The OBS log (**Help → Log Files**) has the `[obs-now-playing]` lines.
 </details>
 
 <details>
@@ -115,7 +109,7 @@ Besides the plugin there's an app that runs on its own and serves the overlay as
 
 ### How it works
 
-Windows, macOS and Linux already know what's playing: it's what the Windows volume flyout, the Mac's Control Center "Now Playing" and the media controls of your Linux desktop (MPRIS) show. The app reads that and serves it as a page that OBS displays with a **Browser source**.
+Windows and macOS already know what's playing: it's what the Windows volume flyout and the Mac's Control Center "Now Playing" show. The app reads that and serves it as a page that OBS displays with a **Browser source**.
 
 ```
 Spotify / YouTube Music / Apple Music…
@@ -123,11 +117,10 @@ Spotify / YouTube Music / Apple Music…
         ▼
 Windows: media controls (SMTC) ──── PowerShell ─┐
 macOS:   "Now Playing" (MediaRemote) ─ osascript ┼─► local app (127.0.0.1:8787) ─► Browser source in OBS
-Linux:   MPRIS players ─────────────── playerctl ┤
 Plan B:  Tampermonkey script in the browser ─────┘                             └─► now-playing.txt (Text source)
 ```
 
-The idea of reading the system media controls comes from [SMTC Bridge](https://github.com/nuttylmao/smtc-bridge) (Windows only); this app brings it to macOS and Linux too.
+The idea of reading the system media controls comes from [SMTC Bridge](https://github.com/nuttylmao/smtc-bridge) (Windows only); this app brings it to macOS too.
 
 ### Install
 
@@ -142,8 +135,6 @@ Download the installer from **[Releases](../../releases/latest)**. No Node.js or
 ```bash
 xattr -cr "/Applications/OBS Now Playing.app" && open "/Applications/OBS Now Playing.app"
 ```
-
-**Linux x86_64:** download `Music-Now-Playing-<version>-linux-x64.tar.gz`, unpack it and run `./install.sh` inside the `obs-now-playing` folder: it installs the app in `~/.local/share/obs-now-playing`, adds **Music Now Playing** to your applications menu and installs the OBS plugin in `~/.config/obs-studio/plugins/` (and in the Flatpak OBS folder if you have it). It needs `playerctl` (`sudo apt install playerctl`). Uninstall with `./install.sh --uninstall`.
 
 The app has no window: opening it opens its **panel** at **http://127.0.0.1:8787/** (what's playing, detected apps, the URL for OBS).
 
@@ -176,7 +167,7 @@ URL options (combine with `&`):
 - **Nothing in OBS:** open the panel; if it doesn't load, the app is closed. Try `?preview=1`.
 - **A YouTube video shows instead of the music:** hide the browser under **Detected apps**.
 - **Port 8787 is taken:** change `port` in `config.json` (and `ENDPOINT` in the Tampermonkey script).
-- **Log:** `log.txt` in `%APPDATA%\OBS Now Playing` (Windows) or `~/Library/Application Support/OBS Now Playing` (macOS) or `~/.config/obs-now-playing` (Linux).
+- **Log:** `log.txt` in `%APPDATA%\OBS Now Playing` (Windows) or `~/Library/Application Support/OBS Now Playing` (macOS).
 </details>
 
 ## 🔒 Privacy
@@ -190,9 +181,9 @@ URL options (combine with `&`):
 <details>
 <summary><b>Build and project layout</b></summary>
 
-- **Plugin:** CMake from `obs-plugin/` (`cmake --preset macos` → Xcode, `cmake --preset windows-x64` → Visual Studio 2022, `cmake --preset ubuntu-x86_64` → Ninja with the OBS PPA headers). See [obs-plugin/README.md](obs-plugin/README.md).
-- **App:** `npm start` (Node 18+); `OBS_NOW_PLAYING_DATA=/other/path` changes the data folder. Installers: `./build/build.sh [all|windows|mac|linux]`.
-- **System readers:** `media/windows.ps1` (PowerShell 5.1 + WinRT), `media/macos.js` (JavaScript for Automation) and `media/linux.sh` (bash + `playerctl`). All write one JSON line per second. On macOS 15.4+ only system programs can read "Now Playing", so the reader runs in `osascript`.
+- **Plugin:** CMake from `obs-plugin/` (`cmake --preset macos` → Xcode or `cmake --preset windows-x64` → Visual Studio 2022). See [obs-plugin/README.md](obs-plugin/README.md).
+- **App:** `npm start` (Node 18+); `OBS_NOW_PLAYING_DATA=/other/path` changes the data folder. Installers: `./build/build.sh [all|windows|mac]`.
+- **System readers:** `media/windows.ps1` (PowerShell 5.1 + WinRT) and `media/macos.js` (JavaScript for Automation). Both write one JSON line per second. On macOS 15.4+ only system programs can read "Now Playing", so the reader runs in `osascript`.
 - **Releases:** the **Release** workflow in GitHub Actions builds everything and publishes it.
 </details>
 
