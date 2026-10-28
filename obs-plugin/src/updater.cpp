@@ -4,6 +4,7 @@
 #include <obs-frontend-api.h>
 #include <plugin-support.h>
 
+#include <QCoreApplication>
 #include <QDesktopServices>
 #include <QDir>
 #include <QDirIterator>
@@ -292,12 +293,16 @@ bool installToNewFolder(const QString &workDir, const QString &dll, const QStrin
 	params += arg("Dll", dll) + arg("Target", target);
 	if (!data.isEmpty())
 		params += arg("Data", data);
-	if (from == PluginLocation::LegacyObsFolder) {
+	// Los datos de la carpeta de OBS no se borran mientras el plugin los usa (overlay y lector):
+	// quedan hasta la próxima actualización, cuando el plugin ya corre desde la carpeta nueva.
+	if (from == PluginLocation::LegacyObsFolder || from == PluginLocation::LegacyProgramData)
 		params += arg("OldDll", moduleBinary());
-		params += arg("OldData", installedRoot() + "/data/obs-plugins/obs-now-playing");
+	if (from == PluginLocation::NewFolder) {
+		QString obsRoot = QDir::cleanPath(QCoreApplication::applicationDirPath() + "/../..");
+		QString oldData = obsRoot + "/data/obs-plugins/obs-now-playing";
+		if (QFileInfo(oldData).isDir())
+			params += arg("OldData", oldData);
 	}
-	if (from == PluginLocation::LegacyProgramData)
-		params += arg("OldDll", moduleBinary());
 	// La carpeta bin\ de antes (lo que quede de ella) está dentro de la carpeta nueva.
 	if (QFileInfo(target + "/bin").isDir())
 		params += arg("OldBin", target + "/bin");
