@@ -8,6 +8,10 @@
 #include <cmath>
 #include <functional>
 
+// Sin las macros min / max de windows.h (chocan con std::max).
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <audiopolicy.h>
 #include <mmdeviceapi.h>
