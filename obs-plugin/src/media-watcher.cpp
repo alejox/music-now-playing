@@ -80,6 +80,14 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 
 constexpr qint64 kStaleMs = 10000;
 
+QString playerFile()
+{
+	char *path = obs_module_config_path("player.txt");
+	QString result = QString::fromUtf8(path);
+	bfree(path);
+	return result;
+}
+
 } // namespace
 
 qint64 Track::progressNow(qint64 now) const
@@ -113,6 +121,12 @@ void MediaWatcher::start()
 	QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
 	commandFile_ = QDir(dir).filePath("obs-now-playing-command.json");
 	videoFlagFile_ = QDir(dir).filePath("obs-now-playing-video.flag");
+	QFile saved(playerFile());
+	if (saved.open(QIODevice::ReadOnly)) {
+		QString player = QString::fromUtf8(saved.readAll()).trimmed();
+		player_ = players().contains(player) ? player : QString();
+	}
+	writeVideoFlag();
 	launch();
 #else
 	setStatus(Status::Unsupported);
@@ -310,12 +324,12 @@ void MediaWatcher::handleLine(const QByteArray &line)
 	emit updated();
 }
 
-Track MediaWatcher::current(bool includePaused) const
+Track MediaWatcher::current(bool includePaused, const QString &player) const
 {
 	qint64 t = now();
 	QList<Track> alive;
 	for (const Track &track : tracks_) {
-		if (t - track.updatedAt <= kStaleMs)
+		if (t - track.updatedAt <= kStaleMs && (player.isEmpty() || track.kind == player))
 			alive.append(track);
 	}
 	auto newestFirst = [](const Track &a, const Track &b) {
@@ -331,10 +345,41 @@ Track MediaWatcher::current(bool includePaused) const
 	return includePaused && !alive.isEmpty() ? alive.first() : Track();
 }
 
+const QStringList &MediaWatcher::players()
+{
+	static const QStringList list = {"spotify", "ytmusic", "youtube", "applemusic"};
+	return list;
+}
+
+void MediaWatcher::setPlayer(const QString &player)
+{
+	QString value = players().contains(player) ? player : QString();
+	if (value == player_)
+		return;
+	player_ = value;
+	QDir().mkpath(QFileInfo(playerFile()).absolutePath());
+	QSaveFile file(playerFile());
+	if (file.open(QIODevice::WriteOnly)) {
+		file.write(player_.toUtf8());
+		file.commit();
+	}
+	obs_log(LOG_INFO, "reproductor del dock: %s", player_.isEmpty() ? "automático" : player_.toUtf8().constData());
+	writeVideoFlag();
+	emit updated();
+}
+
 void MediaWatcher::setVideoWanted(bool wanted)
+{
+	videoWanted_ = wanted;
+	writeVideoFlag();
+}
+
+void MediaWatcher::writeVideoFlag()
 {
 	if (videoFlagFile_.isEmpty())
 		return;
+	// Con un reproductor elegido en el dock, el lector tiene que distinguir las pestañas.
+	bool wanted = videoWanted_ || !player_.isEmpty();
 	if (!wanted) {
 		QFile::remove(videoFlagFile_);
 		return;
@@ -356,7 +401,7 @@ void MediaWatcher::seekTo(qint64 positionMs)
 
 void MediaWatcher::runCommand(const QString &action, qint64 positionMs)
 {
-	Track track = current(true);
+	Track track = current(true, player_);
 	if (!track.valid())
 		return;
 	obs_log(LOG_INFO, "comando %s para %s", action.toUtf8().constData(), track.app.toUtf8().constData());

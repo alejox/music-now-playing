@@ -1,8 +1,8 @@
 #include "now-playing-dock.hpp"
-#include "media-watcher.hpp"
 
 #include <obs-module.h>
 
+#include <QComboBox>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QHash>
@@ -31,6 +31,38 @@ constexpr int kSideButton = 40;
 constexpr int kSkipButton = 32;
 constexpr qint64 kSkipMs = 10000;
 constexpr int kMainButton = 52;
+
+// Los reproductores de la lista, con su color (el punto al lado del nombre).
+struct PlayerInfo {
+	const char *key;  // texto de la lista
+	const char *name; // para "Spotify no está sonando"
+	const char *color;
+};
+
+const QHash<QString, PlayerInfo> &playerInfo()
+{
+	static const QHash<QString, PlayerInfo> info = {
+		{"spotify", {"NowPlaying.Player.Spotify", "Spotify", "#1db954"}},
+		{"ytmusic", {"NowPlaying.Player.YTMusic", "YouTube Music", "#ff4e45"}},
+		{"youtube", {"NowPlaying.Player.YouTube", "YouTube", "#ff0033"}},
+		{"applemusic", {"NowPlaying.Player.AppleMusic", "Apple Music", "#fa2d48"}},
+	};
+	return info;
+}
+
+QIcon dotIcon(const QColor &color, qreal dpr)
+{
+	const int size = 10;
+	QPixmap pixmap(QSize(size, size) * dpr);
+	pixmap.setDevicePixelRatio(dpr);
+	pixmap.fill(Qt::transparent);
+	QPainter p(&pixmap);
+	p.setRenderHint(QPainter::Antialiasing);
+	p.setPen(Qt::NoPen);
+	p.setBrush(color);
+	p.drawEllipse(QRectF(1, 1, size - 2, size - 2));
+	return QIcon(pixmap);
+}
 
 QString text(const char *key)
 {
@@ -227,6 +259,43 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	layout->setContentsMargins(16, 18, 16, 18);
 	layout->setSpacing(4);
 
+	// "Reproductor [Automático ▾]", pequeño y arriba a la derecha.
+	auto *playerRow = new QHBoxLayout();
+	playerRow->setSpacing(8);
+	playerRow->addStretch(1);
+	auto *playerLabel = new QLabel(text("NowPlaying.Player"), this);
+	QPalette labelPalette = playerLabel->palette();
+	QColor labelColor = labelPalette.color(QPalette::WindowText);
+	labelColor.setAlphaF(0.65f);
+	labelPalette.setColor(QPalette::WindowText, labelColor);
+	playerLabel->setPalette(labelPalette);
+	player_ = new QComboBox(this);
+	player_->setFocusPolicy(Qt::NoFocus);
+	player_->setCursor(Qt::PointingHandCursor);
+	player_->setMinimumWidth(150);
+	player_->setToolTip(text("NowPlaying.Player.DockHelp"));
+	player_->addItem(text("NowPlaying.Player.Auto"), QString());
+	player_->insertSeparator(1);
+	const qreal dpr = devicePixelRatioF();
+	for (const QString &key : MediaWatcher::players()) {
+		const PlayerInfo &info = playerInfo()[key];
+		player_->addItem(dotIcon(QColor(info.color), dpr), text(info.key), key);
+	}
+	player_->setCurrentIndex(std::max(0, player_->findData(MediaWatcher::instance().player())));
+	connect(player_, &QComboBox::currentIndexChanged, this, [this] {
+		MediaWatcher::instance().setPlayer(player_->currentData().toString());
+		artKey_.clear();
+		seekTarget_ = -1;
+		stylePlayer();
+		refresh();
+	});
+	playerLabel->setBuddy(player_);
+	playerRow->addWidget(playerLabel);
+	playerRow->addWidget(player_);
+	layout->addLayout(playerRow);
+	layout->addSpacing(8);
+	stylePlayer();
+
 	art_ = new QLabel(this);
 	art_->setFixedSize(kArtSize, kArtSize);
 	art_->setAlignment(Qt::AlignCenter);
@@ -274,12 +343,12 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	progress_->setToolTip(text("NowPlaying.Seek"));
 	// Mientras se arrastra, el tiempo muestra adónde se va a saltar; al soltar, se salta.
 	connect(progress_, &QSlider::sliderMoved, this, [this](int value) {
-		Track track = MediaWatcher::instance().current(true);
+		Track track = shown();
 		if (track.durationMs > 0)
 			elapsed_->setText(formatTime(value * track.durationMs / 1000));
 	});
 	connect(progress_, &QSlider::sliderReleased, this, [this] {
-		Track track = MediaWatcher::instance().current(true);
+		Track track = shown();
 		if (track.valid() && track.durationMs > 0)
 			seekToMs(qint64(progress_->value()) * track.durationMs / 1000);
 	});
@@ -427,14 +496,24 @@ void NowPlayingDock::refresh()
 		status_->setText(commandError_);
 	status_->setStyleSheet("color: #f87171;");
 
-	Track track = watcher.current(true);
+	Track track = shown();
 	for (QToolButton *button : {previous_, playPause_, next_})
 		button->setEnabled(track.valid());
 
 	if (!track.valid()) {
-		title_->setText(text("NowPlaying.NothingPlaying"));
-		artist_->setText(watcher.status() == MediaWatcher::Status::Starting ? text("NowPlaying.Reader.Starting")
-										     : text("NowPlaying.PlaySomething"));
+		const QString player = watcher.player();
+		if (watcher.status() == MediaWatcher::Status::Starting) {
+			title_->setText(text("NowPlaying.NothingPlaying"));
+			artist_->setText(text("NowPlaying.Reader.Starting"));
+		} else if (playerInfo().contains(player)) {
+			// Con un reproductor elegido, lo que suene en otro no cuenta.
+			const QString name = QString::fromUtf8(playerInfo()[player].name);
+			title_->setText(text("NowPlaying.Player.NotPlaying").arg(name));
+			artist_->setText(text("NowPlaying.Player.Waiting").arg(name));
+		} else {
+			title_->setText(text("NowPlaying.NothingPlaying"));
+			artist_->setText(text("NowPlaying.PlaySomething"));
+		}
 		source_->clear();
 		art_->clear();
 		artKey_.clear();
@@ -469,9 +548,23 @@ void NowPlayingDock::refresh()
 	tick();
 }
 
+Track NowPlayingDock::shown() const
+{
+	MediaWatcher &watcher = MediaWatcher::instance();
+	return watcher.current(true, watcher.player());
+}
+
+// La lista se marca con el color del reproductor elegido (sin borde de color en Automático).
+void NowPlayingDock::stylePlayer()
+{
+	const QString key = player_->currentData().toString();
+	const QString border = playerInfo().contains(key) ? QString(playerInfo()[key].color) : QString("rgba(127,127,127,0.35)");
+	player_->setStyleSheet(QString("QComboBox { border: 1px solid %1; border-radius: 6px; padding: 2px 8px; }").arg(border));
+}
+
 void NowPlayingDock::tick()
 {
-	Track track = MediaWatcher::instance().current(true);
+	Track track = shown();
 	bool show = track.valid() && track.durationMs > 0;
 	progress_->setVisible(show);
 	elapsed_->setVisible(show);
@@ -492,7 +585,7 @@ void NowPlayingDock::tick()
 
 void NowPlayingDock::seekBy(qint64 deltaMs)
 {
-	Track track = MediaWatcher::instance().current(true);
+	Track track = shown();
 	if (!track.valid() || track.durationMs <= 0)
 		return;
 	const qint64 now = MediaWatcher::now();

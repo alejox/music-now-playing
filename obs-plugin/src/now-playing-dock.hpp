@@ -1,15 +1,19 @@
 #pragma once
 
+#include "media-watcher.hpp"
+
 #include <QColor>
 #include <QWidget>
 
+class QComboBox;
 class QLabel;
 class QSlider;
 class QToolButton;
 
 // Dock "Música": la canción que suena con anterior / pausa / siguiente, retroceder y
 // adelantar 10 segundos y una barra de progreso que se puede arrastrar (o pulsar) para
-// saltar. Vive dentro de OBS (Docks → Música) y no sale en el stream.
+// saltar. Arriba, la lista "Reproductor" elige de cuál se muestra la canción (Automático:
+// del que suene). Vive dentro de OBS (Docks → Música) y no sale en el stream.
 class NowPlayingDock : public QWidget {
 	Q_OBJECT
 
@@ -21,12 +25,16 @@ protected:
 
 private:
 	void refresh();
+	// La canción del reproductor elegido (o la última en pausa).
+	Track shown() const;
+	void stylePlayer();
 	void tick();
 	void applyAccent(const QColor &accent);
 	void updateIcons();
 	void seekBy(qint64 deltaMs);
 	void seekToMs(qint64 positionMs);
 
+	QComboBox *player_ = nullptr;
 	QLabel *art_ = nullptr;
 	QLabel *title_ = nullptr;
 	QLabel *artist_ = nullptr;

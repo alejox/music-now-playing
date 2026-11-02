@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QProcess>
 #include <QString>
+#include <QStringList>
 
 // Una sesión multimedia del sistema (una por app que reproduce algo).
 struct Track {
@@ -41,8 +42,15 @@ public:
 	void start();
 	void stop();
 
-	// Con includePaused (el dock), si nada suena devuelve la última en pausa.
-	Track current(bool includePaused = false) const;
+	// Con includePaused (el dock), si nada suena devuelve la última en pausa. Con player
+	// (spotify | ytmusic | youtube | applemusic), solo ese reproductor; vacío: cualquiera.
+	Track current(bool includePaused = false, const QString &player = QString()) const;
+	// El reproductor elegido en el dock ("" = Automático). Lo usan el dock, sus botones, el
+	// canal de música y las fuentes con "Igual que el dock". Se guarda entre sesiones.
+	QString player() const { return player_; }
+	void setPlayer(const QString &player);
+	// Los reproductores que se pueden elegir, en orden.
+	static const QStringList &players();
 	Status status() const { return status_; }
 	QString error() const { return error_; }
 
@@ -54,7 +62,9 @@ public:
 	static qint64 now();
 
 	// Modo video: el lector solo lee las pestañas del navegador si alguna fuente lo pidió
-	// (leerlas hace que macOS pida permiso para controlar el navegador).
+	// (leerlas hace que macOS pida permiso para controlar el navegador). También hacen falta
+	// para elegir reproductor: sin ellas, una pestaña de YouTube o YouTube Music es solo
+	// "el navegador".
 	void setVideoWanted(bool wanted);
 
 signals:
@@ -71,6 +81,7 @@ private:
 	void readLines();
 	void handleLine(const QByteArray &line);
 	void setStatus(Status status, const QString &error = QString());
+	void writeVideoFlag();
 
 	QProcess *process_ = nullptr;
 	QHash<QString, Track> tracks_;
@@ -79,6 +90,8 @@ private:
 	QString error_;
 	QString commandFile_;
 	QString videoFlagFile_;
+	bool videoWanted_ = false;
+	QString player_;
 	qint64 startedAt_ = 0;
 	int failures_ = 0;
 	bool stopping_ = false;

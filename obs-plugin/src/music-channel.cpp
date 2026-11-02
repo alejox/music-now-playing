@@ -121,8 +121,10 @@ QString currentTarget(obs_source_t *source)
 
 void follow_music_channel()
 {
-	// Solo lo que está sonando: una app en pausa no se lleva el canal.
-	Track track = MediaWatcher::instance().current(false);
+	// Solo lo que está sonando (del reproductor elegido en el dock): una app en pausa no se
+	// lleva el canal.
+	MediaWatcher &watcher = MediaWatcher::instance();
+	Track track = watcher.current(false, watcher.player());
 	if (!track.valid())
 		return;
 	QString target = audioTarget(track);
@@ -160,7 +162,8 @@ void follow_music_channel()
 
 void create_music_channel(QWidget *parent)
 {
-	Track track = MediaWatcher::instance().current(true);
+	MediaWatcher &watcher = MediaWatcher::instance();
+	Track track = watcher.current(true, watcher.player());
 	if (!track.valid()) {
 		QMessageBox::information(parent, text("NowPlaying.Channel.Title"), text("NowPlaying.Channel.NothingPlaying"));
 		return;
