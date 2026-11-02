@@ -288,14 +288,37 @@ bool np_size_modified(obs_properties_t *, obs_property_t *, obs_data_t *settings
 	return true;
 }
 
+// "Quitar logo": vacía la imagen elegida (la tarjeta vuelve a mostrarse sin carátula).
+bool np_clear_fallback(obs_properties_t *props, obs_property_t *, void *data)
+{
+	auto *s = static_cast<NowPlayingSource *>(data);
+	if (!s)
+		return false;
+	obs_data_t *settings = obs_source_get_settings(s->self);
+	obs_data_set_string(settings, "fallback_image", "");
+	obs_source_update(s->self, settings);
+	obs_data_release(settings);
+	obs_property_set_visible(obs_properties_get(props, "fallback_clear"), false);
+	return true;
+}
+
+// El botón "Quitar logo" solo se ve con un logo elegido (y aparece al elegir uno).
+bool np_fallback_modified(obs_properties_t *props, obs_property_t *, obs_data_t *settings)
+{
+	obs_property_set_visible(obs_properties_get(props, "fallback_clear"),
+				 *obs_data_get_string(settings, "fallback_image") != '\0');
+	return true;
+}
+
 bool np_create_channel(obs_properties_t *, obs_property_t *, void *)
 {
 	create_music_channel(static_cast<QWidget *>(obs_frontend_get_main_window()));
 	return false;
 }
 
-obs_properties_t *np_properties(void *)
+obs_properties_t *np_properties(void *data)
 {
+	auto *source = static_cast<NowPlayingSource *>(data);
 	obs_properties_t *props = obs_properties_create();
 	obs_property_t *player = obs_properties_add_list(props, "player", obs_module_text("NowPlaying.Player"),
 							 OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
@@ -372,6 +395,11 @@ obs_properties_t *np_properties(void *)
 	obs_property_t *fallback = obs_properties_add_path(props, "fallback_image", obs_module_text("NowPlaying.Fallback"),
 							   OBS_PATH_FILE, filter.toUtf8().constData(), nullptr);
 	obs_property_set_long_description(fallback, obs_module_text("NowPlaying.Fallback.Help"));
+	obs_property_set_modified_callback(fallback, np_fallback_modified);
+	// Para cambiarlo basta con "Examinar"; para quitarlo, este botón.
+	obs_property_t *clear = obs_properties_add_button(props, "fallback_clear", obs_module_text("NowPlaying.Fallback.Clear"),
+							  np_clear_fallback);
+	obs_property_set_visible(clear, source && !source->fallbackPath.isEmpty());
 
 	obs_properties_add_bool(props, "colors", obs_module_text("NowPlaying.Colors"));
 	obs_properties_add_bool(props, "blur", obs_module_text("NowPlaying.Blur"));

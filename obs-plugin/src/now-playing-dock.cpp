@@ -475,28 +475,34 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	buttons->addStretch(1);
 	layout->addLayout(buttons);
 
-	// Aleatorio, volumen y a qué se aplica: el reproductor o solo el canal de música de OBS.
+	// El volumen en su propia fila, a todo el ancho (para moverlo con precisión); debajo, el
+	// aleatorio y a qué se aplica el volumen: el reproductor o solo el canal de música de OBS.
 	auto *volumeRow = new QHBoxLayout();
-	volumeRow->setSpacing(8);
-	auto makeSmall = [this, volumeRow](const char *tip) {
+	volumeRow->setSpacing(10);
+	auto *optionsRow = new QHBoxLayout();
+	optionsRow->setSpacing(8);
+	auto makeSmall = [this](const char *tip) {
 		auto *button = new QToolButton(this);
 		button->setFixedSize(kSmallButton, kSmallButton);
 		button->setToolTip(text(tip));
 		button->setCursor(Qt::PointingHandCursor);
 		button->setFocusPolicy(Qt::NoFocus);
-		volumeRow->addWidget(button, 0, Qt::AlignVCenter);
 		return button;
 	};
 	shuffle_ = makeSmall("NowPlaying.Shuffle");
+	optionsRow->addWidget(shuffle_, 0, Qt::AlignVCenter);
+	optionsRow->addStretch(1);
 	connect(shuffle_, &QToolButton::clicked, this, [this] {
 		MediaWatcher::instance().toggleShuffle();
 		QTimer::singleShot(600, this, [] { MediaWatcher::instance().refreshPlayerState(); });
 	});
 	mute_ = makeSmall("NowPlaying.Mute");
+	volumeRow->addWidget(mute_, 0, Qt::AlignVCenter);
 	connect(mute_, &QToolButton::clicked, this, &NowPlayingDock::toggleMute);
 	volume_ = new VolumeSlider(this);
 	volume_->setRange(0, 100);
-	volume_->setFixedHeight(16);
+	volume_->setFixedHeight(20);
+	volume_->setMinimumWidth(120);
 	volume_->setCursor(Qt::PointingHandCursor);
 	volume_->setFocusPolicy(Qt::NoFocus);
 	volumeRow->addWidget(volume_, 1);
@@ -540,9 +546,11 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	(streamMode_ ? modeStream_ : modePlayer_)->setChecked(true);
 	connect(modePlayer_, &QToolButton::clicked, this, [this] { setStreamMode(false); });
 	connect(modeStream_, &QToolButton::clicked, this, [this] { setStreamMode(true); });
-	volumeRow->addLayout(modes);
+	optionsRow->addLayout(modes);
 	layout->addSpacing(12);
 	layout->addLayout(volumeRow);
+	layout->addSpacing(6);
+	layout->addLayout(optionsRow);
 	layout->addSpacing(10);
 
 	status_ = new QLabel(this);
@@ -634,7 +642,7 @@ void NowPlayingDock::styleVolumeRow()
 	volume_->setStyleSheet(
 		QString("QSlider::groove:horizontal { height: 4px; border-radius: 2px; background: rgba(127,127,127,0.25); }"
 			"QSlider::sub-page:horizontal { border-radius: 2px; background: %1; }"
-			"QSlider::handle:horizontal { width: 12px; height: 12px; margin: -4px 0; border-radius: 6px;"
+			"QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0; border-radius: 7px;"
 			" background: %2; }"
 			"QSlider::sub-page:horizontal:disabled, QSlider::handle:horizontal:disabled { background: rgba(127,127,127,0.35); }")
 			.arg(rgba(textColor, 0.7), textColor.name()));
