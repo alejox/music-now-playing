@@ -1,4 +1,6 @@
 #include "media-watcher.hpp"
+#include "app-volume.hpp"
+#include "music-channel.hpp"
 
 #include <obs-module.h>
 #include <plugin-support.h>
@@ -285,6 +287,14 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		if (videoIdPattern.match(videoId).hasMatch())
 			track.videoId = videoId;
 		track.updatedAt = t;
+		// Windows: el aleatorio llega con cada lectura (si el reproductor lo deja cambiar).
+		if (s.contains("shuffle")) {
+			QString shuffle = s.value("shuffle").isBool() ? (s.value("shuffle").toBool() ? "on" : "off") : QString();
+			if (states_.value(app).shuffle != shuffle) {
+				states_[app].shuffle = shuffle;
+				emit playerStateChanged();
+			}
+		}
 
 		// La carátula llega solo cuando cambia la canción: la guardamos con su canción
 		// para no mostrar la de la anterior mientras llega la nueva.
@@ -399,29 +409,96 @@ void MediaWatcher::seekTo(qint64 positionMs)
 	runCommand("seek", std::max<qint64>(0, positionMs));
 }
 
-void MediaWatcher::runCommand(const QString &action, qint64 positionMs)
+PlayerState MediaWatcher::playerState() const
+{
+	return states_.value(current(true, player_).app);
+}
+
+void MediaWatcher::storeState(const QString &app, const QJsonObject &state)
+{
+	PlayerState value = states_.value(app);
+	value.volume = state.value("volume").isDouble() ? std::clamp(state.value("volume").toInt(), 0, 100) : -1;
+	QJsonValue shuffle = state.value("shuffle");
+	value.shuffle = shuffle.isBool() ? (shuffle.toBool() ? "on" : "off")
+					 : (shuffle.toString() == "action" ? QString("action") : QString());
+	states_.insert(app, value);
+	emit playerStateChanged();
+}
+
+void MediaWatcher::refreshPlayerState()
 {
 	Track track = current(true, player_);
 	if (!track.valid())
 		return;
-	obs_log(LOG_INFO, "comando %s para %s", action.toUtf8().constData(), track.app.toUtf8().constData());
+#ifdef _WIN32
+	int volume = app_volume(audio_target(track));
+	if (states_.value(track.app).volume != volume) {
+		states_[track.app].volume = volume;
+		emit playerStateChanged();
+	}
+#else
+	if (stateAsked_)
+		return;
+	stateAsked_ = true;
+	runCommand("state", -1);
+#endif
+}
+
+void MediaWatcher::setVolume(int percent)
+{
+	Track track = current(true, player_);
+	if (!track.valid())
+		return;
+	percent = std::clamp(percent, 0, 100);
+	states_[track.app].volume = percent; // la barra no salta atrás mientras llega la respuesta
+#ifdef _WIN32
+	if (!set_app_volume(audio_target(track), percent))
+		emit commandFailed(QString::fromUtf8(obs_module_text("NowPlaying.Volume.NoSound")));
+#else
+	runCommand("volume", percent);
+#endif
+}
+
+void MediaWatcher::toggleShuffle()
+{
+	runCommand("shuffle", -1);
+}
+
+void MediaWatcher::runCommand(const QString &action, qint64 arg)
+{
+	Track track = current(true, player_);
+	if (!track.valid()) {
+		if (action == "state")
+			stateAsked_ = false;
+		return;
+	}
+	if (action != "state")
+		obs_log(LOG_INFO, "comando %s para %s", action.toUtf8().constData(), track.app.toUtf8().constData());
 #ifdef _WIN32
 	// El lector revisa este archivo cada 100 ms.
 	QSaveFile file(commandFile_);
 	if (file.open(QIODevice::WriteOnly)) {
 		QJsonObject cmd{{"cmd", action}, {"app", track.app}};
-		if (positionMs >= 0)
-			cmd.insert("positionMs", positionMs);
+		if (arg >= 0)
+			cmd.insert("positionMs", arg);
 		file.write(QJsonDocument(cmd).toJson(QJsonDocument::Compact));
 		file.commit();
 	}
 #else
 	// macOS y Linux: el lector se abre aparte con "command <acción>" y responde una línea JSON.
 	auto *command = new QProcess(this);
-	connect(command, &QProcess::finished, this, [this, command](int, QProcess::ExitStatus) {
+	const QString app = track.app;
+	connect(command, &QProcess::finished, this, [this, command, action, app](int, QProcess::ExitStatus) {
 		QByteArray out = command->readAllStandardOutput().trimmed();
 		command->deleteLater();
 		QJsonObject result = QJsonDocument::fromJson(out.split('\n').last()).object();
+		// Volumen y aleatorio: los devuelven "state" y también "volume" y "shuffle".
+		if (result.value("state").isObject())
+			storeState(app, result.value("state").toObject());
+		if (action == "state") {
+			stateAsked_ = false;
+			return; // una pregunta de cada pocos segundos: sin avisos ni registro
+		}
 		QString problem = result.value("error").toString();
 		if (problem.isEmpty())
 			problem = result.value("hint").toString();
@@ -445,8 +522,16 @@ void MediaWatcher::runCommand(const QString &action, qint64 positionMs)
 	QString program = "bash";
 	QStringList args{moduleFile("media/linux.sh"), "command", action};
 #endif
-	if (positionMs >= 0)
-		args << QString::number(positionMs);
+	if (arg >= 0)
+		args << QString::number(arg);
+	// Si ni siquiera arranca, "finished" no llega.
+	connect(command, &QProcess::errorOccurred, this, [this, command, action](QProcess::ProcessError error) {
+		if (error != QProcess::FailedToStart)
+			return;
+		if (action == "state")
+			stateAsked_ = false;
+		command->deleteLater();
+	});
 	command->start(program, args);
 #endif
 }

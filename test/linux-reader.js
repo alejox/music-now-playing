@@ -112,6 +112,29 @@ try {
   assert.equal(r.code, 1);
   assert.match(r.lines.at(-1).error, /adelantar/);
 
+  // Volumen y aleatorio (dock): 0–100 y On/Off de playerctl → {"state":…}.
+  r = run(['command', 'state'], { OBS_NOW_PLAYING_PLAYER: 'spotify' });
+  assert.equal(r.code, 0);
+  assert.deepEqual(r.lines.at(-1), { ok: true, via: 'spotify', state: { volume: 40, shuffle: true } });
+
+  r = run(['command', 'volume', '7'], { OBS_NOW_PLAYING_PLAYER: 'spotify' });
+  assert.equal(r.code, 0);
+  assert.match(r.calls, /^-p spotify volume 0\.07$/m);
+
+  r = run(['command', 'volume', '250'], { OBS_NOW_PLAYING_PLAYER: 'spotify' });
+  assert.match(r.calls, /^-p spotify volume 1\.00$/m);
+
+  r = run(['command', 'shuffle'], { OBS_NOW_PLAYING_PLAYER: 'spotify' });
+  assert.equal(r.code, 0);
+  assert.match(r.calls, /^-p spotify shuffle Toggle$/m);
+
+  // Un reproductor que no deja: state no sabe nada; volume avisa.
+  r = run(['command', 'state'], { OBS_NOW_PLAYING_PLAYER: 'firefox' });
+  assert.deepEqual(r.lines.at(-1).state, { volume: null, shuffle: null });
+  r = run(['command', 'volume', '50'], { OBS_NOW_PLAYING_PLAYER: 'firefox' });
+  assert.equal(r.code, 1);
+  assert.match(r.lines.at(-1).error, /volumen/);
+
   r = run(['command', 'bailar']);
   assert.equal(r.code, 2);
   assert.match(r.lines.at(-1).error, /desconocido/);

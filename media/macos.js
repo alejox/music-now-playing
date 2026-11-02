@@ -4,6 +4,8 @@
 //
 // Corre con: /usr/bin/osascript -l JavaScript media/macos.js
 // Para controlar el reproductor: ... media/macos.js command next   (previous | playpause | next)
+//   ... command seek 61000 (ms) · command volume 40 (0–100) · command shuffle · command state
+//   volume, shuffle y state responden con {"state":{"volume":40,"shuffle":true}} (lo que se sepa)
 // Para buscar una canción y ponerla: ... media/macos.js search "canción o artista"
 // Para probar la búsqueda de carátulas: ... media/macos.js artwork "Canción" "Artista"
 // Para probar el modo video con lo que suena: ... media/macos.js video
@@ -173,7 +175,9 @@ function browserCommandIn(browser, code, withSpotify) {
     let hit = players.find((t) => title && t.name.includes(title)) || (tabs.length === 1 && players.length === 1 ? players[0] : null);
     if (!hit && title) hit = tabs.find((t) => normName(run(t.tab, MEDIA_SESSION_TITLE) || '') === title);
     if (!hit) return { tried: false, seen: tabs.length };
-    return { tried: true, ok: run(hit.tab, code) === 'ok' };
+    const result = run(hit.tab, code);
+    // 'ok' o, para el volumen y el aleatorio, un JSON con lo que hay en la página.
+    return { tried: true, ok: result === 'ok' || /^\{/.test(String(result || '')), result };
   } catch (e) {
     // El navegador no deja ejecutar JavaScript desde Apple Events (viene apagado).
     return { tried: true, ok: false, blocked: /javascript/i.test(String(e)), error: String(e).slice(0, 200) };
@@ -207,8 +211,80 @@ function seekCommand(positionMs) {
   return 1;
 }
 
+// ---- Volumen y aleatorio (dock) ---------------------------------------------------
+// Spotify y Apple Music: se le pide a la app (sound volume, shuffling / shuffle enabled).
+// En la página: el reproductor de YouTube (#movie_player, también dentro de YouTube Music)
+// tiene getVolume / setVolume; el aleatorio de YouTube Music es un botón que mezcla la cola,
+// sin estado ("action"); el del reproductor web de Spotify sí lo tiene (aria-checked).
+const APP_SHUFFLE = { 'com.spotify.client': 'shuffling', 'com.apple.Music': 'shuffleEnabled' };
+
+function pageStateScript(volume, toggleShuffle) {
+  return `(() => {
+    const player = document.getElementById('movie_player');
+    const media = [...document.querySelectorAll('video, audio')].find((m) => m.duration > 0);
+    const vol = ${volume === null ? 'null' : Number(volume)};
+    if (vol !== null) {
+      if (player && player.setVolume) {
+        player.setVolume(vol);
+        if (vol > 0 && player.unMute) player.unMute();
+      } else if (media) {
+        media.volume = vol / 100;
+        media.muted = vol === 0;
+      }
+    }
+    const spotify = location.hostname === 'open.spotify.com';
+    const button = document.querySelector(spotify ? '[data-testid="control-button-shuffle"]' : 'ytmusic-player-bar .shuffle');
+    if (${toggleShuffle ? 'true' : 'false'} && button) button.click();
+    let volume = null;
+    if (player && player.getVolume) volume = player.isMuted && player.isMuted() ? 0 : Math.round(player.getVolume());
+    else if (media) volume = media.muted ? 0 : Math.round(media.volume * 100);
+    let shuffle = null;
+    if (button) shuffle = spotify ? button.getAttribute('aria-checked') === 'true' : 'action';
+    return JSON.stringify({ volume, shuffle });
+  })()`;
+}
+
+// action: state | volume (arg 0–100) | shuffle.
+function stateCommand(action, arg) {
+  const volume = action === 'volume' ? Math.max(0, Math.min(100, Math.round(Number(arg) || 0))) : null;
+  const toggle = action === 'shuffle';
+  const app = nowPlayingApp();
+  if (APP_COMMANDS[app]) {
+    try {
+      const player = Application(app);
+      if (player.running()) {
+        if (volume !== null) player.soundVolume = volume;
+        const shuffle = APP_SHUFFLE[app];
+        if (toggle) player[shuffle] = !player[shuffle]();
+        emit({ ok: true, via: app, state: { volume: Math.round(player.soundVolume()), shuffle: Boolean(player[shuffle]()) } });
+        return 0;
+      }
+    } catch (e) {
+      // sin permiso de Automatización: se prueba en la página (por si es otra cosa)
+    }
+  }
+  const page = browserCommand(app, pageStateScript(volume, toggle), true);
+  if (page.ok && page.result) {
+    try {
+      const r = JSON.parse(page.result);
+      emit({ ok: true, via: 'página', state: { volume: r.volume, shuffle: r.shuffle } });
+      return 0;
+    } catch (e) {
+      // respuesta rara de la página
+    }
+  }
+  if (action === 'state') {
+    emit({ state: {} }); // el dock apaga el volumen y el aleatorio
+    return 0;
+  }
+  const what = toggle ? 'cambiar el aleatorio' : 'cambiar el volumen';
+  emit({ error: page.blocked ? BLOCKED_HINT : `Este reproductor no deja ${what} desde OBS.` });
+  return 1;
+}
+
 function sendCommand(action, arg) {
   if (action === 'seek') return seekCommand(arg);
+  if (action === 'state' || action === 'volume' || action === 'shuffle') return stateCommand(action, arg);
   if (!ACTIONS.includes(action)) {
     emit({ error: `Comando desconocido: ${action}` });
     return 2;

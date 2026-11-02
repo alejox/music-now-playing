@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QHash>
+#include <QJsonObject>
 #include <QObject>
 #include <QProcess>
 #include <QString>
@@ -26,6 +27,14 @@ struct Track {
 	bool valid() const { return !title.isEmpty(); }
 	// Progreso estimado a este instante.
 	qint64 progressNow(qint64 now) const;
+};
+
+// Lo que se puede saber y cambiar del reproductor además de la canción (dock: volumen y
+// aleatorio). Windows: el aleatorio lo da el lector con cada lectura y el volumen es el de
+// la app en el Mezclador de Windows. macOS y Linux: se le pregunta al reproductor.
+struct PlayerState {
+	int volume = -1; // 0–100; -1: no se puede leer ni cambiar
+	QString shuffle; // on | off | action (un botón sin estado, como en YouTube Music) | "" (no se puede)
 };
 
 // Lee "lo que está sonando" con el lector del sistema (media/windows.ps1,
@@ -58,6 +67,12 @@ public:
 	void sendCommand(const QString &action);
 	// Adelantar / retroceder: salta a esa posición (ms) de la canción que se está mostrando.
 	void seekTo(qint64 positionMs);
+	// Volumen y aleatorio del reproductor que se muestra en el dock.
+	PlayerState playerState() const;
+	void setVolume(int percent);
+	void toggleShuffle();
+	// Vuelve a preguntar el volumen y el aleatorio (el dock lo hace cada pocos segundos).
+	void refreshPlayerState();
 
 	static qint64 now();
 
@@ -72,11 +87,14 @@ signals:
 	void updated();
 	// Un botón no funcionó (p. ej. falta el permiso de Accesibilidad en macOS).
 	void commandFailed(const QString &message);
+	// Llegó el volumen o el aleatorio del reproductor.
+	void playerStateChanged();
 
 private:
 	MediaWatcher() = default;
-	// positionMs >= 0: va con el comando (seek).
-	void runCommand(const QString &action, qint64 positionMs);
+	// arg >= 0: va con el comando (la posición en ms de seek, el volumen de volume).
+	void runCommand(const QString &action, qint64 arg);
+	void storeState(const QString &app, const QJsonObject &state);
 	void launch();
 	void readLines();
 	void handleLine(const QByteArray &line);
@@ -86,6 +104,8 @@ private:
 	QProcess *process_ = nullptr;
 	QHash<QString, Track> tracks_;
 	QHash<QString, QString> artworks_; // app → carátula de su canción actual
+	QHash<QString, PlayerState> states_; // app → volumen y aleatorio
+	bool stateAsked_ = false;            // hay una pregunta de estado en curso (macOS, Linux)
 	Status status_ = Status::Starting;
 	QString error_;
 	QString commandFile_;

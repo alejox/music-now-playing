@@ -7,6 +7,8 @@
 #include <QMessageBox>
 #include <QRegularExpression>
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 
 namespace {
@@ -117,7 +119,65 @@ QString currentTarget(obs_source_t *source)
 	return target;
 }
 
+// El canal que creó el plugin (no otra fuente que se llame igual), con una referencia que
+// hay que soltar; nullptr si no existe.
+obs_source_t *musicChannel()
+{
+	QByteArray name = text("NowPlaying.Channel.SourceName").toUtf8();
+	obs_source_t *source = obs_get_source_by_name(name.constData());
+	if (source && strcmp(obs_source_get_id(source), kSourceId) != 0) {
+		obs_source_release(source);
+		return nullptr;
+	}
+	return source;
+}
+
 } // namespace
+
+QString audio_target(const Track &track)
+{
+	return audioTarget(track);
+}
+
+// Con el fader logarítmico de OBS: el mismo 0–100 que la barra del Mezclador.
+bool music_channel_volume(int *percent, bool *muted)
+{
+	obs_source_t *source = musicChannel();
+	if (!source)
+		return false;
+	obs_fader_t *fader = obs_fader_create(OBS_FADER_LOG);
+	obs_fader_attach_source(fader, source);
+	*percent = int(std::lround(obs_fader_get_deflection(fader) * 100.0f));
+	*muted = obs_source_muted(source);
+	obs_fader_destroy(fader);
+	obs_source_release(source);
+	return true;
+}
+
+bool set_music_channel_volume(int percent)
+{
+	obs_source_t *source = musicChannel();
+	if (!source)
+		return false;
+	obs_fader_t *fader = obs_fader_create(OBS_FADER_LOG);
+	obs_fader_attach_source(fader, source);
+	obs_fader_set_deflection(fader, std::clamp(percent, 0, 100) / 100.0f);
+	obs_fader_destroy(fader);
+	if (percent > 0)
+		obs_source_set_muted(source, false);
+	obs_source_release(source);
+	return true;
+}
+
+bool set_music_channel_muted(bool muted)
+{
+	obs_source_t *source = musicChannel();
+	if (!source)
+		return false;
+	obs_source_set_muted(source, muted);
+	obs_source_release(source);
+	return true;
+}
 
 void follow_music_channel()
 {
