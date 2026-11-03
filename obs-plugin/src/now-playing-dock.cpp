@@ -44,9 +44,21 @@ constexpr int kSmallButton = 28;
 // Los reproductores de la lista, con su color (el punto al lado del nombre).
 struct PlayerInfo {
 	const char *key;  // texto de la lista
-	const char *name; // para "Spotify no está sonando"
+	const char *name; // para "Spotify no está sonando" (una clave de texto si empieza con "NowPlaying.")
 	const char *color;
 };
+
+// El reproductor del sistema: Apple Music en Mac; en Windows, el Reproductor multimedia.
+#ifdef __APPLE__
+constexpr const char *kSystemName = "Apple Music";
+constexpr const char *kSystemColor = "#fa2d48";
+#elif defined(_WIN32)
+constexpr const char *kSystemName = "NowPlaying.Player.SystemName.Windows";
+constexpr const char *kSystemColor = "#0078d4";
+#else
+constexpr const char *kSystemName = "NowPlaying.Player.SystemName.Other";
+constexpr const char *kSystemColor = "#8b8cff";
+#endif
 
 const QHash<QString, PlayerInfo> &playerInfo()
 {
@@ -54,7 +66,7 @@ const QHash<QString, PlayerInfo> &playerInfo()
 		{"spotify", {"NowPlaying.Player.Spotify", "Spotify", "#1db954"}},
 		{"ytmusic", {"NowPlaying.Player.YTMusic", "YouTube Music", "#ff4e45"}},
 		{"youtube", {"NowPlaying.Player.YouTube", "YouTube", "#ff0033"}},
-		{"applemusic", {"NowPlaying.Player.AppleMusic", "Apple Music", "#fa2d48"}},
+		{"system", {"NowPlaying.Player.System", kSystemName, kSystemColor}},
 	};
 	return info;
 }
@@ -813,7 +825,8 @@ void NowPlayingDock::refresh()
 			artist_->setText(text("NowPlaying.Reader.Starting"));
 		} else if (playerInfo().contains(player)) {
 			// Con un reproductor elegido, lo que suene en otro no cuenta.
-			const QString name = QString::fromUtf8(playerInfo()[player].name);
+			const char *raw = playerInfo()[player].name;
+			const QString name = QString::fromUtf8(raw).startsWith("NowPlaying.") ? text(raw) : QString::fromUtf8(raw);
 			title_->setText(text("NowPlaying.Player.NotPlaying").arg(name));
 			artist_->setText(text("NowPlaying.Player.Waiting").arg(name));
 		} else {

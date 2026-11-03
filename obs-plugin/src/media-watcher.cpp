@@ -53,6 +53,9 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 		return {"applemusic", "Apple Music"};
 	if (id.contains("itunes"))
 		return {"applemusic", "iTunes"};
+	// El Reproductor multimedia de Windows (el nuevo, Microsoft.ZuneMusic, y el clásico).
+	if (id.contains("zunemusic") || id.contains("wmplayer"))
+		return {"system", "Reproductor multimedia"};
 	if (id.contains("tidal"))
 		return {"other", "TIDAL"};
 	if (id.contains("deezer"))
@@ -343,7 +346,9 @@ Track MediaWatcher::current(bool includePaused, const QString &player) const
 	qint64 t = now();
 	QList<Track> alive;
 	for (const Track &track : tracks_) {
-		if (t - track.updatedAt <= kStaleMs && (player.isEmpty() || track.kind == player))
+		const bool wanted = player.isEmpty() || track.kind == player ||
+				    (player == "system" && track.kind == "applemusic");
+		if (t - track.updatedAt <= kStaleMs && wanted)
 			alive.append(track);
 	}
 	auto newestFirst = [](const Track &a, const Track &b) {
@@ -361,7 +366,9 @@ Track MediaWatcher::current(bool includePaused, const QString &player) const
 
 const QStringList &MediaWatcher::players()
 {
-	static const QStringList list = {"spotify", "ytmusic", "youtube", "applemusic"};
+	// system: el reproductor del sistema (Apple Music en Mac; en Windows, el Reproductor
+	// multimedia y también Apple Music o iTunes).
+	static const QStringList list = {"spotify", "ytmusic", "youtube", "system"};
 	return list;
 }
 

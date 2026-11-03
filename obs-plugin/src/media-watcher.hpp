@@ -10,7 +10,7 @@
 // Una sesión multimedia del sistema (una por app que reproduce algo).
 struct Track {
 	QString app;   // id de la app: "Spotify.exe", "com.spotify.client"…
-	QString kind;  // spotify | ytmusic | youtube | applemusic | browser | other (decide el color)
+	QString kind;  // spotify | ytmusic | youtube | applemusic | system | browser | other (decide el color)
 	QString label; // "Spotify", "Chrome"…
 	QString title;
 	QString artist;
@@ -52,7 +52,7 @@ public:
 	void stop();
 
 	// Con includePaused (el dock), si nada suena devuelve la última en pausa. Con player
-	// (spotify | ytmusic | youtube | applemusic), solo ese reproductor; vacío: cualquiera.
+	// (spotify | ytmusic | youtube | system), solo ese reproductor; vacío: cualquiera.
 	Track current(bool includePaused = false, const QString &player = QString()) const;
 	// El reproductor elegido en el dock ("" = Automático). Lo usan el dock, sus botones, el
 	// canal de música y las fuentes con "Igual que el dock". Se guarda entre sesiones.
