@@ -32,7 +32,7 @@ QString audioTarget(const Track &track)
 	QString id = track.app.toLower();
 	static const QList<QPair<QString, QString>> exes = {
 		{"spotify", "Spotify.exe"}, {"msedge", "msedge.exe"}, {"chrome", "chrome.exe"},   {"firefox", "firefox.exe"},
-		{"brave", "brave.exe"},     {"opera", "opera.exe"},   {"vivaldi", "vivaldi.exe"}, {"applemusic", "AppleMusic.exe"},
+		{"brave", "brave.exe"},     {"opera", "opera.exe"},   {"vivaldi", "vivaldi.exe"}, {"applemusic", "AppleMusic.exe"}, {"itunes", "iTunes.exe"},
 		{"tidal", "TIDAL.exe"},     {"deezer", "Deezer.exe"},
 	};
 	for (const auto &exe : exes) {

@@ -47,8 +47,12 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 	// La PWA de YouTube Music instalada desde Chrome/Edge tiene este id de extensión.
 	if (id.contains("cinhimbnkkaeohfgghhklpknlkffjgod") || id.contains("youtube music"))
 		return {"ytmusic", "YouTube Music"};
+	// Apple Music: la app de Mac, la de Windows (AppleInc.AppleMusicWin…) y, en Windows sin
+	// ella, iTunes (cuenta como Apple Music para "Solo Apple Music").
 	if (id.contains("applemusic") || id.contains("com.apple.music"))
 		return {"applemusic", "Apple Music"};
+	if (id.contains("itunes"))
+		return {"applemusic", "iTunes"};
 	if (id.contains("tidal"))
 		return {"other", "TIDAL"};
 	if (id.contains("deezer"))
@@ -512,6 +516,12 @@ void MediaWatcher::runCommand(const QString &action, qint64 arg)
 		}
 	});
 #ifdef __APPLE__
+	// Lo que muestra el dock (puede no ser lo que anuncia macOS: el lector también encuentra
+	// lo que suena "por detrás"): el botón va a esa app y a la pestaña con esa canción.
+	QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+	env.insert("OBS_NOW_PLAYING_APP", track.app);
+	env.insert("OBS_NOW_PLAYING_TITLE", track.title);
+	command->setProcessEnvironment(env);
 	QString program = "/usr/bin/osascript";
 	QStringList args{"-l", "JavaScript", moduleFile("media/macos.js"), "command", action};
 #else

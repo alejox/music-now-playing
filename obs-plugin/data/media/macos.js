@@ -49,6 +49,28 @@ function nowPlayingApp() {
   }
 }
 
+// Los botones van a lo que muestra el dock: el plugin lo pasa en OBS_NOW_PLAYING_APP y
+// OBS_NOW_PLAYING_TITLE (puede no ser lo que anuncia macOS, ver "por detrás" más abajo).
+function envValue(name) {
+  const v = $.NSProcessInfo.processInfo.environment.objectForKey(name);
+  return v && !v.isNil() ? String(ObjC.unwrap(v)) : '';
+}
+
+function commandApp() {
+  return envValue('OBS_NOW_PLAYING_APP') || nowPlayingApp();
+}
+
+function commandTitle() {
+  const shown = envValue('OBS_NOW_PLAYING_TITLE');
+  if (shown) return shown;
+  try {
+    return ObjC.unwrap($.NSClassFromString('MRNowPlayingRequest').localNowPlayingItem.nowPlayingInfo
+      .objectForKey('kMRMediaRemoteNowPlayingInfoTitle')) || '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function mediaKeyEvent(code, down) {
   ObjC.import('Cocoa');
   const flags = down ? 0xa00 : 0xb00;
@@ -156,8 +178,7 @@ function browserCommandIn(browser, code, withSpotify) {
   try {
     const b = Application(browser[0]);
     if (!b.running()) return { tried: false };
-    const title = normName(ObjC.unwrap($.NSClassFromString('MRNowPlayingRequest').localNowPlayingItem.nowPlayingInfo
-      .objectForKey('kMRMediaRemoteNowPlayingInfoTitle')) || '');
+    const title = normName(commandTitle());
     const tabs = [];
     for (const w of b.windows()) {
       for (const t of w.tabs()) {
@@ -189,7 +210,7 @@ const BLOCKED_HINT = 'Para que los botones vayan siempre a YouTube Music, activa
 // Saltar a una posición (en ms): en la página, o en la app (Spotify, Apple Music).
 function seekCommand(positionMs) {
   const seconds = Math.max(0, Number(positionMs) || 0) / 1000;
-  const app = nowPlayingApp();
+  const app = commandApp();
   const page = browserCommand(app, seekScript(seconds), true);
   if (page.ok) {
     emit({ ok: true, via: 'página' });
@@ -248,7 +269,7 @@ function pageStateScript(volume, toggleShuffle) {
 function stateCommand(action, arg) {
   const volume = action === 'volume' ? Math.max(0, Math.min(100, Math.round(Number(arg) || 0))) : null;
   const toggle = action === 'shuffle';
-  const app = nowPlayingApp();
+  const app = commandApp();
   if (APP_COMMANDS[app]) {
     try {
       const player = Application(app);
@@ -289,7 +310,7 @@ function sendCommand(action, arg) {
     emit({ error: `Comando desconocido: ${action}` });
     return 2;
   }
-  const app = nowPlayingApp();
+  const app = commandApp();
   const page = browserCommand(app, pageScript(action), false);
   if (page.ok) {
     emit({ ok: true, via: 'página de YouTube' });
@@ -423,7 +444,7 @@ function searchSong(query) {
     emit({ error: 'Escribe el nombre de una canción o un artista.' });
     return 2;
   }
-  const app = nowPlayingApp();
+  const app = commandApp();
   let result;
   try {
     if (app === 'com.spotify.client') {
@@ -634,6 +655,86 @@ function videoFor(app, title, artist, album, videoFlag) {
   return video;
 }
 
+// ---- Lo que suena "por detrás" -----------------------------------------------------
+// macOS anuncia un solo reproductor a la vez ("Ahora suena") y no siempre suelta al de
+// antes: al pasar de YouTube Music a Spotify y volver, puede seguir anunciando Spotify en
+// pausa aunque YouTube Music ya suene; y con el modo video, puede anunciar a OBS (el video
+// sin sonido de la tarjeta). En esos casos se busca qué suena de verdad: Spotify y Apple
+// Music se le preguntan a la app (si está abierta) y las pestañas de YouTube / YouTube
+// Music / Spotify web, a la página (solo con el modo video, que ya lee las pestañas).
+const PLAYING_PAGE = `(() => {
+  const m = navigator.mediaSession && navigator.mediaSession.metadata;
+  const media = [...document.querySelectorAll('video, audio')].find((x) => x.duration > 0);
+  if (!m || !m.title || !media || media.paused) return '';
+  const art = (m.artwork || []).slice(-1)[0];
+  return JSON.stringify({
+    title: m.title, artist: m.artist || '', album: m.album || '',
+    positionMs: Math.round(media.currentTime * 1000),
+    durationMs: isFinite(media.duration) ? Math.round(media.duration * 1000) : 0,
+    art: art ? art.src : '',
+  });
+})()`;
+
+function playingInApps(skip) {
+  const apps = [
+    ['com.spotify.client', 1], // duración en ms
+    ['com.apple.Music', 1000], // duración en segundos
+  ];
+  for (const [id, toMs] of apps) {
+    if (id === skip) continue;
+    try {
+      const player = Application(id);
+      if (!player.running() || String(player.playerState()) !== 'playing') continue;
+      const track = player.currentTrack;
+      return {
+        app: id,
+        title: String(track.name() || ''),
+        artist: String(track.artist() || ''),
+        album: String(track.album() || ''),
+        progressMs: Math.round((Number(player.playerPosition()) || 0) * 1000),
+        durationMs: Math.round((Number(track.duration()) || 0) * toMs),
+      };
+    } catch (e) {
+      // sin permiso de Automatización para esa app
+    }
+  }
+  return null;
+}
+
+function playingInBrowsers() {
+  for (const [id, nameKey] of BROWSERS) {
+    try {
+      const b = Application(id);
+      if (!b.running()) continue;
+      for (const w of b.windows()) {
+        for (const t of w.tabs()) {
+          const url = String(t.url() || '');
+          if (!YOUTUBE_PAGE.test(url) && !SPOTIFY_WEB.test(url)) continue;
+          const out = id === 'com.apple.Safari' ? b.doJavaScript(PLAYING_PAGE, { in: t }) : t.execute({ javascript: PLAYING_PAGE });
+          if (!out) continue;
+          const r = JSON.parse(out);
+          const watchId = YOUTUBE_WATCH.exec(url);
+          return {
+            app: id,
+            name: String(t[nameKey]() || ''),
+            title: String(r.title),
+            artist: String(r.artist),
+            album: String(r.album),
+            progressMs: r.positionMs || 0,
+            durationMs: r.durationMs || 0,
+            site: SPOTIFY_WEB.test(url) ? 'spotify' : /^https:\/\/music\./.test(url) ? 'ytmusic' : 'youtube',
+            videoId: watchId ? watchId[2] : '',
+            art: /^https:\/\//.test(String(r.art || '')) ? r.art : '',
+          };
+        }
+      }
+    } catch (e) {
+      // el navegador no deja correr JavaScript desde Apple Events, o no hay permiso
+    }
+  }
+  return null;
+}
+
 function watch(videoFlag) {
   if (!loadMediaRemote()) {
     emit({ error: 'No se pudo cargar MediaRemote de macOS.' });
@@ -653,6 +754,11 @@ function watch(videoFlag) {
   let sentHash = '';
   let tries = 0;
   let failures = 0;
+  // Lo que suena por detrás: se busca cada 3 s (entre medio se reusa y se adelanta).
+  let other = null;
+  let otherAt = 0;
+  let otherSearchedAt = 0;
+  const otherArt = {}; // "app\ncanción" → ya se mandó su carátula
 
   // ~30 min y salimos: server.js nos vuelve a abrir (evita acumular memoria).
   for (let i = 0; i < 1800; i++) {
@@ -664,12 +770,14 @@ function watch(videoFlag) {
         return v.isNil() ? null : ObjC.unwrap(v);
       };
       const title = info && !info.isNil() ? value('kMRMediaRemoteNowPlayingInfoTitle') : null;
+      const sessions = [];
+      let reportedApp = '';
+      let reportedPlaying = false;
 
-      if (!title) {
-        emit({ sessions: [] });
-      } else {
+      if (title) {
         const client = Request.localNowPlayingPlayerPath.client;
         const app = str(client.bundleIdentifier) || 'desconocida';
+        reportedApp = app;
         const artist = value('kMRMediaRemoteNowPlayingInfoArtist') || '';
         const rate = Number(value('kMRMediaRemoteNowPlayingInfoPlaybackRate')) || 0;
         let playing = rate > 0;
@@ -725,8 +833,56 @@ function watch(videoFlag) {
           entry.videoId = video.id;
           if (video.site) entry.site = video.site;
         }
-        emit({ sessions: [entry] });
+        // OBS (el video sin sonido de la tarjeta) nunca es la música.
+        if (!/obsproject/i.test(app)) {
+          sessions.push(entry);
+          reportedPlaying = playing;
+        }
       }
+
+      // macOS no anuncia nada que suene (o anuncia algo en pausa, u OBS): ¿suena otra cosa?
+      if (!reportedPlaying) {
+        const now = Date.now();
+        if (now - otherSearchedAt >= 3000) {
+          otherSearchedAt = now;
+          other = playingInApps(reportedApp);
+          const tabsAllowed = videoFlag && $.NSFileManager.defaultManager.fileExistsAtPath(videoFlag);
+          if (!other && tabsAllowed) other = playingInBrowsers();
+          otherAt = now;
+        }
+        if (other && other.app !== reportedApp) {
+          const extra = {
+            app: other.app,
+            name: other.name || '',
+            title: other.title,
+            artist: other.artist,
+            album: other.album,
+            isPlaying: true,
+            current: true,
+            progressMs: other.progressMs + (now - otherAt),
+            durationMs: other.durationMs,
+          };
+          if (other.site) extra.site = other.site;
+          if (other.videoId) extra.videoId = other.videoId;
+          const artKey = `${other.app}\n${other.title}`;
+          if (!otherArt[artKey]) {
+            otherArt[artKey] = true;
+            let art = '';
+            if (other.art) {
+              const data = fetchData(other.art);
+              if (data) art = `data:image/jpeg;base64,${ObjC.unwrap(data.base64EncodedStringWithOptions(0))}`;
+            }
+            if (!art && other.app === 'com.spotify.client') art = spotifyArtwork(other.title);
+            if (!art) art = catalogArtwork(other.title, other.artist);
+            extra.artwork = art;
+          }
+          for (const s of sessions) s.current = false;
+          sessions.unshift(extra);
+        }
+      } else {
+        other = null;
+      }
+      emit({ sessions });
       failures = 0;
     } catch (e) {
       emit({ error: String(e) });
