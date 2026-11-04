@@ -5,6 +5,9 @@
 
 #include <QButtonGroup>
 #include <QComboBox>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QPaintEvent>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -338,6 +341,27 @@ protected:
 	}
 };
 
+// La carátula muy difuminada, para el fondo del dock: se reduce en pasos (cada uno suaviza)
+// y al pintarla se estira con suavizado, que termina de difuminarla.
+QImage blurredBackdrop(const QImage &source)
+{
+	if (source.isNull())
+		return QImage();
+	QImage small = source.convertToFormat(QImage::Format_RGB32)
+			       .scaled(48, 48, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation)
+			       .scaled(12, 12, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+	return small.scaled(96, 96, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+}
+
+// El fondo difuminado se puede quitar (clic derecho en el dock); se recuerda entre sesiones.
+QString backdropFile()
+{
+	char *path = obs_module_config_path("dock-backdrop.txt");
+	QString result = QString::fromUtf8(path);
+	bfree(path);
+	return result;
+}
+
 // "Reproductor" o "Stream" en el dock, entre sesiones.
 QString volumeModeFile()
 {
@@ -351,6 +375,10 @@ QString volumeModeFile()
 
 NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 {
+	{
+		QFile saved(backdropFile());
+		blurBackground_ = !(saved.open(QIODevice::ReadOnly) && saved.readAll().trimmed() == "off");
+	}
 	auto *layout = new QVBoxLayout(this);
 	layout->setContentsMargins(16, 18, 16, 18);
 	layout->setSpacing(4);
@@ -763,6 +791,42 @@ void NowPlayingDock::updateVolumeRow()
 	}
 }
 
+void NowPlayingDock::paintEvent(QPaintEvent *event)
+{
+	QWidget::paintEvent(event);
+	if (!blurBackground_ || backdrop_.isNull())
+		return;
+	QPainter p(this);
+	p.setRenderHint(QPainter::SmoothPixmapTransform);
+	// Cubre todo el dock (recortando lo que sobre) y encima un velo del color de fondo del
+	// tema, para que el texto y los botones se lean igual que sin fondo.
+	const QSize area = size();
+	QSize cover = backdrop_.size().scaled(area, Qt::KeepAspectRatioByExpanding);
+	QRect target(QPoint((area.width() - cover.width()) / 2, (area.height() - cover.height()) / 2), cover);
+	p.drawImage(target, backdrop_);
+	QColor veil = palette().color(QPalette::Window);
+	veil.setAlphaF(0.6f);
+	p.fillRect(rect(), veil);
+}
+
+void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
+{
+	QMenu menu(this);
+	QAction *blur = menu.addAction(text("NowPlaying.Dock.Backdrop"));
+	blur->setCheckable(true);
+	blur->setChecked(blurBackground_);
+	if (menu.exec(event->globalPos()) != blur)
+		return;
+	blurBackground_ = blur->isChecked();
+	QDir().mkpath(QFileInfo(backdropFile()).absolutePath());
+	QSaveFile file(backdropFile());
+	if (file.open(QIODevice::WriteOnly)) {
+		file.write(blurBackground_ ? "on" : "off");
+		file.commit();
+	}
+	update();
+}
+
 void NowPlayingDock::changeEvent(QEvent *event)
 {
 	QWidget::changeEvent(event);
@@ -836,6 +900,8 @@ void NowPlayingDock::refresh()
 		source_->clear();
 		art_->clear();
 		artKey_.clear();
+		backdrop_ = QImage();
+		update();
 		playing_ = false; // el botón apagado muestra "play", no "pausa"
 		applyAccent(QColor());
 		updateVolumeRow();
@@ -861,12 +927,15 @@ void NowPlayingDock::refresh()
 		QPixmap pixmap = pixmapFromDataUrl(track.artwork);
 		if (pixmap.isNull()) {
 			art_->clear();
+			backdrop_ = QImage();
 			applyAccent(QColor());
 		} else {
 			art_->setPixmap(pixmap.scaled(kArtSize, kArtSize, Qt::KeepAspectRatioByExpanding,
 						      Qt::SmoothTransformation));
+			backdrop_ = blurredBackdrop(pixmap.toImage());
 			applyAccent(accentFrom(pixmap.toImage()));
 		}
+		update();
 	}
 	updateVolumeRow();
 	tick();

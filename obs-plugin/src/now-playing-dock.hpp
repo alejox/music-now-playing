@@ -3,6 +3,7 @@
 #include "media-watcher.hpp"
 
 #include <QColor>
+#include <QImage>
 #include <QWidget>
 
 class QComboBox;
@@ -23,6 +24,9 @@ public:
 
 protected:
 	void changeEvent(QEvent *event) override;
+	// Fondo con la carátula difuminada; clic derecho para quitarlo o ponerlo.
+	void paintEvent(QPaintEvent *event) override;
+	void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
 	void refresh();
@@ -68,6 +72,8 @@ private:
 	int lastVolume_ = 50;         // para volver después de silenciar
 	qint64 volumeHoldUntil_ = 0;  // recién cambiado: la barra no salta a lo que diga el lector
 	QString artKey_;
+	QImage backdrop_; // la carátula ya difuminada (pequeña: se estira al pintar)
+	bool blurBackground_ = true;
 	QColor accent_;
 	bool playing_ = false;
 	QString commandError_;
