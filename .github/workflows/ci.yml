@@ -87,7 +87,7 @@ jobs:
         run: |
           $chrome = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
           if ($chrome) {
-            Start-Process $chrome -ArgumentList '--no-first-run', '--no-default-browser-check', "--user-data-dir=$env:RUNNER_TEMP\chrome", 'https://www.youtube.com/watch?v=dQw4w9WgXcQ'
+            Start-Process $chrome -ArgumentList '--no-first-run', '--no-default-browser-check', "--user-data-dir=$env:RUNNER_TEMP\chrome", 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'https://music.youtube.com/'
             Start-Sleep -Seconds 20
           }
           powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File media\windows.ps1 -SelfTest | Tee-Object -Variable out
@@ -96,6 +96,12 @@ jobs:
           if (-not $result.catalogArtwork) { throw 'No encontró la carátula en el catálogo de Apple' }
           if ($result.searchVideoId -notmatch '^[A-Za-z0-9_-]{11}$') { throw "La búsqueda en YouTube no dio un video: $($result.searchVideoId)" }
           if (-not $result.thumbnail) { throw 'No descargó la miniatura del video' }
+          # YouTube Music o YouTube según los nombres de las pestañas (casos fijos).
+          $bad = @($result.siteChecks | Where-Object { -not $_.ok })
+          if ($bad.Count -gt 0) { throw "El sitio de las pestañas falló: $($bad | ConvertTo-Json -Compress)" }
+          "Pestañas que ve el lector: $($result.browserTabs | ConvertTo-Json -Compress)"
+          # Las pestañas de verdad dependen de que Chrome muestre la ventana en el runner: se informa.
+          if ($chrome -and -not ($result.browserTabs | Where-Object { $_ -match 'youtube music' })) { Write-Warning 'No se leyó la pestaña de YouTube Music de Chrome' }
           # La barra de direcciones depende de que Chrome muestre la ventana en el runner: se informa.
           if (-not ($result.youtubeWindows | Where-Object { $_.id -eq 'dQw4w9WgXcQ' })) { Write-Warning "No se leyó la barra de direcciones de Chrome: $($result.youtubeWindows | ConvertTo-Json -Compress)" }
 

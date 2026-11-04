@@ -282,6 +282,86 @@ function Find-YouTubeVideo($title, $artist) {
   $null
 }
 
+# ---- YouTube o YouTube Music en el navegador ("site") --------------------------------
+# Windows solo dice que suena "Chrome": para saber si es YouTube Music, YouTube u otra cosa
+# (el filtro "Solo YouTube Music" del plugin y "Escuchando en …") se leen los nombres de
+# TODAS las pestañas de los navegadores (no solo la visible: la música sigue sonando aunque
+# se cambie de pestaña). Aparte del video, para que una búsqueda sin sitio no lo tape.
+
+# Los nombres (en minúsculas) de las pestañas de las ventanas de navegador. Como la barra de
+# direcciones, se recorre la parte del navegador sin entrar a la página.
+function Read-BrowserTabs {
+  if (-not $script:uiaReady) {
+    Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+    $script:uiaReady = $true
+  }
+  $auto = [System.Windows.Automation.AutomationElement]
+  $walker = [System.Windows.Automation.TreeWalker]::ControlViewWalker
+  $tabType = [System.Windows.Automation.ControlType]::TabItem
+  $documentType = [System.Windows.Automation.ControlType]::Document
+  $condition = New-Object System.Windows.Automation.PropertyCondition($auto::ControlTypeProperty, [System.Windows.Automation.ControlType]::Window)
+  $names = New-Object System.Collections.ArrayList
+  foreach ($window in $auto::RootElement.FindAll([System.Windows.Automation.TreeScope]::Children, $condition)) {
+    if ("$($window.Current.ClassName)" -notmatch '^(Chrome_WidgetWin_1|MozillaWindowClass)$') { continue }
+    $queue = New-Object System.Collections.Queue
+    $queue.Enqueue($window)
+    $visited = 0
+    while ($queue.Count -gt 0 -and $visited -lt 600) {
+      $child = $walker.GetFirstChild($queue.Dequeue())
+      while ($child -and $visited -lt 600) {
+        $visited++
+        $type = $child.Current.ControlType
+        if ($type -eq $tabType) {
+          [void]$names.Add("$($child.Current.Name)".ToLower())
+        } elseif ($type -ne $documentType) {
+          $queue.Enqueue($child)
+        }
+        $child = $walker.GetNextSibling($child)
+      }
+    }
+    # Por si el navegador no expone sus pestañas: al menos la visible (el título de la ventana).
+    [void]$names.Add("$($window.Current.Name)".ToLower())
+  }
+  , $names
+}
+
+# ytmusic | youtube | '' para una canción, según los nombres de las pestañas:
+#   1. la pestaña de YouTube cuyo nombre trae la canción;
+#   2. si todas las de YouTube son del mismo sitio, ese;
+#   3. si hay de los dos, la que suena (Chrome y Edge agregan "audio" al nombre de la pestaña
+#      que suena: "Reproduciendo audio", "Audio playing");
+#   4. si no, YouTube Music si la canción trae álbum (YouTube no lo manda).
+function Select-BrowserSite($names, $title, $album) {
+  $youtube = @($names | Where-Object { $_ -match 'youtube' })
+  if ($youtube.Count -eq 0) { return '' }
+  $siteOf = { param($name) if ($name -match 'youtube music') { 'ytmusic' } else { 'youtube' } }
+  $wanted = Normalize-Name $title
+  if ($wanted) {
+    $hit = @($youtube | Where-Object { (Normalize-Name $_).Contains($wanted) }) | Select-Object -First 1
+    if ($hit) { return (& $siteOf $hit) }
+  }
+  $sites = @($youtube | ForEach-Object { & $siteOf $_ } | Sort-Object -Unique)
+  if ($sites.Count -eq 1) { return $sites[0] }
+  $playing = @($youtube | Where-Object { $_ -match 'audio' } | ForEach-Object { & $siteOf $_ } | Sort-Object -Unique)
+  if ($playing.Count -eq 1) { return $playing[0] }
+  if ("$album".Trim()) { return 'ytmusic' }
+  ''
+}
+
+$browserSites = @{} # "app`ncanción" → ytmusic | youtube | 'spotify'
+$siteTries = @{}
+
+function Get-BrowserSite($app, $title, $album) {
+  $key = "$app`n$title"
+  if ($browserSites[$key]) { return $browserSites[$key] }
+  if ([int]$siteTries[$key] -ge 3) { return '' }
+  $siteTries[$key] = 1 + [int]$siteTries[$key]
+  $site = ''
+  try { $site = Select-BrowserSite (Read-BrowserTabs) $title $album } catch { $site = '' }
+  if ($site) { $browserSites[$key] = $site }
+  $site
+}
+
 # @{ id; site } del video de YouTube de lo que suena, o $null. En un navegador, el de su
 # pestaña de YouTube; si no hay (el reproductor web de Spotify u otra página de música, que
 # traen álbum; un stream o una serie no) y en las demás apps (Spotify…), el que da la
@@ -321,11 +401,30 @@ if ($SelfTest) {
   try { $id = Search-YouTubeVideoId 'Rick Astley - Never Gonna Give You Up (Official Video) (4K Remaster)' 'Rick Astley' } catch { $id = "error: $($_.Exception.Message)" }
   $thumb = if ($id -match '^[A-Za-z0-9_-]{11}$') { Find-VideoThumbnail $id } else { $null }
   $windows = Read-YouTubeWindows
+  # YouTube Music o YouTube según los nombres de las pestañas (casos fijos) y las pestañas de
+  # verdad que ve el lector (de un Chrome abierto para la prueba).
+  $cases = @(
+    @{ names = @('youtube music', 'gmail'); title = 'After Dark'; album = ''; want = 'ytmusic' },
+    @{ names = @('after dark - youtube music', 'lofi mix - youtube'); title = 'After Dark'; album = ''; want = 'ytmusic' },
+    @{ names = @('youtube music', '(3) lofi mix - youtube - reproduciendo audio'); title = 'Otra'; album = ''; want = 'youtube' },
+    @{ names = @('youtube music - audio playing', 'lofi mix - youtube'); title = 'Otra'; album = ''; want = 'ytmusic' },
+    @{ names = @('youtube music', 'lofi mix - youtube'); title = 'Otra'; album = 'Un disco'; want = 'ytmusic' },
+    @{ names = @('rick astley - never gonna give you up - youtube'); title = 'Never Gonna Give You Up'; album = ''; want = 'youtube' },
+    @{ names = @('spotify - web player', 'gmail'); title = 'After Dark'; album = 'X'; want = '' }
+  )
+  $siteChecks = @($cases | ForEach-Object {
+    $got = Select-BrowserSite $_.names $_.title $_.album
+    [ordered]@{ want = $_.want; got = $got; ok = ($got -eq $_.want) }
+  })
+  $tabs = @()
+  try { $tabs = @(Read-BrowserTabs) } catch { $tabs = @("error: $($_.Exception.Message)") }
   Emit ([ordered]@{
     catalogArtwork = [bool]$art
     searchVideoId  = $id
     thumbnail      = [bool]$thumb
     youtubeWindows = @($windows | ForEach-Object { [ordered]@{ name = $_.name; id = $_.id; site = $_.site } })
+    siteChecks     = $siteChecks
+    browserTabs    = $tabs
   })
   exit 0
 }
@@ -409,10 +508,17 @@ for ($i = 0; $i -lt 1800; $i++) {
         }
       }
       if (Test-VideoWanted) {
+        # En un navegador: ¿YouTube Music o YouTube? (de los nombres de sus pestañas)
+        if ($app -match $browserApps) {
+          $site = Get-BrowserSite $app $props.Title $props.AlbumTitle
+          if ($site) { $entry.site = $site }
+        }
         $video = Get-Video $app $props.Title $props.Artist $props.AlbumTitle
         if ($video) {
           $entry.videoId = $video.id
-          if ($video.site) { $entry.site = $video.site }
+          # Si las pestañas no lo dijeron, el sitio que vio la búsqueda del video (la ventana
+          # visible puede ser otra pestaña de YouTube, por eso no manda sobre las pestañas).
+          if (-not $entry.site -and $video.site) { $entry.site = $video.site }
         }
       }
       [void]$sessions.Add($entry)

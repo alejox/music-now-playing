@@ -31,7 +31,7 @@ Funciona con **Spotify** (app o web), **YouTube Music**, **Apple Music** y cualq
 | 📐 **Horizontal o vertical** | Barra o tarjeta vertical; el tamaño de la fuente se ajusta solo. |
 | 🎬 **Modo video** | El video de YouTube en vez de la carátula (sin sonido y sincronizado), en Mac, Windows y Linux: el de la pestaña con YouTube Music / YouTube y, con Spotify (app o web) u otras apps, el que encuentra buscando la canción en YouTube. En Linux los navegadores casi nunca comparten la dirección de la pestaña, así que casi siempre es el de la búsqueda. |
 | 🖼️ **Tu logo** | Una imagen tuya para las canciones sin carátula. |
-| ⏯️ **Dock de control** | Anterior / pausa / siguiente, retroceder y adelantar 10 s y una barra de progreso que se arrastra para saltar, aleatorio, una barra de volumen (la del reproductor o solo la del canal de música del stream) y una lista **Reproductor** para mostrar solo Spotify, YouTube Music, YouTube o el reproductor del sistema (Apple Music en Mac, el Reproductor multimedia en Windows), dentro de OBS y fuera del stream. |
+| ⏯️ **Dock de control** | Anterior / pausa / siguiente, retroceder y adelantar 10 s y una barra de progreso que se arrastra para saltar, aleatorio, una barra de volumen del reproductor y una lista **Reproductor** para mostrar solo Spotify, YouTube Music, YouTube o el reproductor del sistema (Apple Music en Mac, el Reproductor multimedia en Windows), dentro de OBS y fuera del stream. |
 | 🔊 **Canal de música** | Con un clic, un canal en el Mezclador de audio solo con el sonido del reproductor; te sigue si cambias de reproductor. |
 | 🔄 **Actualizaciones** | OBS te avisa cuando hay una versión nueva y la instala por ti (en Linux abre la página de descarga). |
 

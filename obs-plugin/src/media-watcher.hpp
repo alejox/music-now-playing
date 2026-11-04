@@ -97,7 +97,8 @@ private:
 	MediaWatcher() = default;
 	// arg >= 0: va con el comando (la posición en ms de seek, el volumen de volume).
 	void runCommand(const QString &action, qint64 arg);
-	void storeState(const QString &app, const QJsonObject &state);
+	// takeVolume false: la respuesta trae un volumen que puede ser viejo (ver setVolume).
+	void storeState(const QString &app, const QJsonObject &state, bool takeVolume = true);
 	void launch();
 	void readLines();
 	void handleLine(const QByteArray &line);
@@ -109,6 +110,10 @@ private:
 	QHash<QString, QString> artworks_; // app → carátula de su canción actual
 	QHash<QString, PlayerState> states_; // app → volumen y aleatorio
 	bool stateAsked_ = false;            // hay una pregunta de estado en curso (macOS, Linux)
+	// macOS y Linux: un cambio de volumen a la vez; mientras va uno, el último pedido espera.
+	bool volumeBusy_ = false;
+	int pendingVolume_ = -1;
+	qint64 volumeDoneAt_ = 0;
 	Status status_ = Status::Starting;
 	QString error_;
 	QString commandFile_;

@@ -31,7 +31,7 @@ Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any 
 | 📐 **Horizontal or vertical** | A bar or a vertical card; the source size adjusts itself. |
 | 🎬 **Video mode** | The YouTube video instead of the cover (muted and in sync), on Mac, Windows and Linux: the one in the YouTube Music / YouTube tab and, with Spotify (app or web) or other apps, the one found by searching the song on YouTube. On Linux, browsers usually do not share the tab address, so it is almost always the search result. |
 | 🖼️ **Your logo** | An image of your own for songs without a cover. |
-| ⏯️ **Control dock** | Previous / pause / next, back and forward 10 s and a draggable progress bar to jump around, plus shuffle, a volume bar (the player's, or only the stream's music channel) and a **Player** list to show only Spotify, YouTube Music, YouTube or the system player (Apple Music on Mac, Media Player on Windows), inside OBS and off-stream. |
+| ⏯️ **Control dock** | Previous / pause / next, back and forward 10 s and a draggable progress bar to jump around, plus shuffle, a player volume bar and a **Player** list to show only Spotify, YouTube Music, YouTube or the system player (Apple Music on Mac, Media Player on Windows), inside OBS and off-stream. |
 | 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound; it follows you when you switch players. |
 | 🔄 **Updates** | OBS tells you when there's a new version and installs it for you (on Linux it opens the download page instead). |
 

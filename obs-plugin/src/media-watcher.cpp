@@ -441,10 +441,11 @@ PlayerState MediaWatcher::playerState() const
 	return states_.value(current(true, player_).app);
 }
 
-void MediaWatcher::storeState(const QString &app, const QJsonObject &state)
+void MediaWatcher::storeState(const QString &app, const QJsonObject &state, bool takeVolume)
 {
 	PlayerState value = states_.value(app);
-	value.volume = state.value("volume").isDouble() ? std::clamp(state.value("volume").toInt(), 0, 100) : -1;
+	if (takeVolume)
+		value.volume = state.value("volume").isDouble() ? std::clamp(state.value("volume").toInt(), 0, 100) : -1;
 	QJsonValue shuffle = state.value("shuffle");
 	value.shuffle = shuffle.isBool() ? (shuffle.toBool() ? "on" : "off")
 					 : (shuffle.toString() == "action" ? QString("action") : QString());
@@ -482,6 +483,14 @@ void MediaWatcher::setVolume(int percent)
 	if (!set_app_volume(audio_target(track), percent))
 		emit commandFailed(QString::fromUtf8(obs_module_text("NowPlaying.Volume.NoSound")));
 #else
+	// Al arrastrar la barra llegan varios cambios seguidos. Cada uno abre el lector aparte y,
+	// si van a la vez, pueden terminar en otro orden y quedar aplicado uno viejo (el volumen
+	// "vuelve"). Por eso va uno a la vez y, al terminar, se manda el último pedido.
+	if (volumeBusy_) {
+		pendingVolume_ = percent;
+		return;
+	}
+	volumeBusy_ = true;
 	runCommand("volume", percent);
 #endif
 }
@@ -497,9 +506,11 @@ void MediaWatcher::runCommand(const QString &action, qint64 arg)
 	if (!track.valid()) {
 		if (action == "state")
 			stateAsked_ = false;
+		if (action == "volume")
+			volumeBusy_ = false;
 		return;
 	}
-	if (action != "state")
+	if (action != "state" && action != "volume")
 		obs_log(LOG_INFO, "comando %s para %s", action.toUtf8().constData(), track.app.toUtf8().constData());
 #ifdef _WIN32
 	// El lector revisa este archivo cada 100 ms.
@@ -515,13 +526,28 @@ void MediaWatcher::runCommand(const QString &action, qint64 arg)
 	// macOS y Linux: el lector se abre aparte con "command <acción>" y responde una línea JSON.
 	auto *command = new QProcess(this);
 	const QString app = track.app;
-	connect(command, &QProcess::finished, this, [this, command, action, app](int, QProcess::ExitStatus) {
+	const qint64 startedAt = now();
+	connect(command, &QProcess::finished, this, [this, command, action, app, startedAt](int, QProcess::ExitStatus) {
 		QByteArray out = command->readAllStandardOutput().trimmed();
 		command->deleteLater();
 		QJsonObject result = QJsonDocument::fromJson(out.split('\n').last()).object();
-		// Volumen y aleatorio: los devuelven "state" y también "volume" y "shuffle".
+		// Volumen y aleatorio: los devuelven "state" y también "volume" y "shuffle". El volumen
+		// que trae la respuesta a "volume" se ignora (el reproductor puede no haberlo aplicado
+		// todavía y contestar el de antes: la barra volvía atrás), y el de "state" también si se
+		// preguntó mientras cambiaba o justo después.
+		const bool takeVolume = action != "volume" &&
+					!(action == "state" && (volumeBusy_ || startedAt < volumeDoneAt_ + 1500));
 		if (result.value("state").isObject())
-			storeState(app, result.value("state").toObject());
+			storeState(app, result.value("state").toObject(), takeVolume);
+		if (action == "volume") {
+			volumeBusy_ = false;
+			volumeDoneAt_ = now();
+			if (pendingVolume_ >= 0) {
+				const int next = pendingVolume_;
+				pendingVolume_ = -1;
+				setVolume(next);
+			}
+		}
 		if (action == "state") {
 			stateAsked_ = false;
 			return; // una pregunta de cada pocos segundos: sin avisos ni registro
@@ -532,7 +558,7 @@ void MediaWatcher::runCommand(const QString &action, qint64 arg)
 		if (!problem.isEmpty()) {
 			obs_log(LOG_WARNING, "botón: %s", problem.toUtf8().constData());
 			emit commandFailed(problem);
-		} else if (result.contains("via")) {
+		} else if (result.contains("via") && action != "volume") {
 			// Por dónde llegó el botón (página de YouTube, la app, teclas de música): para
 			// saber qué pasó si un reproductor no responde.
 			obs_log(LOG_INFO, "botón por: %s", result.value("via").toString().toUtf8().constData());
@@ -563,6 +589,8 @@ void MediaWatcher::runCommand(const QString &action, qint64 arg)
 			return;
 		if (action == "state")
 			stateAsked_ = false;
+		if (action == "volume")
+			volumeBusy_ = false;
 		command->deleteLater();
 	});
 	command->start(program, args);
