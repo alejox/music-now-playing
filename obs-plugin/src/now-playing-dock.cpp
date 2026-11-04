@@ -149,7 +149,7 @@ QColor accentFrom(const QImage &source)
 	return QColor::fromHslF(h, std::clamp(s, 0.55f, 1.0f), std::clamp(l, 0.55f, 0.7f));
 }
 
-enum class Glyph { Previous, Play, Pause, Next, Back10, Forward10, Shuffle, Speaker, SpeakerMuted };
+enum class Glyph { Previous, Play, Pause, Next, Back10, Forward10, Shuffle, Speaker, SpeakerMuted, Backdrop };
 
 // Iconos dibujados aquí (y no los del sistema, que en el tema de OBS se ven grises y
 // borrosos, como deshabilitados): triángulos y barras redondeados del color pedido.
@@ -237,7 +237,26 @@ QPixmap glyphPixmap(Glyph glyph, const QColor &color, int size, qreal dpr)
 		p.drawArc(QRectF(s * 0.4, s * 0.33, s * 0.28, s * 0.34), -50 * 16, 100 * 16);
 		p.drawArc(QRectF(s * 0.36, s * 0.18, s * 0.5, s * 0.64), -50 * 16, 100 * 16);
 	};
+	// Un cuadro de imagen (montaña y sol): el fondo con la carátula.
+	auto picture = [&]() {
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(color, s * 0.08, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+		p.drawRoundedRect(QRectF(s * 0.12, s * 0.18, s * 0.76, s * 0.64), s * 0.1, s * 0.1);
+		QPainterPath mountain;
+		mountain.moveTo(s * 0.2, s * 0.74);
+		mountain.lineTo(s * 0.42, s * 0.48);
+		mountain.lineTo(s * 0.58, s * 0.64);
+		mountain.lineTo(s * 0.66, s * 0.56);
+		mountain.lineTo(s * 0.8, s * 0.74);
+		p.drawPath(mountain);
+		p.setPen(Qt::NoPen);
+		p.setBrush(color);
+		p.drawEllipse(QPointF(s * 0.66, s * 0.36), s * 0.06, s * 0.06);
+	};
 	switch (glyph) {
+	case Glyph::Backdrop:
+		picture();
+		break;
 	case Glyph::Shuffle:
 		shuffle();
 		break;
@@ -377,7 +396,8 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 {
 	{
 		QFile saved(backdropFile());
-		blurBackground_ = !(saved.open(QIODevice::ReadOnly) && saved.readAll().trimmed() == "off");
+		// Por defecto, fondo plano; el difuminado se activa con su botón (o clic derecho).
+		blurBackground_ = saved.open(QIODevice::ReadOnly) && saved.readAll().trimmed() == "on";
 	}
 	auto *layout = new QVBoxLayout(this);
 	layout->setContentsMargins(16, 18, 16, 18);
@@ -539,6 +559,9 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	};
 	shuffle_ = makeSmall("NowPlaying.Shuffle");
 	optionsRow->addWidget(shuffle_, 0, Qt::AlignVCenter);
+	backdropButton_ = makeSmall("NowPlaying.Dock.Backdrop");
+	optionsRow->addWidget(backdropButton_, 0, Qt::AlignVCenter);
+	connect(backdropButton_, &QToolButton::clicked, this, [this] { setBlurBackground(!blurBackground_); });
 	optionsRow->addStretch(1);
 	connect(shuffle_, &QToolButton::clicked, this, [this] {
 		MediaWatcher::instance().toggleShuffle();
@@ -676,13 +699,17 @@ void NowPlayingDock::applyAccent(const QColor &accent)
 void NowPlayingDock::styleVolumeRow()
 {
 	const QString color = accent_.name();
-	shuffle_->setStyleSheet(
-		shuffleOn_ ? QString("QToolButton { border-radius: %1px; border: 1px solid %2; background: %3; }")
-				     .arg(kSmallButton / 2)
-				     .arg(rgba(accent_, 0.45), rgba(accent_, 0.14))
-			   : QString("QToolButton { border-radius: %1px; border: 0; background: transparent; }"
-				     "QToolButton:hover { background: rgba(127,127,127,0.18); }")
-				     .arg(kSmallButton / 2));
+	// Encendido: con borde y fondo suave del color de la carátula; apagado, transparente.
+	auto toggle = [&](bool on) {
+		return on ? QString("QToolButton { border-radius: %1px; border: 1px solid %2; background: %3; }")
+				    .arg(kSmallButton / 2)
+				    .arg(rgba(accent_, 0.45), rgba(accent_, 0.14))
+			  : QString("QToolButton { border-radius: %1px; border: 0; background: transparent; }"
+				    "QToolButton:hover { background: rgba(127,127,127,0.18); }")
+				    .arg(kSmallButton / 2);
+	};
+	shuffle_->setStyleSheet(toggle(shuffleOn_));
+	backdropButton_->setStyleSheet(toggle(blurBackground_));
 	mute_->setStyleSheet(QString("QToolButton { border-radius: %1px; border: 0; background: transparent; }"
 				     "QToolButton:hover { background: rgba(127,127,127,0.18); }")
 				     .arg(kSmallButton / 2));
@@ -831,13 +858,20 @@ void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
 	blur->setChecked(blurBackground_);
 	if (menu.exec(event->globalPos()) != blur)
 		return;
-	blurBackground_ = blur->isChecked();
+	setBlurBackground(blur->isChecked());
+}
+
+void NowPlayingDock::setBlurBackground(bool on)
+{
+	blurBackground_ = on;
 	QDir().mkpath(QFileInfo(backdropFile()).absolutePath());
 	QSaveFile file(backdropFile());
 	if (file.open(QIODevice::WriteOnly)) {
-		file.write(blurBackground_ ? "on" : "off");
+		file.write(on ? "on" : "off");
 		file.commit();
 	}
+	styleVolumeRow();
+	updateIcons();
 	update();
 }
 
@@ -871,6 +905,8 @@ void NowPlayingDock::updateIcons()
 	const int small = kSmallButton - 10;
 	shuffle_->setIcon(glyphIcon(Glyph::Shuffle, shuffleOn_ ? accent_ : textColor, small, dpr));
 	shuffle_->setIconSize(QSize(small, small));
+	backdropButton_->setIcon(glyphIcon(Glyph::Backdrop, blurBackground_ ? accent_ : textColor, small, dpr));
+	backdropButton_->setIconSize(QSize(small, small));
 	mute_->setIcon(glyphIcon(muted_ ? Glyph::SpeakerMuted : Glyph::Speaker, textColor, small, dpr));
 	mute_->setIconSize(QSize(small, small));
 }

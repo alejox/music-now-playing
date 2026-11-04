@@ -44,6 +44,7 @@ private:
 	void applyVolume();
 	void toggleMute();
 	void setStreamMode(bool stream);
+	void setBlurBackground(bool on);
 
 	QComboBox *player_ = nullptr;
 	QLabel *art_ = nullptr;
@@ -60,6 +61,7 @@ private:
 	QToolButton *back_ = nullptr;
 	QToolButton *forward_ = nullptr;
 	QToolButton *shuffle_ = nullptr;
+	QToolButton *backdropButton_ = nullptr;
 	QToolButton *mute_ = nullptr;
 	QSlider *volume_ = nullptr;
 	QLabel *volumeLabel_ = nullptr;
@@ -74,7 +76,7 @@ private:
 	qint64 volumeHoldUntil_ = 0;  // recién cambiado: la barra no salta a lo que diga el lector
 	QString artKey_;
 	QImage backdrop_; // la carátula ya difuminada (pequeña: se estira al pintar)
-	bool blurBackground_ = true;
+	bool blurBackground_ = false;
 	QColor accent_;
 	bool playing_ = false;
 	QString commandError_;
