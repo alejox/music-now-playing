@@ -75,3 +75,9 @@ jobs:
             - **Linux x86_64 (OBS 31 o superior):** `music-now-playing-…-linux-x86_64.zip` → copia la carpeta `obs-now-playing` en `~/.config/obs-studio/plugins/` e instala `playerctl` (por ejemplo `sudo apt install playerctl`).
 
             Abre OBS. Más detalles: [obs-plugin/README](${{ github.server_url }}/${{ github.repository }}/tree/main/obs-plugin#instalar).
+      - name: Actualizar alejoxcode
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          [ -n "$VERCEL_DEPLOY_HOOK" ] || { echo "Sin VERCEL_DEPLOY_HOOK: se omite"; exit 0; }
+          curl -fsS -X POST "$VERCEL_DEPLOY_HOOK"
