@@ -266,9 +266,12 @@ function Read-YouTubeWindows {
   , $windows
 }
 
-function Find-YouTubeVideo($title, $artist) {
+# site (de las pestañas, si ya se sabe): solo cuentan las ventanas de ese sitio. Si no, con la
+# canción en YouTube Music y la ventana visible en YouTube, se tomaba el video de esa otra
+# pestaña.
+function Find-YouTubeVideo($title, $artist, $site = '') {
   $windows = Read-YouTubeWindows
-  $found = @($windows | Where-Object { $_.id })
+  $found = @($windows | Where-Object { $_.id -and (-not $site -or $_.site -eq $site) })
   # Con varias ventanas de YouTube, la que tiene el título de la canción.
   $lower = "$title".ToLower()
   $hit = $found | Where-Object { $lower -and $_.name.Contains($lower) } | Select-Object -First 1
@@ -276,7 +279,7 @@ function Find-YouTubeVideo($title, $artist) {
   if ($hit) { return @{ id = $hit.id; site = $hit.site } }
   if ($windows.Count -gt 0) {
     $id = Search-YouTubeVideoId $title $artist
-    $site = if (@($windows | Where-Object { $_.site -eq 'ytmusic' }).Count -gt 0) { 'ytmusic' } else { 'youtube' }
+    if (-not $site) { $site = if (@($windows | Where-Object { $_.site -eq 'ytmusic' }).Count -gt 0) { 'ytmusic' } else { 'youtube' } }
     if ($id) { return @{ id = $id; site = $site } }
   }
   $null
@@ -325,26 +328,30 @@ function Read-BrowserTabs {
   , $names
 }
 
-# ytmusic | youtube | '' para una canción, según los nombres de las pestañas:
-#   1. la pestaña de YouTube cuyo nombre trae la canción;
-#   2. si todas las de YouTube son del mismo sitio, ese;
-#   3. si hay de los dos, la que suena (Chrome y Edge agregan "audio" al nombre de la pestaña
-#      que suena: "Reproduciendo audio", "Audio playing");
-#   4. si no, YouTube Music si la canción trae álbum (YouTube no lo manda).
+# ytmusic | youtube | '' para una canción, según los nombres de las pestañas. Con YouTube y
+# YouTube Music abiertos a la vez, de la señal más segura a la menos:
+#   1. la pestaña que suena: Chrome y Edge agregan " - Reproduciendo audio" / " - Audio
+#      playing" a su nombre (no la palabra "audio" sola: muchos videos se llaman "Official
+#      Audio"; y una pestaña silenciada dice otra cosa);
+#   2. YouTube Music si la canción trae álbum (YouTube no lo manda) y hay una pestaña suya;
+#   3. las pestañas cuyo nombre trae la canción, si son todas del mismo sitio (con un
+#      título corto como "Stay", otra pestaña de YouTube puede traerlo sin que suene);
+#   4. si todas las pestañas de YouTube son del mismo sitio, ese.
 function Select-BrowserSite($names, $title, $album) {
   $youtube = @($names | Where-Object { $_ -match 'youtube' })
   if ($youtube.Count -eq 0) { return '' }
   $siteOf = { param($name) if ($name -match 'youtube music') { 'ytmusic' } else { 'youtube' } }
+  $sitesOf = { param($list) @($list | ForEach-Object { & $siteOf $_ } | Sort-Object -Unique) }
+  $audible = @(& $sitesOf @($youtube | Where-Object { $_ -match '\s-\s(audio playing|playing audio|reproduciendo audio|reproduciendo sonido)' }))
+  if ($audible.Count -eq 1) { return $audible[0] }
+  $all = @(& $sitesOf $youtube)
+  if ("$album".Trim() -and $all -contains 'ytmusic') { return 'ytmusic' }
   $wanted = Normalize-Name $title
-  if ($wanted) {
-    $hit = @($youtube | Where-Object { (Normalize-Name $_).Contains($wanted) }) | Select-Object -First 1
-    if ($hit) { return (& $siteOf $hit) }
+  if ($wanted.Length -ge 3) {
+    $hits = @(& $sitesOf @($youtube | Where-Object { (Normalize-Name $_).Contains($wanted) }))
+    if ($hits.Count -eq 1) { return $hits[0] }
   }
-  $sites = @($youtube | ForEach-Object { & $siteOf $_ } | Sort-Object -Unique)
-  if ($sites.Count -eq 1) { return $sites[0] }
-  $playing = @($youtube | Where-Object { $_ -match 'audio' } | ForEach-Object { & $siteOf $_ } | Sort-Object -Unique)
-  if ($playing.Count -eq 1) { return $playing[0] }
-  if ("$album".Trim()) { return 'ytmusic' }
+  if ($all.Count -eq 1) { return $all[0] }
   ''
 }
 
@@ -366,7 +373,7 @@ function Get-BrowserSite($app, $title, $album) {
 # pestaña de YouTube; si no hay (el reproductor web de Spotify u otra página de música, que
 # traen álbum; un stream o una serie no) y en las demás apps (Spotify…), el que da la
 # búsqueda en YouTube (sin site).
-function Get-Video($app, $title, $artist, $album) {
+function Get-Video($app, $title, $artist, $album, $site = '') {
   if ($app -match 'obs64') { return $null } # el video de la propia tarjeta
   $key = "$app`n$title"
   if ($videoIds[$key]) { return $videoIds[$key] }
@@ -375,7 +382,7 @@ function Get-Video($app, $title, $artist, $album) {
   $video = $null
   try {
     if ($app -match $browserApps) {
-      $video = Find-YouTubeVideo $title $artist
+      $video = Find-YouTubeVideo $title $artist $site
       if (-not $video -and $album) {
         $id = Search-YouTubeVideoId $title $artist
         if ($id) { $video = @{ id = $id; site = '' } }
@@ -410,7 +417,16 @@ if ($SelfTest) {
     @{ names = @('youtube music - audio playing', 'lofi mix - youtube'); title = 'Otra'; album = ''; want = 'ytmusic' },
     @{ names = @('youtube music', 'lofi mix - youtube'); title = 'Otra'; album = 'Un disco'; want = 'ytmusic' },
     @{ names = @('rick astley - never gonna give you up - youtube'); title = 'Never Gonna Give You Up'; album = ''; want = 'youtube' },
-    @{ names = @('spotify - web player', 'gmail'); title = 'After Dark'; album = 'X'; want = '' }
+    @{ names = @('spotify - web player', 'gmail'); title = 'After Dark'; album = 'X'; want = '' },
+    # YouTube y YouTube Music a la vez: un título corto que otra pestaña de YouTube también trae.
+    @{ names = @('youtube music - reproduciendo audio', 'stay with me (official video) - youtube'); title = 'Stay'; album = ''; want = 'ytmusic' },
+    @{ names = @('youtube music', 'stay with me (official video) - youtube - audio playing'); title = 'Stay'; album = ''; want = 'youtube' },
+    @{ names = @('youtube music', 'stay with me (official video) - youtube'); title = 'Stay'; album = 'Stay (Single)'; want = 'ytmusic' },
+    @{ names = @('stay - youtube music', 'stay with me (official video) - youtube'); title = 'Stay'; album = ''; want = '' },
+    # "Official Audio" en el título no es la que suena.
+    @{ names = @('youtube music - reproduciendo audio', 'after dark (official audio) - youtube'); title = 'Otra'; album = ''; want = 'ytmusic' },
+    # Silenciada no cuenta como la que suena.
+    @{ names = @('youtube music', 'lofi mix - youtube - audio muted'); title = 'Otra'; album = 'Un disco'; want = 'ytmusic' }
   )
   $siteChecks = @($cases | ForEach-Object {
     $got = Select-BrowserSite $_.names $_.title $_.album
@@ -495,7 +511,8 @@ for ($i = 0; $i -lt 1800; $i++) {
         if (-not $art -and $tries[$app] -ge 3) {
           $art = Find-CatalogArtwork $props.Title $props.Artist
           if (-not $art -and $app -match $browserApps) {
-            $video = Get-Video $app $props.Title $props.Artist $props.AlbumTitle
+            $site = Get-BrowserSite $app $props.Title $props.AlbumTitle
+            $video = Get-Video $app $props.Title $props.Artist $props.AlbumTitle $site
             if ($video) { $art = Find-VideoThumbnail $video.id }
           }
         }
@@ -509,11 +526,12 @@ for ($i = 0; $i -lt 1800; $i++) {
       }
       if (Test-VideoWanted) {
         # En un navegador: ¿YouTube Music o YouTube? (de los nombres de sus pestañas)
+        $site = ''
         if ($app -match $browserApps) {
           $site = Get-BrowserSite $app $props.Title $props.AlbumTitle
           if ($site) { $entry.site = $site }
         }
-        $video = Get-Video $app $props.Title $props.Artist $props.AlbumTitle
+        $video = Get-Video $app $props.Title $props.Artist $props.AlbumTitle $site
         if ($video) {
           $entry.videoId = $video.id
           # Si las pestañas no lo dijeron, el sitio que vio la búsqueda del video (la ventana
