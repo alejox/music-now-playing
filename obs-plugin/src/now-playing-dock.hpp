@@ -1,15 +1,21 @@
 #pragma once
 
+#include "media-watcher.hpp"
+
 #include <QColor>
+#include <QImage>
 #include <QWidget>
 
+class QComboBox;
 class QLabel;
 class QSlider;
+class QTimer;
 class QToolButton;
 
 // Dock "Música": la canción que suena con anterior / pausa / siguiente, retroceder y
 // adelantar 10 segundos y una barra de progreso que se puede arrastrar (o pulsar) para
-// saltar. Vive dentro de OBS (Docks → Música) y no sale en el stream.
+// saltar. Arriba, la lista "Reproductor" elige de cuál se muestra la canción (Automático:
+// del que suene). Vive dentro de OBS (Docks → Música) y no sale en el stream.
 class NowPlayingDock : public QWidget {
 	Q_OBJECT
 
@@ -18,15 +24,29 @@ public:
 
 protected:
 	void changeEvent(QEvent *event) override;
+	// Fondo con la carátula difuminada; clic derecho para quitarlo o ponerlo.
+	void paintEvent(QPaintEvent *event) override;
+	void resizeEvent(QResizeEvent *event) override;
+	void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
 	void refresh();
+	// La canción del reproductor elegido (o la última en pausa).
+	Track shown() const;
 	void tick();
 	void applyAccent(const QColor &accent);
 	void updateIcons();
 	void seekBy(qint64 deltaMs);
 	void seekToMs(qint64 positionMs);
+	// Fila de aleatorio y volumen.
+	void updateVolumeRow();
+	void styleVolumeRow();
+	void applyVolume();
+	void toggleMute();
+	void setStreamMode(bool stream);
+	void setBlurBackground(bool on);
 
+	QComboBox *player_ = nullptr;
 	QLabel *art_ = nullptr;
 	QLabel *title_ = nullptr;
 	QLabel *artist_ = nullptr;
@@ -40,7 +60,23 @@ private:
 	QToolButton *next_ = nullptr;
 	QToolButton *back_ = nullptr;
 	QToolButton *forward_ = nullptr;
+	QToolButton *shuffle_ = nullptr;
+	QToolButton *backdropButton_ = nullptr;
+	QToolButton *mute_ = nullptr;
+	QSlider *volume_ = nullptr;
+	QLabel *volumeLabel_ = nullptr;
+	QToolButton *modePlayer_ = nullptr;
+	QToolButton *modeStream_ = nullptr;
+	QTimer *volumeTimer_ = nullptr;
+	// "Stream": la barra mueve el canal de música de OBS; si no, el volumen del reproductor.
+	bool streamMode_ = false;
+	bool muted_ = false;
+	bool shuffleOn_ = false;
+	int lastVolume_ = 50;         // para volver después de silenciar
+	qint64 volumeHoldUntil_ = 0;  // recién cambiado: la barra no salta a lo que diga el lector
 	QString artKey_;
+	QImage backdrop_; // la carátula ya difuminada (pequeña: se estira al pintar)
+	bool blurBackground_ = false;
 	QColor accent_;
 	bool playing_ = false;
 	QString commandError_;

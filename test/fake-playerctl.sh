@@ -63,6 +63,15 @@ case $1 in
     case $3 in
       status) if [ "$target" = spotify ]; then echo Playing; else echo Paused; fi ;;
       play-pause | next | previous) ;;
+      # Spotify deja leer y cambiar el volumen y el aleatorio; Firefox no.
+      volume)
+        if [ "$target" != spotify ]; then exit 1; fi
+        if [ -z "${4:-}" ]; then echo 0.400000; fi
+        ;;
+      shuffle)
+        if [ "$target" != spotify ]; then exit 1; fi
+        if [ -z "${4:-}" ]; then echo On; fi
+        ;;
       position)
         if [ "$target" != spotify ]; then
           echo "Player $target cannot seek" >&2

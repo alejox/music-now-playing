@@ -11,7 +11,8 @@
 #
 # Corre con: bash media/linux.sh                  (watch <archivo>: el plugin pide modo video)
 # Para controlar el reproductor: bash media/linux.sh command next
-#   (previous | playpause | next | seek <ms>). El reproductor es el de la variable
+#   (previous | playpause | next | seek <ms> | volume <0–100> | shuffle | state; los tres
+#   últimos responden con {"state":{"volume":40,"shuffle":true}}). El reproductor es el de la variable
 #   OBS_NOW_PLAYING_PLAYER (el "app" de la sesión); sin ella, el que elija playerctl.
 #
 # Carátula: la del reproductor (mpris:artUrl, un archivo local o una dirección https).
@@ -387,6 +388,46 @@ watch() {
 
 # ---- Comandos ----------------------------------------------------------------------
 
+# Volumen y aleatorio del reproductor (dock): state los lee; volume y shuffle los cambian y
+# también responden con lo que quedó. playerctl da el volumen de 0 a 1 ("0.400000").
+player_state() {
+  local action=$1 arg=$2 via=$3 v vol shuf whole frac pct=null shuffle=null
+  shift 3
+  if [ "$action" = volume ]; then
+    non_negative_int "$arg"
+    v=$INT_OUT
+    if [ "$v" -gt 100 ]; then v=100; fi
+    if ! "${PCTL[@]}" "$@" volume "$((v / 100)).$(printf '%02d' $((v % 100)))" >/dev/null 2>&1; then
+      json_str 'Este reproductor no deja cambiar el volumen desde OBS.'
+      emit "{\"error\":$JSON_OUT}"
+      return 1
+    fi
+  elif [ "$action" = shuffle ]; then
+    if ! "${PCTL[@]}" "$@" shuffle Toggle >/dev/null 2>&1; then
+      json_str 'Este reproductor no deja cambiar el aleatorio desde OBS.'
+      emit "{\"error\":$JSON_OUT}"
+      return 1
+    fi
+  fi
+  vol=$("${PCTL[@]}" "$@" volume 2>/dev/null) || vol=''
+  if [[ $vol =~ ^[0-9]+(\.[0-9]*)?$ ]]; then
+    whole=${vol%%.*}
+    frac=0
+    if [[ $vol == *.* ]]; then frac=${vol#*.}; fi
+    frac="${frac}00"
+    pct=$((10#$whole * 100 + 10#${frac:0:2}))
+    if [ "$pct" -gt 100 ]; then pct=100; fi
+  fi
+  shuf=$("${PCTL[@]}" "$@" shuffle 2>/dev/null) || shuf=''
+  case $shuf in
+    On) shuffle=true ;;
+    Off) shuffle=false ;;
+  esac
+  json_str "$via"
+  emit "{\"ok\":true,\"via\":$JSON_OUT,\"state\":{\"volume\":$pct,\"shuffle\":$shuffle}}"
+  return 0
+}
+
 # Botones y adelantar: sobre el reproductor de OBS_NOW_PLAYING_PLAYER (la instancia exacta o,
 # si es un nombre como "firefox", la instancia de ese reproductor que esté sonando).
 send_command() {
@@ -408,6 +449,10 @@ send_command() {
     if [ -n "$chosen" ]; then args=(-p "$chosen"); fi
   fi
   case $action in
+    state | volume | shuffle)
+      player_state "$action" "$arg" "${chosen:-playerctl}" "${args[@]}"
+      return $?
+      ;;
     playpause) args+=(play-pause) ;;
     next) args+=(next) ;;
     previous) args+=(previous) ;;

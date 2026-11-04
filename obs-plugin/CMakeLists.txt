@@ -36,6 +36,8 @@ target_sources(
   ${CMAKE_PROJECT_NAME}
   PRIVATE
     src/plugin-main.cpp
+    src/app-volume.cpp
+    src/app-volume.hpp
     src/media-watcher.cpp
     src/media-watcher.hpp
     src/music-channel.cpp

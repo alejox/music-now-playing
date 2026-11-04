@@ -1,4 +1,6 @@
 #include "media-watcher.hpp"
+#include "app-volume.hpp"
+#include "music-channel.hpp"
 
 #include <obs-module.h>
 #include <plugin-support.h>
@@ -45,8 +47,15 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 	// La PWA de YouTube Music instalada desde Chrome/Edge tiene este id de extensión.
 	if (id.contains("cinhimbnkkaeohfgghhklpknlkffjgod") || id.contains("youtube music"))
 		return {"ytmusic", "YouTube Music"};
+	// Apple Music: la app de Mac, la de Windows (AppleInc.AppleMusicWin…) y, en Windows sin
+	// ella, iTunes (cuenta como Apple Music para "Solo Apple Music").
 	if (id.contains("applemusic") || id.contains("com.apple.music"))
 		return {"applemusic", "Apple Music"};
+	if (id.contains("itunes"))
+		return {"applemusic", "iTunes"};
+	// El Reproductor multimedia de Windows (el nuevo, Microsoft.ZuneMusic, y el clásico).
+	if (id.contains("zunemusic") || id.contains("wmplayer"))
+		return {"system", "Reproductor multimedia"};
 	if (id.contains("tidal"))
 		return {"other", "TIDAL"};
 	if (id.contains("deezer"))
@@ -79,6 +88,14 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 }
 
 constexpr qint64 kStaleMs = 10000;
+
+QString playerFile()
+{
+	char *path = obs_module_config_path("player.txt");
+	QString result = QString::fromUtf8(path);
+	bfree(path);
+	return result;
+}
 
 } // namespace
 
@@ -113,6 +130,13 @@ void MediaWatcher::start()
 	QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
 	commandFile_ = QDir(dir).filePath("obs-now-playing-command.json");
 	videoFlagFile_ = QDir(dir).filePath("obs-now-playing-video.flag");
+	othersFlagFile_ = QDir(dir).filePath("obs-now-playing-others.flag");
+	QFile saved(playerFile());
+	if (saved.open(QIODevice::ReadOnly)) {
+		QString player = QString::fromUtf8(saved.readAll()).trimmed();
+		player_ = players().contains(player) ? player : QString();
+	}
+	writeVideoFlag();
 	launch();
 #else
 	setStatus(Status::Unsupported);
@@ -156,7 +180,7 @@ void MediaWatcher::launch()
 	// Desde macOS 15.4 solo programas del sistema pueden leer "Ahora suena": por eso
 	// el lector corre en osascript y no dentro de OBS.
 	program = "/usr/bin/osascript";
-	args = {"-l", "JavaScript", moduleFile("media/macos.js"), "watch", videoFlagFile_};
+	args = {"-l", "JavaScript", moduleFile("media/macos.js"), "watch", videoFlagFile_, othersFlagFile_};
 #else
 	// Linux: los reproductores MPRIS por medio de playerctl (ver media/linux.sh). Con bash
 	// y no ejecutando el archivo: así no importa si perdió el permiso de ejecución.
@@ -271,6 +295,14 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		if (videoIdPattern.match(videoId).hasMatch())
 			track.videoId = videoId;
 		track.updatedAt = t;
+		// Windows: el aleatorio llega con cada lectura (si el reproductor lo deja cambiar).
+		if (s.contains("shuffle")) {
+			QString shuffle = s.value("shuffle").isBool() ? (s.value("shuffle").toBool() ? "on" : "off") : QString();
+			if (states_.value(app).shuffle != shuffle) {
+				states_[app].shuffle = shuffle;
+				emit playerStateChanged();
+			}
+		}
 
 		// La carátula llega solo cuando cambia la canción: la guardamos con su canción
 		// para no mostrar la de la anterior mientras llega la nueva.
@@ -310,12 +342,14 @@ void MediaWatcher::handleLine(const QByteArray &line)
 	emit updated();
 }
 
-Track MediaWatcher::current(bool includePaused) const
+Track MediaWatcher::current(bool includePaused, const QString &player) const
 {
 	qint64 t = now();
 	QList<Track> alive;
 	for (const Track &track : tracks_) {
-		if (t - track.updatedAt <= kStaleMs)
+		const bool wanted = player.isEmpty() || track.kind == player ||
+				    (player == "system" && track.kind == "applemusic");
+		if (t - track.updatedAt <= kStaleMs && wanted)
 			alive.append(track);
 	}
 	auto newestFirst = [](const Track &a, const Track &b) {
@@ -331,10 +365,58 @@ Track MediaWatcher::current(bool includePaused) const
 	return includePaused && !alive.isEmpty() ? alive.first() : Track();
 }
 
+const QStringList &MediaWatcher::players()
+{
+	// system: el reproductor del sistema (Apple Music en Mac; en Windows, el Reproductor
+	// multimedia y también Apple Music o iTunes).
+	static const QStringList list = {"spotify", "ytmusic", "youtube", "system"};
+	return list;
+}
+
+void MediaWatcher::setPlayer(const QString &player)
+{
+	QString value = players().contains(player) ? player : QString();
+	if (value == player_)
+		return;
+	player_ = value;
+	QDir().mkpath(QFileInfo(playerFile()).absolutePath());
+	QSaveFile file(playerFile());
+	if (file.open(QIODevice::WriteOnly)) {
+		file.write(player_.toUtf8());
+		file.commit();
+	}
+	obs_log(LOG_INFO, "reproductor del dock: %s", player_.isEmpty() ? "automático" : player_.toUtf8().constData());
+	writeVideoFlag();
+	emit updated();
+}
+
 void MediaWatcher::setVideoWanted(bool wanted)
+{
+	videoWanted_ = wanted;
+	writeVideoFlag();
+}
+
+void MediaWatcher::setOthersWanted(bool wanted)
+{
+	othersWanted_ = wanted;
+	writeVideoFlag();
+}
+
+void MediaWatcher::writeVideoFlag()
 {
 	if (videoFlagFile_.isEmpty())
 		return;
+	// Con un reproductor elegido (dock o fuente), en macOS hay que buscar lo que suena por
+	// detrás: si suenan dos a la vez, macOS anuncia solo uno.
+	if (othersWanted_ || !player_.isEmpty()) {
+		QFile others(othersFlagFile_);
+		if (!others.exists() && others.open(QIODevice::WriteOnly))
+			others.close();
+	} else {
+		QFile::remove(othersFlagFile_);
+	}
+	// Con un reproductor elegido en el dock, el lector tiene que distinguir las pestañas.
+	bool wanted = videoWanted_ || !player_.isEmpty();
 	if (!wanted) {
 		QFile::remove(videoFlagFile_);
 		return;
@@ -354,29 +436,96 @@ void MediaWatcher::seekTo(qint64 positionMs)
 	runCommand("seek", std::max<qint64>(0, positionMs));
 }
 
-void MediaWatcher::runCommand(const QString &action, qint64 positionMs)
+PlayerState MediaWatcher::playerState() const
 {
-	Track track = current(true);
+	return states_.value(current(true, player_).app);
+}
+
+void MediaWatcher::storeState(const QString &app, const QJsonObject &state)
+{
+	PlayerState value = states_.value(app);
+	value.volume = state.value("volume").isDouble() ? std::clamp(state.value("volume").toInt(), 0, 100) : -1;
+	QJsonValue shuffle = state.value("shuffle");
+	value.shuffle = shuffle.isBool() ? (shuffle.toBool() ? "on" : "off")
+					 : (shuffle.toString() == "action" ? QString("action") : QString());
+	states_.insert(app, value);
+	emit playerStateChanged();
+}
+
+void MediaWatcher::refreshPlayerState()
+{
+	Track track = current(true, player_);
 	if (!track.valid())
 		return;
-	obs_log(LOG_INFO, "comando %s para %s", action.toUtf8().constData(), track.app.toUtf8().constData());
+#ifdef _WIN32
+	int volume = app_volume(audio_target(track));
+	if (states_.value(track.app).volume != volume) {
+		states_[track.app].volume = volume;
+		emit playerStateChanged();
+	}
+#else
+	if (stateAsked_)
+		return;
+	stateAsked_ = true;
+	runCommand("state", -1);
+#endif
+}
+
+void MediaWatcher::setVolume(int percent)
+{
+	Track track = current(true, player_);
+	if (!track.valid())
+		return;
+	percent = std::clamp(percent, 0, 100);
+	states_[track.app].volume = percent; // la barra no salta atrás mientras llega la respuesta
+#ifdef _WIN32
+	if (!set_app_volume(audio_target(track), percent))
+		emit commandFailed(QString::fromUtf8(obs_module_text("NowPlaying.Volume.NoSound")));
+#else
+	runCommand("volume", percent);
+#endif
+}
+
+void MediaWatcher::toggleShuffle()
+{
+	runCommand("shuffle", -1);
+}
+
+void MediaWatcher::runCommand(const QString &action, qint64 arg)
+{
+	Track track = current(true, player_);
+	if (!track.valid()) {
+		if (action == "state")
+			stateAsked_ = false;
+		return;
+	}
+	if (action != "state")
+		obs_log(LOG_INFO, "comando %s para %s", action.toUtf8().constData(), track.app.toUtf8().constData());
 #ifdef _WIN32
 	// El lector revisa este archivo cada 100 ms.
 	QSaveFile file(commandFile_);
 	if (file.open(QIODevice::WriteOnly)) {
 		QJsonObject cmd{{"cmd", action}, {"app", track.app}};
-		if (positionMs >= 0)
-			cmd.insert("positionMs", positionMs);
+		if (arg >= 0)
+			cmd.insert("positionMs", arg);
 		file.write(QJsonDocument(cmd).toJson(QJsonDocument::Compact));
 		file.commit();
 	}
 #else
 	// macOS y Linux: el lector se abre aparte con "command <acción>" y responde una línea JSON.
 	auto *command = new QProcess(this);
-	connect(command, &QProcess::finished, this, [this, command](int, QProcess::ExitStatus) {
+	const QString app = track.app;
+	connect(command, &QProcess::finished, this, [this, command, action, app](int, QProcess::ExitStatus) {
 		QByteArray out = command->readAllStandardOutput().trimmed();
 		command->deleteLater();
 		QJsonObject result = QJsonDocument::fromJson(out.split('\n').last()).object();
+		// Volumen y aleatorio: los devuelven "state" y también "volume" y "shuffle".
+		if (result.value("state").isObject())
+			storeState(app, result.value("state").toObject());
+		if (action == "state") {
+			stateAsked_ = false;
+			return; // una pregunta de cada pocos segundos: sin avisos ni registro
+		}
 		QString problem = result.value("error").toString();
 		if (problem.isEmpty())
 			problem = result.value("hint").toString();
@@ -390,6 +539,12 @@ void MediaWatcher::runCommand(const QString &action, qint64 positionMs)
 		}
 	});
 #ifdef __APPLE__
+	// Lo que muestra el dock (puede no ser lo que anuncia macOS: el lector también encuentra
+	// lo que suena "por detrás"): el botón va a esa app y a la pestaña con esa canción.
+	QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
+	env.insert("OBS_NOW_PLAYING_APP", track.app);
+	env.insert("OBS_NOW_PLAYING_TITLE", track.title);
+	command->setProcessEnvironment(env);
 	QString program = "/usr/bin/osascript";
 	QStringList args{"-l", "JavaScript", moduleFile("media/macos.js"), "command", action};
 #else
@@ -400,8 +555,16 @@ void MediaWatcher::runCommand(const QString &action, qint64 positionMs)
 	QString program = "bash";
 	QStringList args{moduleFile("media/linux.sh"), "command", action};
 #endif
-	if (positionMs >= 0)
-		args << QString::number(positionMs);
+	if (arg >= 0)
+		args << QString::number(arg);
+	// Si ni siquiera arranca, "finished" no llega.
+	connect(command, &QProcess::errorOccurred, this, [this, command, action](QProcess::ProcessError error) {
+		if (error != QProcess::FailedToStart)
+			return;
+		if (action == "state")
+			stateAsked_ = false;
+		command->deleteLater();
+	});
 	command->start(program, args);
 #endif
 }

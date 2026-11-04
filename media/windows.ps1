@@ -5,8 +5,11 @@
 #
 #   {"cmd":"next","app":"Spotify.exe"}      cmd: previous | playpause | next
 #   {"cmd":"seek","app":"chrome.exe","positionMs":61000}   saltar a esa posición
+#   {"cmd":"shuffle","app":"Spotify.exe"}   activar / desactivar el aleatorio
 #
-# Si el reproductor no deja saltar, se escribe {"commandError":"…"} (no es un error del lector).
+# Si el reproductor no deja saltar o cambiar el aleatorio, se escribe {"commandError":"…"}
+# (no es un error del lector). El volumen no pasa por aquí: lo cambia el plugin en el
+# Mezclador de volumen de Windows.
 #
 # Es un archivo y no la entrada estándar a propósito: en Windows PowerShell 5.1 leer
 # la entrada sin bloquear el bucle no es confiable, y un lector bloqueado congela el overlay.
@@ -24,6 +27,7 @@
 #
 #   {"sessions":[{"app":"Spotify.exe","title":"…","artist":"…","album":"…",
 #                 "isPlaying":true,"current":true,"progressMs":1234,"durationMs":5678,
+#                 "shuffle":false,                        ← solo si el reproductor deja cambiarlo
 #                 "artwork":"data:image/png;base64,…"}]}      ← artwork solo cuando cambia
 #   {"error":"…"}
 #
@@ -76,11 +80,15 @@ function Send-MediaCommand($line) {
     'next' { $target.TrySkipNextAsync() }
     # La posición va en unidades de 100 ns.
     'seek' { $target.TryChangePlaybackPositionAsync([int64]$msg.positionMs * 10000) }
+    'shuffle' { $target.TryChangeShuffleActiveAsync(-not [bool]$target.GetPlaybackInfo().IsShuffleActive) }
   }
   if ($operation) {
     $done = Await $operation ([bool])
     if ($msg.cmd -eq 'seek' -and -not $done) {
       Emit @{ commandError = 'Este reproductor no deja adelantar ni retroceder desde OBS.' }
+    }
+    if ($msg.cmd -eq 'shuffle' -and -not $done) {
+      Emit @{ commandError = 'Este reproductor no deja cambiar el aleatorio desde OBS.' }
     }
   }
 }
@@ -370,6 +378,10 @@ for ($i = 0; $i -lt 1800; $i++) {
         current    = ($app -eq $currentApp)
         progressMs = [int64][Math]::Max(0, $position)
         durationMs = [int64][Math]::Max(0, $duration)
+      }
+      # Aleatorio: solo si el reproductor deja cambiarlo (si no, el dock apaga el botón).
+      if ($playback.Controls -and $playback.Controls.IsShuffleEnabled -and $null -ne $playback.IsShuffleActive) {
+        $entry.shuffle = [bool]$playback.IsShuffleActive
       }
 
       $key = "$($props.Title)`n$($props.Artist)"

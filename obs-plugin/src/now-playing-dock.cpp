@@ -1,8 +1,19 @@
 #include "now-playing-dock.hpp"
-#include "media-watcher.hpp"
+#include "music-channel.hpp"
 
 #include <obs-module.h>
 
+#include <QButtonGroup>
+#include <QComboBox>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QPaintEvent>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QSaveFile>
+#include <QSignalBlocker>
+#include <QWheelEvent>
 #include <QEvent>
 #include <QHBoxLayout>
 #include <QHash>
@@ -31,6 +42,51 @@ constexpr int kSideButton = 40;
 constexpr int kSkipButton = 32;
 constexpr qint64 kSkipMs = 10000;
 constexpr int kMainButton = 52;
+constexpr int kSmallButton = 28;
+
+// Los reproductores de la lista, con su color (el punto al lado del nombre).
+struct PlayerInfo {
+	const char *key;  // texto de la lista
+	const char *name; // para "Spotify no está sonando" (una clave de texto si empieza con "NowPlaying.")
+	const char *color;
+};
+
+// El reproductor del sistema: Apple Music en Mac; en Windows, el Reproductor multimedia.
+#ifdef __APPLE__
+constexpr const char *kSystemName = "Apple Music";
+constexpr const char *kSystemColor = "#fa2d48";
+#elif defined(_WIN32)
+constexpr const char *kSystemName = "NowPlaying.Player.SystemName.Windows";
+constexpr const char *kSystemColor = "#0078d4";
+#else
+constexpr const char *kSystemName = "NowPlaying.Player.SystemName.Other";
+constexpr const char *kSystemColor = "#8b8cff";
+#endif
+
+const QHash<QString, PlayerInfo> &playerInfo()
+{
+	static const QHash<QString, PlayerInfo> info = {
+		{"spotify", {"NowPlaying.Player.Spotify", "Spotify", "#1db954"}},
+		{"ytmusic", {"NowPlaying.Player.YTMusic", "YouTube Music", "#ff4e45"}},
+		{"youtube", {"NowPlaying.Player.YouTube", "YouTube", "#ff0033"}},
+		{"system", {"NowPlaying.Player.System", kSystemName, kSystemColor}},
+	};
+	return info;
+}
+
+QIcon dotIcon(const QColor &color, qreal dpr)
+{
+	const int size = 10;
+	QPixmap pixmap(QSize(size, size) * dpr);
+	pixmap.setDevicePixelRatio(dpr);
+	pixmap.fill(Qt::transparent);
+	QPainter p(&pixmap);
+	p.setRenderHint(QPainter::Antialiasing);
+	p.setPen(Qt::NoPen);
+	p.setBrush(color);
+	p.drawEllipse(QRectF(1, 1, size - 2, size - 2));
+	return QIcon(pixmap);
+}
 
 QString text(const char *key)
 {
@@ -93,7 +149,7 @@ QColor accentFrom(const QImage &source)
 	return QColor::fromHslF(h, std::clamp(s, 0.55f, 1.0f), std::clamp(l, 0.55f, 0.7f));
 }
 
-enum class Glyph { Previous, Play, Pause, Next, Back10, Forward10 };
+enum class Glyph { Previous, Play, Pause, Next, Back10, Forward10, Shuffle, Speaker, SpeakerMuted, Backdrop };
 
 // Iconos dibujados aquí (y no los del sistema, que en el tema de OBS se ven grises y
 // borrosos, como deshabilitados): triángulos y barras redondeados del color pedido.
@@ -139,7 +195,77 @@ QPixmap glyphPixmap(Glyph glyph, const QColor &color, int size, qreal dpr)
 		p.setFont(font);
 		p.drawText(circle, Qt::AlignCenter, "10");
 	};
+	// Dos flechas que se cruzan.
+	auto shuffle = [&]() {
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(color, s * 0.08, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+		for (bool down : {true, false}) {
+			const qreal from = down ? 0.3 : 0.7, to = down ? 0.7 : 0.3;
+			QPainterPath path;
+			path.moveTo(s * 0.1, s * from);
+			path.lineTo(s * 0.26, s * from);
+			path.cubicTo(s * 0.5, s * from, s * 0.5, s * to, s * 0.72, s * to);
+			path.lineTo(s * 0.88, s * to);
+			p.drawPath(path);
+			QPainterPath head;
+			head.moveTo(s * 0.77, s * (to - 0.11));
+			head.lineTo(s * 0.88, s * to);
+			head.lineTo(s * 0.77, s * (to + 0.11));
+			p.drawPath(head);
+		}
+	};
+	// Altavoz con ondas, o con una cruz roja si está silenciado.
+	auto speaker = [&](bool muted) {
+		QPainterPath body;
+		body.moveTo(s * 0.12, s * 0.38);
+		body.lineTo(s * 0.28, s * 0.38);
+		body.lineTo(s * 0.48, s * 0.2);
+		body.lineTo(s * 0.48, s * 0.8);
+		body.lineTo(s * 0.28, s * 0.62);
+		body.lineTo(s * 0.12, s * 0.62);
+		body.closeSubpath();
+		p.setPen(Qt::NoPen);
+		p.drawPath(body);
+		p.setBrush(Qt::NoBrush);
+		if (muted) {
+			p.setPen(QPen(QColor("#f87171"), s * 0.08, Qt::SolidLine, Qt::RoundCap));
+			p.drawLine(QPointF(s * 0.62, s * 0.38), QPointF(s * 0.86, s * 0.62));
+			p.drawLine(QPointF(s * 0.86, s * 0.38), QPointF(s * 0.62, s * 0.62));
+			return;
+		}
+		p.setPen(QPen(color, s * 0.07, Qt::SolidLine, Qt::RoundCap));
+		p.drawArc(QRectF(s * 0.4, s * 0.33, s * 0.28, s * 0.34), -50 * 16, 100 * 16);
+		p.drawArc(QRectF(s * 0.36, s * 0.18, s * 0.5, s * 0.64), -50 * 16, 100 * 16);
+	};
+	// Un cuadro de imagen (montaña y sol): el fondo con la carátula.
+	auto picture = [&]() {
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(color, s * 0.08, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+		p.drawRoundedRect(QRectF(s * 0.12, s * 0.18, s * 0.76, s * 0.64), s * 0.1, s * 0.1);
+		QPainterPath mountain;
+		mountain.moveTo(s * 0.2, s * 0.74);
+		mountain.lineTo(s * 0.42, s * 0.48);
+		mountain.lineTo(s * 0.58, s * 0.64);
+		mountain.lineTo(s * 0.66, s * 0.56);
+		mountain.lineTo(s * 0.8, s * 0.74);
+		p.drawPath(mountain);
+		p.setPen(Qt::NoPen);
+		p.setBrush(color);
+		p.drawEllipse(QPointF(s * 0.66, s * 0.36), s * 0.06, s * 0.06);
+	};
 	switch (glyph) {
+	case Glyph::Backdrop:
+		picture();
+		break;
+	case Glyph::Shuffle:
+		shuffle();
+		break;
+	case Glyph::Speaker:
+		speaker(false);
+		break;
+	case Glyph::SpeakerMuted:
+		speaker(true);
+		break;
 	case Glyph::Back10:
 		skip(false);
 		break;
@@ -219,13 +345,101 @@ protected:
 	}
 };
 
+// Barra del volumen: la rueda del ratón sube o baja de 5 en 5.
+class VolumeSlider : public QSlider {
+public:
+	explicit VolumeSlider(QWidget *parent) : QSlider(Qt::Horizontal, parent) {}
+
+protected:
+	void wheelEvent(QWheelEvent *event) override
+	{
+		const int delta = event->angleDelta().y() != 0 ? event->angleDelta().y() : event->angleDelta().x();
+		if (delta != 0)
+			setValue(value() + (delta > 0 ? 5 : -5));
+		event->accept();
+	}
+};
+
+// La carátula muy difuminada, para el fondo del dock: se reduce en pasos (cada uno suaviza)
+// y al pintarla se estira con suavizado, que termina de difuminarla.
+QImage blurredBackdrop(const QImage &source)
+{
+	if (source.isNull())
+		return QImage();
+	QImage small = source.convertToFormat(QImage::Format_RGB32)
+			       .scaled(48, 48, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation)
+			       .scaled(12, 12, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+	return small.scaled(96, 96, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+}
+
+// El fondo difuminado se puede quitar (clic derecho en el dock); se recuerda entre sesiones.
+QString backdropFile()
+{
+	char *path = obs_module_config_path("dock-backdrop.txt");
+	QString result = QString::fromUtf8(path);
+	bfree(path);
+	return result;
+}
+
+// "Reproductor" o "Stream" en el dock, entre sesiones.
+QString volumeModeFile()
+{
+	char *path = obs_module_config_path("volume-mode.txt");
+	QString result = QString::fromUtf8(path);
+	bfree(path);
+	return result;
+}
+
 } // namespace
 
 NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 {
+	{
+		QFile saved(backdropFile());
+		// Por defecto, fondo plano; el difuminado se activa con su botón (o clic derecho).
+		blurBackground_ = saved.open(QIODevice::ReadOnly) && saved.readAll().trimmed() == "on";
+	}
 	auto *layout = new QVBoxLayout(this);
 	layout->setContentsMargins(16, 18, 16, 18);
 	layout->setSpacing(4);
+
+	// "Reproductor [Automático ▾]", pequeño y arriba a la derecha.
+	auto *playerRow = new QHBoxLayout();
+	playerRow->setSpacing(8);
+	playerRow->addStretch(1);
+	auto *playerLabel = new QLabel(text("NowPlaying.Player"), this);
+	QPalette labelPalette = playerLabel->palette();
+	QColor labelColor = labelPalette.color(QPalette::WindowText);
+	labelColor.setAlphaF(0.65f);
+	labelPalette.setColor(QPalette::WindowText, labelColor);
+	playerLabel->setPalette(labelPalette);
+	player_ = new QComboBox(this);
+	player_->setFocusPolicy(Qt::NoFocus);
+	player_->setCursor(Qt::PointingHandCursor);
+	// Que la opción más larga ("Solo el reproductor del sistema") no fije el ancho mínimo del
+	// dock: la lista se acorta y el texto se recorta.
+	player_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+	player_->setMinimumContentsLength(10);
+	player_->setToolTip(text("NowPlaying.Player.DockHelp"));
+	player_->addItem(text("NowPlaying.Player.Auto"), QString());
+	player_->insertSeparator(1);
+	const qreal dpr = devicePixelRatioF();
+	for (const QString &key : MediaWatcher::players()) {
+		const PlayerInfo &info = playerInfo()[key];
+		player_->addItem(dotIcon(QColor(info.color), dpr), text(info.key), key);
+	}
+	player_->setCurrentIndex(std::max(0, player_->findData(MediaWatcher::instance().player())));
+	connect(player_, &QComboBox::currentIndexChanged, this, [this] {
+		MediaWatcher::instance().setPlayer(player_->currentData().toString());
+		artKey_.clear();
+		seekTarget_ = -1;
+		refresh();
+	});
+	playerLabel->setBuddy(player_);
+	playerRow->addWidget(playerLabel);
+	playerRow->addWidget(player_);
+	layout->addLayout(playerRow);
+	layout->addSpacing(8);
 
 	art_ = new QLabel(this);
 	art_->setFixedSize(kArtSize, kArtSize);
@@ -240,6 +454,9 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	titleFont.setBold(true);
 	titleFont.setPointSizeF(titleFont.pointSizeF() * 1.15);
 	title_->setFont(titleFont);
+	// El título, el artista y "Escuchando en …" se recortan al ancho del dock: su texto no
+	// debe fijar un ancho mínimo (si no, el dock no se puede angostar).
+	title_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 	layout->addWidget(title_);
 
 	artist_ = new QLabel(this);
@@ -249,6 +466,7 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	mutedColor.setAlphaF(0.65f);
 	muted.setColor(QPalette::WindowText, mutedColor);
 	artist_->setPalette(muted);
+	artist_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 	layout->addWidget(artist_);
 
 	source_ = new QLabel(this);
@@ -258,6 +476,7 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	sourceFont.setPointSizeF(sourceFont.pointSizeF() * 0.8);
 	sourceFont.setCapitalization(QFont::AllUppercase);
 	source_->setFont(sourceFont);
+	source_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 	layout->addSpacing(4);
 	layout->addWidget(source_);
 	layout->addSpacing(14);
@@ -274,12 +493,12 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	progress_->setToolTip(text("NowPlaying.Seek"));
 	// Mientras se arrastra, el tiempo muestra adónde se va a saltar; al soltar, se salta.
 	connect(progress_, &QSlider::sliderMoved, this, [this](int value) {
-		Track track = MediaWatcher::instance().current(true);
+		Track track = shown();
 		if (track.durationMs > 0)
 			elapsed_->setText(formatTime(value * track.durationMs / 1000));
 	});
 	connect(progress_, &QSlider::sliderReleased, this, [this] {
-		Track track = MediaWatcher::instance().current(true);
+		Track track = shown();
 		if (track.valid() && track.durationMs > 0)
 			seekToMs(qint64(progress_->value()) * track.durationMs / 1000);
 	});
@@ -290,7 +509,7 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	layout->addSpacing(16);
 
 	auto *buttons = new QHBoxLayout();
-	buttons->setSpacing(14);
+	buttons->setSpacing(10);
 	buttons->addStretch(1);
 	auto makeButton = [this, buttons](const char *tip, const QString &action, int size) {
 		auto *button = new QToolButton(this);
@@ -323,6 +542,86 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	forward_ = makeSkip("NowPlaying.Forward10", kSkipMs);
 	buttons->addStretch(1);
 	layout->addLayout(buttons);
+
+	// El volumen en su propia fila, a todo el ancho (para moverlo con precisión); debajo, el
+	// aleatorio y a qué se aplica el volumen: el reproductor o solo el canal de música de OBS.
+	auto *volumeRow = new QHBoxLayout();
+	volumeRow->setSpacing(10);
+	auto *optionsRow = new QHBoxLayout();
+	optionsRow->setSpacing(8);
+	auto makeSmall = [this](const char *tip) {
+		auto *button = new QToolButton(this);
+		button->setFixedSize(kSmallButton, kSmallButton);
+		button->setToolTip(text(tip));
+		button->setCursor(Qt::PointingHandCursor);
+		button->setFocusPolicy(Qt::NoFocus);
+		return button;
+	};
+	shuffle_ = makeSmall("NowPlaying.Shuffle");
+	optionsRow->addWidget(shuffle_, 0, Qt::AlignVCenter);
+	backdropButton_ = makeSmall("NowPlaying.Dock.Backdrop");
+	optionsRow->addWidget(backdropButton_, 0, Qt::AlignVCenter);
+	connect(backdropButton_, &QToolButton::clicked, this, [this] { setBlurBackground(!blurBackground_); });
+	optionsRow->addStretch(1);
+	connect(shuffle_, &QToolButton::clicked, this, [this] {
+		MediaWatcher::instance().toggleShuffle();
+		QTimer::singleShot(600, this, [] { MediaWatcher::instance().refreshPlayerState(); });
+	});
+	mute_ = makeSmall("NowPlaying.Mute");
+	volumeRow->addWidget(mute_, 0, Qt::AlignVCenter);
+	connect(mute_, &QToolButton::clicked, this, &NowPlayingDock::toggleMute);
+	volume_ = new VolumeSlider(this);
+	volume_->setRange(0, 100);
+	volume_->setFixedHeight(20);
+	volume_->setMinimumWidth(60);
+	volume_->setCursor(Qt::PointingHandCursor);
+	volume_->setFocusPolicy(Qt::NoFocus);
+	volumeRow->addWidget(volume_, 1);
+	volumeLabel_ = new QLabel("—", this);
+	volumeLabel_->setMinimumWidth(volumeLabel_->fontMetrics().horizontalAdvance("100%") + 2);
+	volumeLabel_->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+	volumeRow->addWidget(volumeLabel_);
+	// Mientras se mueve, el número sigue a la barra; se aplica un instante después (al
+	// arrastrar no se manda un cambio por cada píxel).
+	volumeTimer_ = new QTimer(this);
+	volumeTimer_->setSingleShot(true);
+	volumeTimer_->setInterval(150);
+	connect(volumeTimer_, &QTimer::timeout, this, &NowPlayingDock::applyVolume);
+	connect(volume_, &QSlider::valueChanged, this, [this](int value) {
+		volumeLabel_->setText(QString("%1%").arg(value));
+		volumeHoldUntil_ = MediaWatcher::now() + 2000;
+		volumeTimer_->start();
+	});
+	connect(volume_, &QSlider::sliderReleased, this, &NowPlayingDock::applyVolume);
+
+	auto *modes = new QHBoxLayout();
+	modes->setSpacing(0);
+	auto *group = new QButtonGroup(this);
+	auto makeMode = [this, modes, group](const char *label, const char *tip) {
+		auto *button = new QToolButton(this);
+		button->setText(text(label));
+		button->setToolTip(text(tip));
+		button->setCheckable(true);
+		button->setCursor(Qt::PointingHandCursor);
+		button->setFocusPolicy(Qt::NoFocus);
+		group->addButton(button);
+		modes->addWidget(button);
+		return button;
+	};
+	modePlayer_ = makeMode("NowPlaying.Volume.Player", "NowPlaying.Volume.PlayerHelp");
+	modeStream_ = makeMode("NowPlaying.Volume.Stream", "NowPlaying.Volume.StreamHelp");
+	{
+		QFile saved(volumeModeFile());
+		streamMode_ = saved.open(QIODevice::ReadOnly) && saved.readAll().trimmed() == "stream";
+	}
+	(streamMode_ ? modeStream_ : modePlayer_)->setChecked(true);
+	connect(modePlayer_, &QToolButton::clicked, this, [this] { setStreamMode(false); });
+	connect(modeStream_, &QToolButton::clicked, this, [this] { setStreamMode(true); });
+	optionsRow->addLayout(modes);
+	layout->addSpacing(12);
+	layout->addLayout(volumeRow);
+	layout->addSpacing(6);
+	layout->addLayout(optionsRow);
 	layout->addSpacing(10);
 
 	status_ = new QLabel(this);
@@ -333,6 +632,17 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 
 	applyAccent(QColor());
 	connect(&MediaWatcher::instance(), &MediaWatcher::updated, this, &NowPlayingDock::refresh);
+	connect(&MediaWatcher::instance(), &MediaWatcher::playerStateChanged, this, &NowPlayingDock::updateVolumeRow);
+	// El volumen y el aleatorio se preguntan cada pocos segundos, solo con el dock a la vista.
+	auto *statePoll = new QTimer(this);
+	connect(statePoll, &QTimer::timeout, this, [this] {
+		if (!isVisible())
+			return;
+		MediaWatcher::instance().refreshPlayerState();
+		updateVolumeRow();
+	});
+	statePoll->start(2500);
+	MediaWatcher::instance().refreshPlayerState();
 	// Si un botón no funcionó, el motivo se muestra unos segundos debajo de los botones.
 	connect(&MediaWatcher::instance(), &MediaWatcher::commandFailed, this, [this](const QString &message) {
 		commandError_ = message;
@@ -380,15 +690,199 @@ void NowPlayingDock::applyAccent(const QColor &accent)
 					  "QToolButton:disabled { background: rgba(127,127,127,0.25); }")
 					  .arg(kMainButton / 2)
 					  .arg(color, accent_.lighter(115).name(), accent_.darker(120).name()));
+	styleVolumeRow();
 	updateIcons();
+}
+
+// Aleatorio encendido: del color de la carátula (como en la vista previa). "Reproductor /
+// Stream": el elegido, marcado con el color de la carátula.
+void NowPlayingDock::styleVolumeRow()
+{
+	const QString color = accent_.name();
+	// Encendido: con borde y fondo suave del color de la carátula; apagado, transparente.
+	auto toggle = [&](bool on) {
+		return on ? QString("QToolButton { border-radius: %1px; border: 1px solid %2; background: %3; }")
+				    .arg(kSmallButton / 2)
+				    .arg(rgba(accent_, 0.45), rgba(accent_, 0.14))
+			  : QString("QToolButton { border-radius: %1px; border: 0; background: transparent; }"
+				    "QToolButton:hover { background: rgba(127,127,127,0.18); }")
+				    .arg(kSmallButton / 2);
+	};
+	shuffle_->setStyleSheet(toggle(shuffleOn_));
+	backdropButton_->setStyleSheet(toggle(blurBackground_));
+	mute_->setStyleSheet(QString("QToolButton { border-radius: %1px; border: 0; background: transparent; }"
+				     "QToolButton:hover { background: rgba(127,127,127,0.18); }")
+				     .arg(kSmallButton / 2));
+	QColor textColor = palette().color(QPalette::WindowText);
+	volume_->setStyleSheet(
+		QString("QSlider::groove:horizontal { height: 4px; border-radius: 2px; background: rgba(127,127,127,0.25); }"
+			"QSlider::sub-page:horizontal { border-radius: 2px; background: %1; }"
+			"QSlider::handle:horizontal { width: 14px; height: 14px; margin: -5px 0; border-radius: 7px;"
+			" background: %2; }"
+			"QSlider::sub-page:horizontal:disabled, QSlider::handle:horizontal:disabled { background: rgba(127,127,127,0.35); }")
+			.arg(rgba(textColor, 0.7), textColor.name()));
+	auto segment = [&](const char *corners) {
+		return QString("QToolButton { border: 1px solid rgba(127,127,127,0.35); padding: 2px 8px; %1 }"
+			       "QToolButton:checked { background: %2; color: %3; font-weight: bold; }")
+			.arg(QString::fromLatin1(corners), rgba(accent_, 0.14), color);
+	};
+	modePlayer_->setStyleSheet(segment("border-top-left-radius: 6px; border-bottom-left-radius: 6px; border-right: 0;"));
+	modeStream_->setStyleSheet(segment("border-top-right-radius: 6px; border-bottom-right-radius: 6px;"));
+}
+
+void NowPlayingDock::setStreamMode(bool stream)
+{
+	streamMode_ = stream;
+	QDir().mkpath(QFileInfo(volumeModeFile()).absolutePath());
+	QSaveFile file(volumeModeFile());
+	if (file.open(QIODevice::WriteOnly)) {
+		file.write(stream ? "stream" : "player");
+		file.commit();
+	}
+	volumeHoldUntil_ = 0;
+	updateVolumeRow();
+}
+
+void NowPlayingDock::applyVolume()
+{
+	volumeTimer_->stop();
+	const int value = volume_->value();
+	if (value > 0)
+		lastVolume_ = value;
+	volumeHoldUntil_ = MediaWatcher::now() + 2000;
+	if (streamMode_)
+		set_music_channel_volume(value);
+	else
+		MediaWatcher::instance().setVolume(value);
+	updateVolumeRow();
+}
+
+void NowPlayingDock::toggleMute()
+{
+	if (streamMode_) {
+		int volume = 0;
+		bool muted = false;
+		if (!music_channel_volume(&volume, &muted)) {
+			// Sin el canal no hay volumen del stream: se ofrece crearlo.
+			create_music_channel(this);
+		} else {
+			set_music_channel_muted(!muted);
+		}
+		updateVolumeRow();
+		return;
+	}
+	// Del reproductor: silenciar es bajar a 0 y recordar dónde estaba.
+	const int value = volume_->value();
+	if (value > 0)
+		lastVolume_ = value;
+	QSignalBlocker blocker(volume_);
+	volume_->setValue(value > 0 ? 0 : std::max(5, lastVolume_));
+	applyVolume();
+}
+
+void NowPlayingDock::updateVolumeRow()
+{
+	MediaWatcher &watcher = MediaWatcher::instance();
+	const bool hasTrack = shown().valid();
+	const PlayerState state = watcher.playerState();
+
+	int volume = -1;
+	bool muted = false;
+	bool channel = true;
+	if (streamMode_) {
+		channel = music_channel_volume(&volume, &muted);
+		if (!channel)
+			volume = -1;
+	} else if (hasTrack) {
+		volume = state.volume;
+	}
+	const bool usable = volume >= 0;
+	volume_->setEnabled(usable);
+	mute_->setEnabled(usable || !channel);
+	if (usable && !volume_->isSliderDown() && MediaWatcher::now() >= volumeHoldUntil_) {
+		QSignalBlocker blocker(volume_);
+		volume_->setValue(volume);
+	}
+	const bool showMuted = usable && (muted || volume_->value() == 0);
+	volumeLabel_->setText(usable && !showMuted ? QString("%1%").arg(volume_->value()) : QString("—"));
+	if (streamMode_ && !channel)
+		mute_->setToolTip(text("NowPlaying.Volume.NoChannel"));
+	else
+		mute_->setToolTip(text(showMuted ? "NowPlaying.Unmute" : "NowPlaying.Mute"));
+	volume_->setToolTip(usable ? QString()
+				   : text(streamMode_ ? "NowPlaying.Volume.NoChannel" : "NowPlaying.Volume.Unsupported"));
+
+	// Aleatorio: el del reproductor, en los dos modos. "action": un botón sin estado.
+	shuffle_->setEnabled(hasTrack && !state.shuffle.isEmpty());
+	shuffle_->setToolTip(text(state.shuffle.isEmpty() ? "NowPlaying.Shuffle.Unsupported"
+				  : state.shuffle == "action" ? "NowPlaying.Shuffle.Action"
+							      : "NowPlaying.Shuffle"));
+	const bool shuffleOn = hasTrack && state.shuffle == "on";
+	if (showMuted != muted_ || shuffleOn != shuffleOn_) {
+		muted_ = showMuted;
+		shuffleOn_ = shuffleOn;
+		styleVolumeRow();
+		updateIcons();
+	}
+}
+
+void NowPlayingDock::resizeEvent(QResizeEvent *event)
+{
+	QWidget::resizeEvent(event);
+	refresh(); // vuelve a recortar el título y el artista al ancho nuevo
+}
+
+void NowPlayingDock::paintEvent(QPaintEvent *event)
+{
+	QWidget::paintEvent(event);
+	if (!blurBackground_ || backdrop_.isNull())
+		return;
+	QPainter p(this);
+	p.setRenderHint(QPainter::SmoothPixmapTransform);
+	// Cubre todo el dock (recortando lo que sobre) y encima un velo del color de fondo del
+	// tema, para que el texto y los botones se lean igual que sin fondo.
+	const QSize area = size();
+	QSize cover = backdrop_.size().scaled(area, Qt::KeepAspectRatioByExpanding);
+	QRect target(QPoint((area.width() - cover.width()) / 2, (area.height() - cover.height()) / 2), cover);
+	p.drawImage(target, backdrop_);
+	QColor veil = palette().color(QPalette::Window);
+	veil.setAlphaF(0.6f);
+	p.fillRect(rect(), veil);
+}
+
+void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
+{
+	QMenu menu(this);
+	QAction *blur = menu.addAction(text("NowPlaying.Dock.Backdrop"));
+	blur->setCheckable(true);
+	blur->setChecked(blurBackground_);
+	if (menu.exec(event->globalPos()) != blur)
+		return;
+	setBlurBackground(blur->isChecked());
+}
+
+void NowPlayingDock::setBlurBackground(bool on)
+{
+	blurBackground_ = on;
+	QDir().mkpath(QFileInfo(backdropFile()).absolutePath());
+	QSaveFile file(backdropFile());
+	if (file.open(QIODevice::WriteOnly)) {
+		file.write(on ? "on" : "off");
+		file.commit();
+	}
+	styleVolumeRow();
+	updateIcons();
+	update();
 }
 
 void NowPlayingDock::changeEvent(QEvent *event)
 {
 	QWidget::changeEvent(event);
 	// Al cambiar el tema de OBS, los iconos toman el nuevo color del texto.
-	if (event->type() == QEvent::PaletteChange && previous_)
+	if (event->type() == QEvent::PaletteChange && mute_) {
+		styleVolumeRow();
 		updateIcons();
+	}
 }
 
 void NowPlayingDock::updateIcons()
@@ -408,6 +902,13 @@ void NowPlayingDock::updateIcons()
 	const int main = kMainButton / 2;
 	playPause_->setIcon(glyphIcon(playing_ ? Glyph::Pause : Glyph::Play, contrastOn(accent_), main, dpr));
 	playPause_->setIconSize(QSize(main, main));
+	const int small = kSmallButton - 10;
+	shuffle_->setIcon(glyphIcon(Glyph::Shuffle, shuffleOn_ ? accent_ : textColor, small, dpr));
+	shuffle_->setIconSize(QSize(small, small));
+	backdropButton_->setIcon(glyphIcon(Glyph::Backdrop, blurBackground_ ? accent_ : textColor, small, dpr));
+	backdropButton_->setIconSize(QSize(small, small));
+	mute_->setIcon(glyphIcon(muted_ ? Glyph::SpeakerMuted : Glyph::Speaker, textColor, small, dpr));
+	mute_->setIconSize(QSize(small, small));
 }
 
 void NowPlayingDock::refresh()
@@ -427,23 +928,38 @@ void NowPlayingDock::refresh()
 		status_->setText(commandError_);
 	status_->setStyleSheet("color: #f87171;");
 
-	Track track = watcher.current(true);
+	Track track = shown();
 	for (QToolButton *button : {previous_, playPause_, next_})
 		button->setEnabled(track.valid());
 
 	if (!track.valid()) {
-		title_->setText(text("NowPlaying.NothingPlaying"));
-		artist_->setText(watcher.status() == MediaWatcher::Status::Starting ? text("NowPlaying.Reader.Starting")
-										     : text("NowPlaying.PlaySomething"));
+		const QString player = watcher.player();
+		if (watcher.status() == MediaWatcher::Status::Starting) {
+			title_->setText(text("NowPlaying.NothingPlaying"));
+			artist_->setText(text("NowPlaying.Reader.Starting"));
+		} else if (playerInfo().contains(player)) {
+			// Con un reproductor elegido, lo que suene en otro no cuenta.
+			const char *raw = playerInfo()[player].name;
+			const QString name = QString::fromUtf8(raw).startsWith("NowPlaying.") ? text(raw) : QString::fromUtf8(raw);
+			title_->setText(text("NowPlaying.Player.NotPlaying").arg(name));
+			artist_->setText(text("NowPlaying.Player.Waiting").arg(name));
+		} else {
+			title_->setText(text("NowPlaying.NothingPlaying"));
+			artist_->setText(text("NowPlaying.PlaySomething"));
+		}
 		source_->clear();
 		art_->clear();
 		artKey_.clear();
+		backdrop_ = QImage();
+		update();
+		playing_ = false; // el botón apagado muestra "play", no "pausa"
 		applyAccent(QColor());
+		updateVolumeRow();
 		tick();
 		return;
 	}
 
-	int width = std::max(120, this->width() - 32);
+	int width = std::max(60, this->width() - 32);
 	title_->setText(title_->fontMetrics().elidedText(track.title, Qt::ElideRight, width));
 	artist_->setText(artist_->fontMetrics().elidedText(track.artist, Qt::ElideRight, width));
 	source_->setText(track.kind == "browser" ? text("NowPlaying.ListeningNow")
@@ -456,22 +972,34 @@ void NowPlayingDock::refresh()
 	QString artKey = track.app + '\n' + track.title + '\n' + QString::number(track.artwork.size());
 	if (artKey != artKey_) {
 		artKey_ = artKey;
+		// Otra canción (u otro reproductor): su volumen y su aleatorio.
+		watcher.refreshPlayerState();
 		QPixmap pixmap = pixmapFromDataUrl(track.artwork);
 		if (pixmap.isNull()) {
 			art_->clear();
+			backdrop_ = QImage();
 			applyAccent(QColor());
 		} else {
 			art_->setPixmap(pixmap.scaled(kArtSize, kArtSize, Qt::KeepAspectRatioByExpanding,
 						      Qt::SmoothTransformation));
+			backdrop_ = blurredBackdrop(pixmap.toImage());
 			applyAccent(accentFrom(pixmap.toImage()));
 		}
+		update();
 	}
+	updateVolumeRow();
 	tick();
+}
+
+Track NowPlayingDock::shown() const
+{
+	MediaWatcher &watcher = MediaWatcher::instance();
+	return watcher.current(true, watcher.player());
 }
 
 void NowPlayingDock::tick()
 {
-	Track track = MediaWatcher::instance().current(true);
+	Track track = shown();
 	bool show = track.valid() && track.durationMs > 0;
 	progress_->setVisible(show);
 	elapsed_->setVisible(show);
@@ -492,7 +1020,7 @@ void NowPlayingDock::tick()
 
 void NowPlayingDock::seekBy(qint64 deltaMs)
 {
-	Track track = MediaWatcher::instance().current(true);
+	Track track = shown();
 	if (!track.valid() || track.durationMs <= 0)
 		return;
 	const qint64 now = MediaWatcher::now();
