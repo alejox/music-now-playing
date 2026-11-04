@@ -132,6 +132,13 @@ jobs:
         with:
           name: plugin-windows
           path: dist/*
+      # Para probar sin Release: la carpeta sin comprimir (GitHub ya entrega cada descarga en un
+      # zip; con el zip de arriba quedarían dos). Al descomprimir sale obs-now-playing. No se
+      # llama plugin-* para que la Release no la adjunte.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: probar-windows
+          path: obs-plugin/package/
 
   # Linux: contra la libobs y obs-frontend-api del PPA oficial de OBS (la versión que
   # tenga el PPA, cercana a la de buildspec.json) y el Qt 6 de Ubuntu. Sale un zip con la
