@@ -396,7 +396,10 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	player_ = new QComboBox(this);
 	player_->setFocusPolicy(Qt::NoFocus);
 	player_->setCursor(Qt::PointingHandCursor);
-	player_->setMinimumWidth(150);
+	// Que la opción más larga ("Solo el reproductor del sistema") no fije el ancho mínimo del
+	// dock: la lista se acorta y el texto se recorta.
+	player_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+	player_->setMinimumContentsLength(10);
 	player_->setToolTip(text("NowPlaying.Player.DockHelp"));
 	player_->addItem(text("NowPlaying.Player.Auto"), QString());
 	player_->insertSeparator(1);
@@ -431,6 +434,9 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	titleFont.setBold(true);
 	titleFont.setPointSizeF(titleFont.pointSizeF() * 1.15);
 	title_->setFont(titleFont);
+	// El título, el artista y "Escuchando en …" se recortan al ancho del dock: su texto no
+	// debe fijar un ancho mínimo (si no, el dock no se puede angostar).
+	title_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 	layout->addWidget(title_);
 
 	artist_ = new QLabel(this);
@@ -440,6 +446,7 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	mutedColor.setAlphaF(0.65f);
 	muted.setColor(QPalette::WindowText, mutedColor);
 	artist_->setPalette(muted);
+	artist_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 	layout->addWidget(artist_);
 
 	source_ = new QLabel(this);
@@ -449,6 +456,7 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	sourceFont.setPointSizeF(sourceFont.pointSizeF() * 0.8);
 	sourceFont.setCapitalization(QFont::AllUppercase);
 	source_->setFont(sourceFont);
+	source_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
 	layout->addSpacing(4);
 	layout->addWidget(source_);
 	layout->addSpacing(14);
@@ -481,7 +489,7 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	layout->addSpacing(16);
 
 	auto *buttons = new QHBoxLayout();
-	buttons->setSpacing(14);
+	buttons->setSpacing(10);
 	buttons->addStretch(1);
 	auto makeButton = [this, buttons](const char *tip, const QString &action, int size) {
 		auto *button = new QToolButton(this);
@@ -542,7 +550,7 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	volume_ = new VolumeSlider(this);
 	volume_->setRange(0, 100);
 	volume_->setFixedHeight(20);
-	volume_->setMinimumWidth(120);
+	volume_->setMinimumWidth(60);
 	volume_->setCursor(Qt::PointingHandCursor);
 	volume_->setFocusPolicy(Qt::NoFocus);
 	volumeRow->addWidget(volume_, 1);
@@ -791,6 +799,12 @@ void NowPlayingDock::updateVolumeRow()
 	}
 }
 
+void NowPlayingDock::resizeEvent(QResizeEvent *event)
+{
+	QWidget::resizeEvent(event);
+	refresh(); // vuelve a recortar el título y el artista al ancho nuevo
+}
+
 void NowPlayingDock::paintEvent(QPaintEvent *event)
 {
 	QWidget::paintEvent(event);
@@ -909,7 +923,7 @@ void NowPlayingDock::refresh()
 		return;
 	}
 
-	int width = std::max(120, this->width() - 32);
+	int width = std::max(60, this->width() - 32);
 	title_->setText(title_->fontMetrics().elidedText(track.title, Qt::ElideRight, width));
 	artist_->setText(artist_->fontMetrics().elidedText(track.artist, Qt::ElideRight, width));
 	source_->setText(track.kind == "browser" ? text("NowPlaying.ListeningNow")

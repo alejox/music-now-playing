@@ -26,6 +26,7 @@ protected:
 	void changeEvent(QEvent *event) override;
 	// Fondo con la carátula difuminada; clic derecho para quitarlo o ponerlo.
 	void paintEvent(QPaintEvent *event) override;
+	void resizeEvent(QResizeEvent *event) override;
 	void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
