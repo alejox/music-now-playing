@@ -43,7 +43,6 @@ private:
 	void styleVolumeRow();
 	void applyVolume();
 	void toggleMute();
-	void setStreamMode(bool stream);
 	void setBlurBackground(bool on);
 
 	QComboBox *player_ = nullptr;
@@ -65,11 +64,7 @@ private:
 	QToolButton *mute_ = nullptr;
 	QSlider *volume_ = nullptr;
 	QLabel *volumeLabel_ = nullptr;
-	QToolButton *modePlayer_ = nullptr;
-	QToolButton *modeStream_ = nullptr;
 	QTimer *volumeTimer_ = nullptr;
-	// "Stream": la barra mueve el canal de música de OBS; si no, el volumen del reproductor.
-	bool streamMode_ = false;
 	bool muted_ = false;
 	bool shuffleOn_ = false;
 	int lastVolume_ = 50;         // para volver después de silenciar

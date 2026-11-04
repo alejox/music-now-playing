@@ -18,9 +18,3 @@ void follow_music_channel();
 // La app a la que apunta la captura de audio por aplicación para esa canción (el .exe en
 // Windows, el id del paquete en macOS, el programa en Linux). También la usa el volumen.
 QString audio_target(const Track &track);
-
-// Volumen del canal "Música (Now Playing)" (modo "Stream" del dock): 0–100 como la barra
-// del Mezclador de OBS. Devuelven false si el canal no existe.
-bool music_channel_volume(int *percent, bool *muted);
-bool set_music_channel_volume(int percent);
-bool set_music_channel_muted(bool muted);

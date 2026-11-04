@@ -1,9 +1,7 @@
 #include "now-playing-dock.hpp"
-#include "music-channel.hpp"
 
 #include <obs-module.h>
 
-#include <QButtonGroup>
 #include <QComboBox>
 #include <QContextMenuEvent>
 #include <QMenu>
@@ -43,6 +41,9 @@ constexpr int kSkipButton = 32;
 constexpr qint64 kSkipMs = 10000;
 constexpr int kMainButton = 52;
 constexpr int kSmallButton = 28;
+// Tras mover el volumen, la barra no salta a lo que diga el reproductor durante este tiempo
+// (algunos tardan en aplicarlo y en contestar).
+constexpr qint64 kVolumeHoldMs = 4000;
 
 // Los reproductores de la lista, con su color (el punto al lado del nombre).
 struct PlayerInfo {
@@ -381,14 +382,6 @@ QString backdropFile()
 	return result;
 }
 
-// "Reproductor" o "Stream" en el dock, entre sesiones.
-QString volumeModeFile()
-{
-	char *path = obs_module_config_path("volume-mode.txt");
-	QString result = QString::fromUtf8(path);
-	bfree(path);
-	return result;
-}
 
 } // namespace
 
@@ -543,8 +536,8 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	buttons->addStretch(1);
 	layout->addLayout(buttons);
 
-	// El volumen en su propia fila, a todo el ancho (para moverlo con precisión); debajo, el
-	// aleatorio y a qué se aplica el volumen: el reproductor o solo el canal de música de OBS.
+	// El volumen del reproductor en su propia fila, a todo el ancho (para moverlo con
+	// precisión); debajo, el aleatorio y el fondo.
 	auto *volumeRow = new QHBoxLayout();
 	volumeRow->setSpacing(10);
 	auto *optionsRow = new QHBoxLayout();
@@ -589,35 +582,11 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	connect(volumeTimer_, &QTimer::timeout, this, &NowPlayingDock::applyVolume);
 	connect(volume_, &QSlider::valueChanged, this, [this](int value) {
 		volumeLabel_->setText(QString("%1%").arg(value));
-		volumeHoldUntil_ = MediaWatcher::now() + 2000;
+		volumeHoldUntil_ = MediaWatcher::now() + kVolumeHoldMs;
 		volumeTimer_->start();
 	});
 	connect(volume_, &QSlider::sliderReleased, this, &NowPlayingDock::applyVolume);
 
-	auto *modes = new QHBoxLayout();
-	modes->setSpacing(0);
-	auto *group = new QButtonGroup(this);
-	auto makeMode = [this, modes, group](const char *label, const char *tip) {
-		auto *button = new QToolButton(this);
-		button->setText(text(label));
-		button->setToolTip(text(tip));
-		button->setCheckable(true);
-		button->setCursor(Qt::PointingHandCursor);
-		button->setFocusPolicy(Qt::NoFocus);
-		group->addButton(button);
-		modes->addWidget(button);
-		return button;
-	};
-	modePlayer_ = makeMode("NowPlaying.Volume.Player", "NowPlaying.Volume.PlayerHelp");
-	modeStream_ = makeMode("NowPlaying.Volume.Stream", "NowPlaying.Volume.StreamHelp");
-	{
-		QFile saved(volumeModeFile());
-		streamMode_ = saved.open(QIODevice::ReadOnly) && saved.readAll().trimmed() == "stream";
-	}
-	(streamMode_ ? modeStream_ : modePlayer_)->setChecked(true);
-	connect(modePlayer_, &QToolButton::clicked, this, [this] { setStreamMode(false); });
-	connect(modeStream_, &QToolButton::clicked, this, [this] { setStreamMode(true); });
-	optionsRow->addLayout(modes);
 	layout->addSpacing(12);
 	layout->addLayout(volumeRow);
 	layout->addSpacing(6);
@@ -694,11 +663,9 @@ void NowPlayingDock::applyAccent(const QColor &accent)
 	updateIcons();
 }
 
-// Aleatorio encendido: del color de la carátula (como en la vista previa). "Reproductor /
-// Stream": el elegido, marcado con el color de la carátula.
+// Aleatorio y fondo difuminado encendidos: del color de la carátula.
 void NowPlayingDock::styleVolumeRow()
 {
-	const QString color = accent_.name();
 	// Encendido: con borde y fondo suave del color de la carátula; apagado, transparente.
 	auto toggle = [&](bool on) {
 		return on ? QString("QToolButton { border-radius: %1px; border: 1px solid %2; background: %3; }")
@@ -721,26 +688,6 @@ void NowPlayingDock::styleVolumeRow()
 			" background: %2; }"
 			"QSlider::sub-page:horizontal:disabled, QSlider::handle:horizontal:disabled { background: rgba(127,127,127,0.35); }")
 			.arg(rgba(textColor, 0.7), textColor.name()));
-	auto segment = [&](const char *corners) {
-		return QString("QToolButton { border: 1px solid rgba(127,127,127,0.35); padding: 2px 8px; %1 }"
-			       "QToolButton:checked { background: %2; color: %3; font-weight: bold; }")
-			.arg(QString::fromLatin1(corners), rgba(accent_, 0.14), color);
-	};
-	modePlayer_->setStyleSheet(segment("border-top-left-radius: 6px; border-bottom-left-radius: 6px; border-right: 0;"));
-	modeStream_->setStyleSheet(segment("border-top-right-radius: 6px; border-bottom-right-radius: 6px;"));
-}
-
-void NowPlayingDock::setStreamMode(bool stream)
-{
-	streamMode_ = stream;
-	QDir().mkpath(QFileInfo(volumeModeFile()).absolutePath());
-	QSaveFile file(volumeModeFile());
-	if (file.open(QIODevice::WriteOnly)) {
-		file.write(stream ? "stream" : "player");
-		file.commit();
-	}
-	volumeHoldUntil_ = 0;
-	updateVolumeRow();
 }
 
 void NowPlayingDock::applyVolume()
@@ -749,29 +696,14 @@ void NowPlayingDock::applyVolume()
 	const int value = volume_->value();
 	if (value > 0)
 		lastVolume_ = value;
-	volumeHoldUntil_ = MediaWatcher::now() + 2000;
-	if (streamMode_)
-		set_music_channel_volume(value);
-	else
-		MediaWatcher::instance().setVolume(value);
+	volumeHoldUntil_ = MediaWatcher::now() + kVolumeHoldMs;
+	MediaWatcher::instance().setVolume(value);
 	updateVolumeRow();
 }
 
 void NowPlayingDock::toggleMute()
 {
-	if (streamMode_) {
-		int volume = 0;
-		bool muted = false;
-		if (!music_channel_volume(&volume, &muted)) {
-			// Sin el canal no hay volumen del stream: se ofrece crearlo.
-			create_music_channel(this);
-		} else {
-			set_music_channel_muted(!muted);
-		}
-		updateVolumeRow();
-		return;
-	}
-	// Del reproductor: silenciar es bajar a 0 y recordar dónde estaba.
+	// Silenciar es bajar a 0 y recordar dónde estaba.
 	const int value = volume_->value();
 	if (value > 0)
 		lastVolume_ = value;
@@ -786,33 +718,20 @@ void NowPlayingDock::updateVolumeRow()
 	const bool hasTrack = shown().valid();
 	const PlayerState state = watcher.playerState();
 
-	int volume = -1;
-	bool muted = false;
-	bool channel = true;
-	if (streamMode_) {
-		channel = music_channel_volume(&volume, &muted);
-		if (!channel)
-			volume = -1;
-	} else if (hasTrack) {
-		volume = state.volume;
-	}
+	const int volume = hasTrack ? state.volume : -1;
 	const bool usable = volume >= 0;
 	volume_->setEnabled(usable);
-	mute_->setEnabled(usable || !channel);
+	mute_->setEnabled(usable);
 	if (usable && !volume_->isSliderDown() && MediaWatcher::now() >= volumeHoldUntil_) {
 		QSignalBlocker blocker(volume_);
 		volume_->setValue(volume);
 	}
-	const bool showMuted = usable && (muted || volume_->value() == 0);
+	const bool showMuted = usable && volume_->value() == 0;
 	volumeLabel_->setText(usable && !showMuted ? QString("%1%").arg(volume_->value()) : QString("—"));
-	if (streamMode_ && !channel)
-		mute_->setToolTip(text("NowPlaying.Volume.NoChannel"));
-	else
-		mute_->setToolTip(text(showMuted ? "NowPlaying.Unmute" : "NowPlaying.Mute"));
-	volume_->setToolTip(usable ? QString()
-				   : text(streamMode_ ? "NowPlaying.Volume.NoChannel" : "NowPlaying.Volume.Unsupported"));
+	mute_->setToolTip(text(showMuted ? "NowPlaying.Unmute" : "NowPlaying.Mute"));
+	volume_->setToolTip(text(usable ? "NowPlaying.Volume.PlayerHelp" : "NowPlaying.Volume.Unsupported"));
 
-	// Aleatorio: el del reproductor, en los dos modos. "action": un botón sin estado.
+	// Aleatorio: el del reproductor. "action": un botón sin estado (YouTube Music).
 	shuffle_->setEnabled(hasTrack && !state.shuffle.isEmpty());
 	shuffle_->setToolTip(text(state.shuffle.isEmpty() ? "NowPlaying.Shuffle.Unsupported"
 				  : state.shuffle == "action" ? "NowPlaying.Shuffle.Action"
