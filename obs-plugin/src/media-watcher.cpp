@@ -130,6 +130,7 @@ void MediaWatcher::start()
 	QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
 	commandFile_ = QDir(dir).filePath("obs-now-playing-command.json");
 	videoFlagFile_ = QDir(dir).filePath("obs-now-playing-video.flag");
+	othersFlagFile_ = QDir(dir).filePath("obs-now-playing-others.flag");
 	QFile saved(playerFile());
 	if (saved.open(QIODevice::ReadOnly)) {
 		QString player = QString::fromUtf8(saved.readAll()).trimmed();
@@ -179,7 +180,7 @@ void MediaWatcher::launch()
 	// Desde macOS 15.4 solo programas del sistema pueden leer "Ahora suena": por eso
 	// el lector corre en osascript y no dentro de OBS.
 	program = "/usr/bin/osascript";
-	args = {"-l", "JavaScript", moduleFile("media/macos.js"), "watch", videoFlagFile_};
+	args = {"-l", "JavaScript", moduleFile("media/macos.js"), "watch", videoFlagFile_, othersFlagFile_};
 #else
 	// Linux: los reproductores MPRIS por medio de playerctl (ver media/linux.sh). Con bash
 	// y no ejecutando el archivo: así no importa si perdió el permiso de ejecución.
@@ -395,10 +396,25 @@ void MediaWatcher::setVideoWanted(bool wanted)
 	writeVideoFlag();
 }
 
+void MediaWatcher::setOthersWanted(bool wanted)
+{
+	othersWanted_ = wanted;
+	writeVideoFlag();
+}
+
 void MediaWatcher::writeVideoFlag()
 {
 	if (videoFlagFile_.isEmpty())
 		return;
+	// Con un reproductor elegido (dock o fuente), en macOS hay que buscar lo que suena por
+	// detrás: si suenan dos a la vez, macOS anuncia solo uno.
+	if (othersWanted_ || !player_.isEmpty()) {
+		QFile others(othersFlagFile_);
+		if (!others.exists() && others.open(QIODevice::WriteOnly))
+			others.close();
+	} else {
+		QFile::remove(othersFlagFile_);
+	}
 	// Con un reproductor elegido en el dock, el lector tiene que distinguir las pestañas.
 	bool wanted = videoWanted_ || !player_.isEmpty();
 	if (!wanted) {

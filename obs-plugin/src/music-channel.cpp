@@ -45,6 +45,7 @@ QString audioTarget(const Track &track)
 #elif defined(__APPLE__)
 	QString id = track.app;
 	id.remove(QRegularExpression("\\.app\\..*$"));
+	id.remove(QRegularExpression("#.*$")); // "com.google.Chrome#ytmusic": una pestaña que suena por detrás
 	return id;
 #else
 	return track.app.section('.', 0, 0).toLower();

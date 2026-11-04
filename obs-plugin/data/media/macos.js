@@ -57,7 +57,8 @@ function envValue(name) {
 }
 
 function commandApp() {
-  return envValue('OBS_NOW_PLAYING_APP') || nowPlayingApp();
+  // "com.google.Chrome#ytmusic" (una pestaña que suena por detrás): el navegador.
+  return (envValue('OBS_NOW_PLAYING_APP') || nowPlayingApp()).replace(/#.*$/, '');
 }
 
 function commandTitle() {
@@ -675,67 +676,78 @@ const PLAYING_PAGE = `(() => {
   });
 })()`;
 
-function playingInApps(skip) {
+// Todo lo que suena fuera de lo anunciado (skipApp, skipTitle: lo anunciado, para no
+// repetirlo): las apps (Spotify, Apple Music) y una pestaña por navegador y sitio (YouTube
+// Music, YouTube, Spotify web). Las pestañas van como "<navegador>#<sitio>" para no pisarse
+// con la app del navegador (el plugin las guarda por app).
+function playingInApps(skipApp) {
+  const found = [];
   const apps = [
     ['com.spotify.client', 1], // duración en ms
     ['com.apple.Music', 1000], // duración en segundos
   ];
   for (const [id, toMs] of apps) {
-    if (id === skip) continue;
+    if (id === skipApp) continue;
     try {
       const player = Application(id);
       if (!player.running() || String(player.playerState()) !== 'playing') continue;
       const track = player.currentTrack;
-      return {
+      found.push({
         app: id,
         title: String(track.name() || ''),
         artist: String(track.artist() || ''),
         album: String(track.album() || ''),
         progressMs: Math.round((Number(player.playerPosition()) || 0) * 1000),
         durationMs: Math.round((Number(track.duration()) || 0) * toMs),
-      };
+      });
     } catch (e) {
       // sin permiso de Automatización para esa app
     }
   }
-  return null;
+  return found;
 }
 
-function playingInBrowsers() {
+function playingInBrowsers(skipTitle) {
+  const found = [];
   for (const [id, nameKey] of BROWSERS) {
     try {
       const b = Application(id);
       if (!b.running()) continue;
+      const sites = {};
       for (const w of b.windows()) {
         for (const t of w.tabs()) {
           const url = String(t.url() || '');
           if (!YOUTUBE_PAGE.test(url) && !SPOTIFY_WEB.test(url)) continue;
+          const site = SPOTIFY_WEB.test(url) ? 'spotify' : /^https:\/\/music\./.test(url) ? 'ytmusic' : 'youtube';
+          if (sites[site]) continue;
           const out = id === 'com.apple.Safari' ? b.doJavaScript(PLAYING_PAGE, { in: t }) : t.execute({ javascript: PLAYING_PAGE });
           if (!out) continue;
           const r = JSON.parse(out);
+          if (skipTitle && normName(r.title) === skipTitle) continue;
+          sites[site] = true;
           const watchId = YOUTUBE_WATCH.exec(url);
-          return {
-            app: id,
+          found.push({
+            app: `${id}#${site}`,
             name: String(t[nameKey]() || ''),
             title: String(r.title),
             artist: String(r.artist),
             album: String(r.album),
             progressMs: r.positionMs || 0,
             durationMs: r.durationMs || 0,
-            site: SPOTIFY_WEB.test(url) ? 'spotify' : /^https:\/\/music\./.test(url) ? 'ytmusic' : 'youtube',
+            site,
             videoId: watchId ? watchId[2] : '',
             art: /^https:\/\//.test(String(r.art || '')) ? r.art : '',
-          };
+          });
         }
       }
     } catch (e) {
       // el navegador no deja correr JavaScript desde Apple Events, o no hay permiso
     }
   }
-  return null;
+  return found;
 }
 
-function watch(videoFlag) {
+function watch(videoFlag, othersFlag) {
   if (!loadMediaRemote()) {
     emit({ error: 'No se pudo cargar MediaRemote de macOS.' });
     return 2;
@@ -755,9 +767,8 @@ function watch(videoFlag) {
   let tries = 0;
   let failures = 0;
   // Lo que suena por detrás: se busca cada 3 s (entre medio se reusa y se adelanta).
-  let other = null;
-  let otherAt = 0;
-  let otherSearchedAt = 0;
+  let others = [];
+  let othersAt = 0;
   const otherArt = {}; // "app\ncanción" → ya se mandó su carátula
 
   // ~30 min y salimos: server.js nos vuelve a abrir (evita acumular memoria).
@@ -772,12 +783,17 @@ function watch(videoFlag) {
       const title = info && !info.isNil() ? value('kMRMediaRemoteNowPlayingInfoTitle') : null;
       const sessions = [];
       let reportedApp = '';
+      let reportedTitle = '';
       let reportedPlaying = false;
 
       if (title) {
         const client = Request.localNowPlayingPlayerPath.client;
         const app = str(client.bundleIdentifier) || 'desconocida';
-        reportedApp = app;
+        // OBS (el video de la tarjeta) no cuenta: su título puede ser el de la canción real.
+        if (!/obsproject/i.test(app)) {
+          reportedApp = app;
+          reportedTitle = normName(String(title));
+        }
         const artist = value('kMRMediaRemoteNowPlayingInfoArtist') || '';
         const rate = Number(value('kMRMediaRemoteNowPlayingInfoPlaybackRate')) || 0;
         let playing = rate > 0;
@@ -840,17 +856,18 @@ function watch(videoFlag) {
         }
       }
 
-      // macOS no anuncia nada que suene (o anuncia algo en pausa, u OBS): ¿suena otra cosa?
-      if (!reportedPlaying) {
+      // macOS no anuncia nada que suene (o anuncia algo en pausa, u OBS), o hay un
+      // reproductor elegido en el plugin (si suenan dos, macOS anuncia solo uno): ¿qué más
+      // suena?
+      const flagged = (f) => f && $.NSFileManager.defaultManager.fileExistsAtPath(f);
+      if (!reportedPlaying || flagged(othersFlag)) {
         const now = Date.now();
-        if (now - otherSearchedAt >= 3000) {
-          otherSearchedAt = now;
-          other = playingInApps(reportedApp);
-          const tabsAllowed = videoFlag && $.NSFileManager.defaultManager.fileExistsAtPath(videoFlag);
-          if (!other && tabsAllowed) other = playingInBrowsers();
-          otherAt = now;
+        if (now - othersAt >= 3000) {
+          othersAt = now;
+          others = playingInApps(reportedApp);
+          if (flagged(videoFlag)) others = others.concat(playingInBrowsers(reportedTitle));
         }
-        if (other && other.app !== reportedApp) {
+        others.forEach((other, n) => {
           const extra = {
             app: other.app,
             name: other.name || '',
@@ -858,8 +875,8 @@ function watch(videoFlag) {
             artist: other.artist,
             album: other.album,
             isPlaying: true,
-            current: true,
-            progressMs: other.progressMs + (now - otherAt),
+            current: !reportedPlaying && n === 0,
+            progressMs: other.progressMs + (now - othersAt),
             durationMs: other.durationMs,
           };
           if (other.site) extra.site = other.site;
@@ -876,11 +893,11 @@ function watch(videoFlag) {
             if (!art) art = catalogArtwork(other.title, other.artist);
             extra.artwork = art;
           }
-          for (const s of sessions) s.current = false;
-          sessions.unshift(extra);
-        }
+          if (extra.current) for (const s2 of sessions) s2.current = false;
+          sessions.push(extra);
+        });
       } else {
-        other = null;
+        others = [];
       }
       emit({ sessions });
       failures = 0;
@@ -927,6 +944,6 @@ function run(argv) {
     : mode === 'ytsearch' ? testYouTubeSearch(argv[1], argv[2])
     : mode === 'video' ? testVideo()
     : mode === 'selftest' ? selfTest()
-    : watch(mode === 'watch' ? argv[1] : ''); // watch <archivo>: el plugin pide modo video
+    : watch(mode === 'watch' ? argv[1] : '', mode === 'watch' ? argv[2] : ''); // watch <video> <otros>: banderas del plugin
   if (code) $.exit(code);
 }

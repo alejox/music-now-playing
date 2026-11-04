@@ -473,11 +473,16 @@ void np_enum_sources(void *data, obs_source_enum_proc_t enum_callback, void *par
 void syncVideoWanted()
 {
 	bool wanted = false;
-	for (NowPlayingSource *s : sources)
-		wanted = wanted || s->config.value("media").toString() == "video" ||
-			 (!s->player.isEmpty() && s->player != "dock" && s->player != "auto");
-	QMetaObject::invokeMethod(&MediaWatcher::instance(),
-				  [wanted] { MediaWatcher::instance().setVideoWanted(wanted); });
+	bool fixedPlayer = false;
+	for (NowPlayingSource *s : sources) {
+		const bool fixed = !s->player.isEmpty() && s->player != "dock" && s->player != "auto";
+		fixedPlayer = fixedPlayer || fixed;
+		wanted = wanted || fixed || s->config.value("media").toString() == "video";
+	}
+	QMetaObject::invokeMethod(&MediaWatcher::instance(), [wanted, fixedPlayer] {
+		MediaWatcher::instance().setVideoWanted(wanted);
+		MediaWatcher::instance().setOthersWanted(fixedPlayer);
+	});
 }
 
 void push_now_playing_sources()
