@@ -126,7 +126,7 @@ fetch_async() {
   for ((i = 0; i < n; i++)); do
     if [ "${F_URL[i]}" = "$url" ]; then found=$i; fi
   done
-  if [ "$found" -lt 0 ] || { [ "${F_STATE[found]}" = failed ] && [ $((SECONDS - F_AT[found])) -ge 30 ]; }; then
+  if [ "$found" -lt 0 ] || { [ "${F_STATE[found]}" = 'failed' ] && [ $((SECONDS - F_AT[found])) -ge 30 ]; }; then
     if [ "$found" -lt 0 ]; then
       found=$n
       F_URL[found]=$url
@@ -139,18 +139,18 @@ fetch_async() {
     # El .ok dice que curl terminó bien (sin esperar a curl no se sabe cómo salió).
     (curl -fsSL --max-time 4 "$@" -o "$FETCH_DIR/$found" "$url" && : >"$FETCH_DIR/$found.ok") </dev/null >/dev/null 2>&1 &
     F_PID[found]=$!
-    F_STATE[found]=pending
+    F_STATE[found]='pending'
   fi
-  if [ "${F_STATE[found]}" = pending ]; then
+  if [ "${F_STATE[found]}" = 'pending' ]; then
     if [ -e "$FETCH_DIR/$found.ok" ]; then
-      F_STATE[found]=done
+      F_STATE[found]='done'
     elif ! kill -0 "${F_PID[found]}" 2>/dev/null; then
-      if [ -e "$FETCH_DIR/$found.ok" ]; then F_STATE[found]=done; else F_STATE[found]=failed; fi
+      if [ -e "$FETCH_DIR/$found.ok" ]; then F_STATE[found]='done'; else F_STATE[found]='failed'; fi
       F_AT[found]=$SECONDS
     fi
   fi
   FETCH_STATE=${F_STATE[found]}
-  if [ "$FETCH_STATE" = done ]; then FETCH_FILE="$FETCH_DIR/$found"; fi
+  if [ "$FETCH_STATE" = 'done' ]; then FETCH_FILE="$FETCH_DIR/$found"; fi
 }
 
 # ---- Carátula ----------------------------------------------------------------------
@@ -180,8 +180,8 @@ artwork_data() {
     https://* | http://*)
       command -v curl >/dev/null 2>&1 || return
       fetch_async "$url" --max-filesize 3145728
-      if [ "$FETCH_STATE" = pending ]; then ART_PENDING=1; fi
-      if [ "$FETCH_STATE" != done ]; then return; fi
+      if [ "$FETCH_STATE" = 'pending' ]; then ART_PENDING=1; fi
+      if [ "$FETCH_STATE" != 'done' ]; then return; fi
       file=$FETCH_FILE
       ;;
     *) return ;;
@@ -230,8 +230,8 @@ search_youtube_video() {
   fetch_async "https://www.youtube.com/results?search_query=$ENCODED_OUT" \
     -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36' \
     -H 'Accept-Language: en-US,en;q=0.8' -H 'Cookie: SOCS=CAI; CONSENT=YES+'
-  if [ "$FETCH_STATE" = pending ]; then VIDEO_PENDING=1; fi
-  if [ "$FETCH_STATE" != done ]; then return; fi
+  if [ "$FETCH_STATE" = 'pending' ]; then VIDEO_PENDING=1; fi
+  if [ "$FETCH_STATE" != 'done' ]; then return; fi
   html=$(<"$FETCH_FILE")
   if [[ $html =~ $YOUTUBE_RESULT ]]; then VIDEO_OUT=${BASH_REMATCH[1]}; fi
 }
