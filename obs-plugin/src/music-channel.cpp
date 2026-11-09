@@ -60,9 +60,71 @@ constexpr const char *kSourceId = "sck_audio_capture";
 constexpr const char *kSourceId = "pipewire_audio_application_capture";
 #endif
 
+// Ajuste privado que marca la captura como el canal del plugin. Así se reconoce aunque
+// cambie el idioma de OBS (el nombre está traducido) o el usuario la renombre, y nunca se
+// confunde con una fuente propia del usuario que se llame igual.
+constexpr const char *kChannelMarker = "obs_now_playing_channel";
+
+bool hasMarker(obs_source_t *source)
+{
+	if (strcmp(obs_source_get_id(source), kSourceId) != 0)
+		return false;
+	obs_data_t *settings = obs_source_get_settings(source);
+	bool marked = obs_data_get_bool(settings, kChannelMarker);
+	obs_data_release(settings);
+	return marked;
+}
+
+// El canal del plugin, con una referencia que hay que soltar (obs_source_release), o nullptr.
+obs_source_t *findChannel()
+{
+	obs_source_t *found = nullptr;
+	obs_enum_sources(
+		[](void *param, obs_source_t *source) {
+			if (!hasMarker(source))
+				return true;
+			*static_cast<obs_source_t **>(param) = obs_source_get_ref(source);
+			return false;
+		},
+		&found);
+	if (found)
+		return found;
+
+	// Canal creado por una versión anterior (sin la marca): una captura del mismo tipo con el
+	// nombre traducido. Se marca para reconocerla de ahora en adelante. Una fuente que se
+	// llame igual pero sea de otro tipo es del usuario y no se toca.
+	QByteArray name = text("NowPlaying.Channel.SourceName").toUtf8();
+	obs_source_t *source = obs_get_source_by_name(name.constData());
+	if (!source)
+		return nullptr;
+	if (strcmp(obs_source_get_id(source), kSourceId) != 0) {
+		obs_source_release(source);
+		return nullptr;
+	}
+	obs_data_t *settings = obs_source_get_settings(source);
+	obs_data_set_bool(settings, kChannelMarker, true);
+	obs_data_release(settings);
+	blog(LOG_INFO, "[obs-now-playing] canal de música de una versión anterior: se marca");
+	return source;
+}
+
+// Un nombre libre para el canal nuevo: el traducido o, si otra fuente ya lo usa, con un número.
+QByteArray freeChannelName()
+{
+	const QString base = text("NowPlaying.Channel.SourceName");
+	for (int i = 1;; i++) {
+		QByteArray name = (i == 1 ? base : QString("%1 %2").arg(base).arg(i)).toUtf8();
+		obs_source_t *other = obs_get_source_by_name(name.constData());
+		if (!other)
+			return name;
+		obs_source_release(other);
+	}
+}
+
 obs_data_t *captureSettings(const QString &target)
 {
 	obs_data_t *settings = obs_data_create();
+	obs_data_set_bool(settings, kChannelMarker, true);
 #ifdef _WIN32
 	// "título:clase:exe" con prioridad por ejecutable: sirve con cualquier ventana de la app.
 	obs_data_set_string(settings, "window", ("::" + target).toUtf8().constData());
@@ -140,13 +202,11 @@ void follow_music_channel()
 	    target.compare("obs64.exe", Qt::CaseInsensitive) == 0 || target.compare("obs", Qt::CaseInsensitive) == 0)
 		return;
 
-	QByteArray name = text("NowPlaying.Channel.SourceName").toUtf8();
-	obs_source_t *source = obs_get_source_by_name(name.constData());
+	// Solo el canal que creó el plugin (no otra fuente que se llame igual).
+	obs_source_t *source = findChannel();
 	if (!source)
 		return;
-	// Solo el canal que creó el plugin (no otra fuente que se llame igual).
-	if (strcmp(obs_source_get_id(source), kSourceId) == 0 &&
-	    currentTarget(source).compare(target, Qt::CaseInsensitive) != 0) {
+	if (currentTarget(source).compare(target, Qt::CaseInsensitive) != 0) {
 		// Si la app todavía no aparece en la lista de macOS, se reintenta cada 3 segundos
 		// (sin tocar el canal, que si no quedaría en silencio).
 		static qint64 lastTry = 0;
@@ -194,19 +254,21 @@ void create_music_channel(QWidget *parent)
 	obs_data_t *settings = captureSettings(target);
 
 	// Si el canal ya existe se reapunta a la app de ahora (de Spotify a YouTube Music…).
-	QByteArray name = text("NowPlaying.Channel.SourceName").toUtf8();
-	obs_source_t *source = obs_get_source_by_name(name.constData());
+	// Solo el canal del plugin: una fuente del usuario con el mismo nombre no se toca (el canal
+	// nuevo toma otro nombre).
+	obs_source_t *source = findChannel();
 	bool created = !source;
 	if (source) {
 		refreshAndFindApp(source, settings, target);
 		obs_source_update(source, settings);
 	} else
-		source = obs_source_create(sourceId, name.constData(), settings, nullptr);
+		source = obs_source_create(sourceId, freeChannelName().constData(), settings, nullptr);
 	obs_data_release(settings);
 	if (!source) {
 		QMessageBox::warning(parent, text("NowPlaying.Channel.Title"), text(unsupported));
 		return;
 	}
+	const QByteArray name = obs_source_get_name(source);
 
 	// A la escena abierta, si aún no está ahí: así aparece en el Mezclador.
 	obs_source_t *sceneSource = obs_frontend_get_current_scene();
