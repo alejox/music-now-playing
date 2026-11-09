@@ -1,4 +1,5 @@
 #include "now-playing-dock.hpp"
+#include "now-playing-source.hpp"
 
 #include <obs-module.h>
 
@@ -42,6 +43,7 @@ constexpr int kSkipButton = 32;
 constexpr qint64 kSkipMs = 10000;
 constexpr int kMainButton = 52;
 constexpr int kSmallButton = 28;
+constexpr int kRefreshCooldownMs = 2000; // el botón Refrescar se apaga este rato (evita repetirlo)
 // Botones del transporte en compacto o angosto (los de ±10 s se ocultan).
 constexpr int kSideButtonSmall = 32;
 constexpr int kMainButtonSmall = 40;
@@ -169,7 +171,7 @@ QColor accentFrom(const QImage &source)
 	return QColor::fromHslF(h, std::clamp(s, 0.55f, 1.0f), std::clamp(l, 0.55f, 0.7f));
 }
 
-enum class Glyph { Previous, Play, Pause, Next, Back10, Forward10, Shuffle, Speaker, SpeakerMuted, Backdrop };
+enum class Glyph { Previous, Play, Pause, Next, Back10, Forward10, Shuffle, Speaker, SpeakerMuted, Backdrop, Refresh };
 
 // Iconos dibujados aquí (y no los del sistema, que en el tema de OBS se ven grises y
 // borrosos, como deshabilitados): triángulos y barras redondeados del color pedido.
@@ -273,7 +275,31 @@ QPixmap glyphPixmap(Glyph glyph, const QColor &color, int size, qreal dpr)
 		p.setBrush(color);
 		p.drawEllipse(QPointF(s * 0.66, s * 0.36), s * 0.06, s * 0.06);
 	};
+	// Flecha en círculo (refrescar): un arco abierto a la derecha con la punta arriba,
+	// apuntando en el sentido de las agujas del reloj.
+	auto refresh = [&]() {
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(color, s * 0.08, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+		const QPointF c(s * 0.5, s * 0.5);
+		const qreal r = s * 0.3;
+		p.drawArc(QRectF(c.x() - r, c.y() - r, 2 * r, 2 * r), 40 * 16, 290 * 16);
+		const qreal cosA = 0.766, sinA = 0.643; // 40°
+		const QPointF tip(c.x() + r * cosA, c.y() - r * sinA);
+		const QPointF dir(sinA, cosA); // tangente en sentido horario
+		const QPointF side(-dir.y(), dir.x());
+		QPainterPath head;
+		head.moveTo(tip + dir * s * 0.13);
+		head.lineTo(tip + side * s * 0.13);
+		head.lineTo(tip - side * s * 0.13);
+		head.closeSubpath();
+		p.setPen(Qt::NoPen);
+		p.setBrush(color);
+		p.drawPath(head);
+	};
 	switch (glyph) {
+	case Glyph::Refresh:
+		refresh();
+		break;
 	case Glyph::Backdrop:
 		picture();
 		break;
@@ -628,6 +654,9 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	backdropButton_ = makeSmall("NowPlaying.Dock.Backdrop");
 	optionsRow->addWidget(backdropButton_, 0, Qt::AlignVCenter);
 	connect(backdropButton_, &QToolButton::clicked, this, [this] { setBlurBackground(!blurBackground_); });
+	refreshButton_ = makeSmall("NowPlaying.Dock.Refresh");
+	optionsRow->addWidget(refreshButton_, 0, Qt::AlignVCenter);
+	connect(refreshButton_, &QToolButton::clicked, this, &NowPlayingDock::manualRefresh);
 	optionsRow->addStretch(1);
 	connect(shuffle_, &QToolButton::clicked, this, [this] {
 		MediaWatcher::instance().toggleShuffle();
@@ -754,6 +783,7 @@ void NowPlayingDock::styleVolumeRow()
 	};
 	shuffle_->setStyleSheet(toggle(shuffleOn_));
 	backdropButton_->setStyleSheet(toggle(blurBackground_));
+	refreshButton_->setStyleSheet(toggle(false));
 	mute_->setStyleSheet(QString("QToolButton { border-radius: %1px; border: 0; background: transparent; }"
 				     "QToolButton:hover { background: rgba(127,127,127,0.18); }")
 				     .arg(kSmallButton / 2));
@@ -904,22 +934,25 @@ void NowPlayingDock::applyTier()
 	forward_->setVisible(!smallTransport);
 	buttons_->setSpacing(smallTransport ? 6 : 10);
 
-	// Mediano: el aleatorio y el fondo pasan al final de la fila del volumen.
+	// Mediano: el aleatorio, el fondo y refrescar pasan al final de la fila del volumen.
 	const bool merged = tier_ == Tier::Medium;
+	const QList<QToolButton *> options{shuffle_, backdropButton_, refreshButton_};
 	if (merged && volumeRow_->indexOf(shuffle_) < 0) {
-		optionsRow_->removeWidget(shuffle_);
-		optionsRow_->removeWidget(backdropButton_);
-		volumeRow_->addWidget(shuffle_, 0, Qt::AlignVCenter);
-		volumeRow_->addWidget(backdropButton_, 0, Qt::AlignVCenter);
+		for (QToolButton *button : options) {
+			optionsRow_->removeWidget(button);
+			volumeRow_->addWidget(button, 0, Qt::AlignVCenter);
+		}
 	} else if (!merged && optionsRow_->indexOf(shuffle_) < 0) {
-		volumeRow_->removeWidget(shuffle_);
-		volumeRow_->removeWidget(backdropButton_);
-		optionsRow_->insertWidget(0, shuffle_, 0, Qt::AlignVCenter);
-		optionsRow_->insertWidget(1, backdropButton_, 0, Qt::AlignVCenter);
+		for (qsizetype i = 0; i < options.size(); ++i) {
+			volumeRow_->removeWidget(options.at(i));
+			optionsRow_->insertWidget(int(i), options.at(i), 0, Qt::AlignVCenter);
+		}
 	}
 	volumeRow_->setSpacing(narrow_ ? 6 : 10);
+	// Compacto: sin estos botones; el fondo y refrescar quedan en el menú del clic derecho.
 	for (QWidget *widget : {static_cast<QWidget *>(mute_), static_cast<QWidget *>(volume_),
-				static_cast<QWidget *>(shuffle_), static_cast<QWidget *>(backdropButton_)})
+				static_cast<QWidget *>(shuffle_), static_cast<QWidget *>(backdropButton_),
+				static_cast<QWidget *>(refreshButton_)})
 		widget->setVisible(!compact);
 	volumeLabel_->setVisible(!compact && !narrow_);
 	volume_->setMinimumWidth(narrow_ ? 40 : 60);
@@ -1010,9 +1043,25 @@ void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
 	QAction *blur = menu.addAction(text("NowPlaying.Dock.Backdrop"));
 	blur->setCheckable(true);
 	blur->setChecked(blurBackground_);
-	if (menu.exec(event->globalPos()) != blur)
+	QAction *reload = menu.addAction(text("NowPlaying.Dock.Refresh"));
+	reload->setEnabled(refreshButton_->isEnabled());
+	QAction *chosen = menu.exec(event->globalPos());
+	if (chosen == blur)
+		setBlurBackground(blur->isChecked());
+	else if (chosen == reload)
+		manualRefresh();
+}
+
+// Botón Refrescar: reinicia el lector (la carátula y el video se buscan de nuevo) y recarga
+// las tarjetas. Se apaga un par de segundos para no repetirlo sin querer.
+void NowPlayingDock::manualRefresh()
+{
+	if (!refreshButton_->isEnabled())
 		return;
-	setBlurBackground(blur->isChecked());
+	refreshButton_->setEnabled(false);
+	QTimer::singleShot(kRefreshCooldownMs, refreshButton_, [button = refreshButton_] { button->setEnabled(true); });
+	MediaWatcher::instance().restartReader();
+	refresh_now_playing_sources();
 }
 
 void NowPlayingDock::setBlurBackground(bool on)
@@ -1061,6 +1110,8 @@ void NowPlayingDock::updateIcons()
 	shuffle_->setIconSize(QSize(small, small));
 	backdropButton_->setIcon(glyphIcon(Glyph::Backdrop, blurBackground_ ? accent_ : textColor, small, dpr));
 	backdropButton_->setIconSize(QSize(small, small));
+	refreshButton_->setIcon(glyphIcon(Glyph::Refresh, textColor, small, dpr));
+	refreshButton_->setIconSize(QSize(small, small));
 	mute_->setIcon(glyphIcon(muted_ ? Glyph::SpeakerMuted : Glyph::Speaker, textColor, small, dpr));
 	mute_->setIconSize(QSize(small, small));
 }

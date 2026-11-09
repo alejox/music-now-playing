@@ -52,6 +52,8 @@ private:
 	void applyVolume();
 	void toggleMute();
 	void setBlurBackground(bool on);
+	// Botón Refrescar (y su opción del clic derecho).
+	void manualRefresh();
 	// Diseño según el tamaño del dock: grande, mediano o compacto (alto) y angosto (ancho).
 	enum class Tier { Compact, Medium, Large };
 	void updateLayoutForSize();
@@ -100,6 +102,7 @@ private:
 	QToolButton *forward_ = nullptr;
 	QToolButton *shuffle_ = nullptr;
 	QToolButton *backdropButton_ = nullptr;
+	QToolButton *refreshButton_ = nullptr;
 	QToolButton *mute_ = nullptr;
 	QSlider *volume_ = nullptr;
 	QLabel *volumeLabel_ = nullptr;

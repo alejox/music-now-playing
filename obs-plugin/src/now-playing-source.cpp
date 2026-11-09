@@ -12,11 +12,14 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMetaObject>
+#include <QTimer>
 
 #include <algorithm>
 #include <cstring>
 #include <mutex>
 #include <set>
+#include <utility>
+#include <vector>
 
 void syncVideoWanted(); // abajo, junto a push_now_playing_sources()
 
@@ -527,6 +530,65 @@ void push_now_playing_sources()
 	std::lock_guard<std::mutex> lock(sourcesMutex);
 	for (NowPlayingSource *s : sources)
 		push(s);
+}
+
+namespace {
+
+// Recarga la página de una fuente de navegador sin caché: con el botón "refreshnocache" de
+// sus propiedades (el mismo de "Actualizar caché de la página actual" en OBS). Si esa
+// versión de obs-browser no lo tiene, un cambio de CSS sin efecto también la recarga.
+void reloadBrowser(obs_source_t *browser, const NowPlayingSource *s)
+{
+	obs_properties_t *props = obs_source_properties(browser);
+	obs_property_t *button = props ? obs_properties_get(props, "refreshnocache") : nullptr;
+	if (button && obs_property_get_type(button) == OBS_PROPERTY_BUTTON) {
+		obs_property_button_clicked(button, browser);
+	} else {
+		obs_data_t *bs = browserSettings(s);
+		obs_data_set_string(bs, "css", QString("/* %1 */").arg(MediaWatcher::now()).toUtf8().constData());
+		obs_source_update(browser, bs);
+		obs_data_release(bs);
+	}
+	obs_properties_destroy(props);
+}
+
+// Tras recargar: la carátula (que va solo al cambiar) se vuelve a mandar con el próximo envío.
+void resendAll()
+{
+	std::lock_guard<std::mutex> lock(sourcesMutex);
+	for (NowPlayingSource *s : sources) {
+		s->sentArtKey.clear();
+		push(s);
+	}
+}
+
+} // namespace
+
+void refresh_now_playing_sources()
+{
+	// En el hilo de la interfaz. Las fuentes se toman con su referencia y se recargan fuera
+	// del candado (obs-browser puede tardar y OBS destruir fuentes mientras tanto).
+	std::vector<std::pair<obs_source_t *, NowPlayingSource>> browsers;
+	{
+		std::lock_guard<std::mutex> lock(sourcesMutex);
+		for (NowPlayingSource *s : sources) {
+			obs_source_t *ref = s->browser ? obs_source_get_ref(s->browser) : nullptr;
+			if (!ref)
+				continue;
+			NowPlayingSource size; // solo el tamaño, para los ajustes de la fuente de navegador
+			size.width = s->width;
+			size.height = s->height;
+			browsers.emplace_back(ref, size);
+		}
+	}
+	for (auto &[browser, copy] : browsers) {
+		reloadBrowser(browser, &copy);
+		obs_source_release(browser);
+	}
+	obs_log(LOG_INFO, "tarjetas recargadas: %d", int(browsers.size()));
+	// La página tarda en cargar: se le vuelve a mandar todo un par de veces.
+	for (int ms : {1500, 3500})
+		QTimer::singleShot(ms, &MediaWatcher::instance(), resendAll);
 }
 
 void register_now_playing_source()

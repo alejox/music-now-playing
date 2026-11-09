@@ -74,6 +74,9 @@ public:
 	void toggleShuffle();
 	// Vuelve a preguntar el volumen y el aleatorio (el dock lo hace cada pocos segundos).
 	void refreshPlayerState();
+	// Botón Refrescar del dock: olvida la carátula y el video de lo que suena (se buscan de
+	// nuevo) y reinicia el lector, sin esperas de reintento.
+	void restartReader();
 
 	static qint64 now();
 

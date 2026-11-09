@@ -158,7 +158,8 @@ void MediaWatcher::stop()
 
 void MediaWatcher::launch()
 {
-	if (stopping_)
+	// Con un lector andando no se abre otro (un reinicio pendiente tras el botón Refrescar).
+	if (stopping_ || process_)
 		return;
 
 	QString program;
@@ -355,6 +356,31 @@ void MediaWatcher::handleLine(const QByteArray &line)
 
 	status_ = Status::Ok;
 	error_.clear();
+	emit updated();
+}
+
+void MediaWatcher::restartReader()
+{
+	obs_log(LOG_INFO, "refresco manual");
+	// Lo que suena vuelve a buscar su carátula y su video: el lector nuevo los manda de nuevo.
+	for (Track &track : tracks_) {
+		const QString artKey = track.app + '\n' + track.title + '\n' + track.artist;
+		artworks_.remove(artKey);
+		artworkOrder_.removeAll(artKey);
+		artMissingLogged_.remove(artKey);
+		track.artwork.clear();
+		track.videoId.clear();
+	}
+	failures_ = 0;
+	if (process_) {
+		process_->disconnect(this);
+		process_->kill();
+		process_->waitForFinished(1000);
+		delete process_;
+		process_ = nullptr;
+	}
+	if (status_ != Status::Unsupported)
+		launch();
 	emit updated();
 }
 
