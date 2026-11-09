@@ -4,10 +4,16 @@
 
 #include <QColor>
 #include <QImage>
+#include <QPixmap>
 #include <QWidget>
 
+class QBoxLayout;
 class QComboBox;
+class QHBoxLayout;
 class QLabel;
+class QScrollArea;
+class QSpacerItem;
+class QVBoxLayout;
 class QSlider;
 class QTimer;
 class QToolButton;
@@ -21,6 +27,8 @@ class NowPlayingDock : public QWidget {
 
 public:
 	explicit NowPlayingDock(QWidget *parent = nullptr);
+	// Pequeño: el dock se puede achicar libremente (lo que no quepa se desplaza).
+	QSize minimumSizeHint() const override;
 
 protected:
 	void changeEvent(QEvent *event) override;
@@ -44,8 +52,39 @@ private:
 	void applyVolume();
 	void toggleMute();
 	void setBlurBackground(bool on);
+	// Diseño según el tamaño del dock: grande, mediano o compacto (alto) y angosto (ancho).
+	enum class Tier { Compact, Medium, Large };
+	void updateLayoutForSize();
+	void applyTier();
+	void updateArtSize();
+	void setArtSize(int size);
+	void updateArtPixmap();
+
+	QScrollArea *scroll_ = nullptr;
+	QVBoxLayout *layout_ = nullptr;
+	QBoxLayout *header_ = nullptr;     // carátula y textos: en columna, o en fila si es compacto
+	QVBoxLayout *textColumn_ = nullptr;
+	QHBoxLayout *buttons_ = nullptr;
+	QHBoxLayout *volumeRow_ = nullptr;
+	QHBoxLayout *optionsRow_ = nullptr;
+	QSpacerItem *gapAfterPlayer_ = nullptr;
+	QSpacerItem *gapBeforeSource_ = nullptr;
+	QSpacerItem *gapAfterHeader_ = nullptr;
+	QSpacerItem *gapAfterProgress_ = nullptr;
+	QSpacerItem *gapBeforeVolume_ = nullptr;
+	QSpacerItem *gapBeforeOptions_ = nullptr;
+	QSpacerItem *gapBeforeStatus_ = nullptr;
+	Tier tier_ = Tier::Large;
+	bool narrow_ = false;
+	bool tierApplied_ = false;
+	int sideSize_ = 40; // anterior / siguiente
+	int mainSize_ = 52; // pausa
+	QPixmap artSource_; // la carátula decodificada una vez por canción
+	int artSize_ = 0;
+	qreal artDpr_ = 0;
 
 	QComboBox *player_ = nullptr;
+	QLabel *playerLabel_ = nullptr;
 	QLabel *art_ = nullptr;
 	QLabel *title_ = nullptr;
 	QLabel *artist_ = nullptr;
