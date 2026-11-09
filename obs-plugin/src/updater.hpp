@@ -49,12 +49,17 @@ private:
 	void askToUpdate(const QString &version, const QString &url, const QString &sigUrl, const QString &pageUrl);
 	void download(const QString &version, const QString &url, const QString &sigUrl, const QString &pageUrl);
 	void install(const QString &version, const QString &zipPath);
+	// unzip: el código de salida de tar/ditto (-1 si no se pudo ejecutar).
+	void installExtracted(const QString &version, const QString &zipPath, const QString &extracted, int unzip);
+	void finishInstall(const QString &version, const QString &root, bool ok, bool stillRunning,
+			   const QString &problem);
+	void closeProgress();
 	void fail(const QString &message, const QString &pageUrl, const QString &detail = QString());
 
 	// Transmisión, grabación, búfer de repetición o cámara virtual activos.
 	static bool live();
 
-	bool busy_ = false;
+	bool busy_ = false; // revisando, o descargando e instalando
 	bool exiting_ = false;
 	bool checkPending_ = false; // la revisión automática espera a que no estés en vivo
 	// El aviso automático que espera a que no estés en vivo (vacío: ninguno).
