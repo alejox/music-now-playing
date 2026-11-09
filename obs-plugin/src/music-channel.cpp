@@ -3,11 +3,18 @@
 
 #include <obs-frontend-api.h>
 #include <obs-module.h>
+#include <plugin-support.h>
 
+#include <QAction>
+#include <QDir>
+#include <QFileInfo>
 #include <QMessageBox>
+#include <QPointer>
 #include <QRegularExpression>
+#include <QStringList>
 
 #include <cstring>
+#include <vector>
 
 namespace {
 
@@ -181,6 +188,262 @@ QString currentTarget(obs_source_t *source)
 	return target;
 }
 
+// ---- El canal en un canal de salida de OBS (hilo principal de Qt) ----
+//
+// Igual que la voz de Multichat: la captura no está en ninguna escena sino en un canal de
+// salida libre, así suena en todas las escenas y aparece en el Mezclador. Si está activado y
+// su estado (volumen, silencio, monitoreo, balance, pistas, filtros) se guardan en la
+// configuración del plugin (music-channel.json), no en la colección de escenas: OBS no
+// guarda los canales de salida por encima del 6 y descarta al cargar una fuente que no está
+// en ninguna escena, así que el canal se recrea con ese estado al abrir OBS o cambiar de
+// colección.
+
+// Canales de salida: el 0 es la transición y del 1 al 6 el audio de escritorio y los
+// micrófonos de los Ajustes de OBS. El canal toma el más alto libre (como Multichat); un canal
+// que usa otra cosa nunca se toca, así conviven los dos plugins.
+constexpr uint32_t kFirstFreeChannel = 7;
+
+obs_source_t *channelSource = nullptr; // referencia propia al canal (nullptr = sin canal)
+uint32_t outputChannel = 0;            // canal de salida donde está (0 = ninguno)
+bool enabled = false;                  // lo que eligió el usuario (apagado por defecto)
+obs_data_t *savedState = nullptr;      // el último obs_save_source del canal
+bool collectionReady = false;          // hay una colección de escenas cargada
+bool shuttingDown = false;
+bool createdFresh = false;             // la última sincronización creó un canal nuevo
+QPointer<QAction> toolsAction;
+
+QString configPath()
+{
+	char *path = obs_module_config_path("music-channel.json");
+	QString result = QString::fromUtf8(path);
+	bfree(path);
+	return result;
+}
+
+void loadConfig()
+{
+	const QByteArray path = configPath().toUtf8();
+	obs_data_t *data = obs_data_create_from_json_file_safe(path.constData(), "bak");
+	if (!data)
+		return;
+	enabled = obs_data_get_bool(data, "enabled");
+	obs_data_release(savedState);
+	savedState = obs_data_has_user_value(data, "state") ? obs_data_get_obj(data, "state") : nullptr;
+	obs_data_release(data);
+}
+
+void saveConfig()
+{
+	obs_data_t *data = obs_data_create();
+	obs_data_set_bool(data, "enabled", enabled);
+	if (savedState)
+		obs_data_set_obj(data, "state", savedState);
+	const QString path = configPath();
+	QDir().mkpath(QFileInfo(path).absolutePath());
+	if (!obs_data_save_json_safe(data, path.toUtf8().constData(), "tmp", "bak"))
+		obs_log(LOG_WARNING, "no se pudo guardar %s", path.toUtf8().constData());
+	obs_data_release(data);
+}
+
+void saveChannelState()
+{
+	if (!channelSource)
+		return;
+	obs_data_t *state = obs_save_source(channelSource);
+	if (!state)
+		return;
+	obs_data_release(savedState);
+	savedState = state;
+	saveConfig();
+}
+
+void updateAction()
+{
+	if (toolsAction)
+		toolsAction->setChecked(enabled);
+}
+
+// Un canal nuevo con el volumen, silencio, monitoreo, balance, pistas y filtros de la última
+// vez; la primera vez, sin monitoreo (solo a la emisión) y apuntando a la app que suena.
+obs_source_t *createChannel()
+{
+	const char *typeId = obs_get_latest_input_type_id(kSourceId);
+	if (!typeId)
+		return nullptr;
+	const QByteArray name = freeChannelName();
+	if (savedState) {
+		// Copia profunda: lo guardado no se toca.
+		obs_data_t *state = obs_data_create_from_json(obs_data_get_json(savedState));
+		obs_data_erase(state, "uuid"); // uno nuevo: la fuente vieja podría seguir en otra parte
+		obs_data_set_string(state, "name", name.constData());
+		obs_data_set_string(state, "id", kSourceId);
+		obs_data_set_string(state, "versioned_id", typeId);
+		obs_data_t *settings = obs_data_get_obj(state, "settings");
+		if (!settings) {
+			settings = obs_data_create();
+			obs_data_set_obj(state, "settings", settings);
+		}
+		obs_data_set_bool(settings, kChannelMarker, true);
+		obs_data_release(settings);
+		obs_source_t *source = obs_load_source(state);
+		obs_data_release(state);
+		if (source) {
+			obs_source_load2(source);
+			return source;
+		}
+		obs_log(LOG_WARNING, "no se pudo restaurar el canal de música guardado; se crea uno nuevo");
+	}
+
+	MediaWatcher &watcher = MediaWatcher::instance();
+	const Track track = watcher.current(true, watcher.player());
+	obs_data_t *settings = captureSettings(track.valid() ? audioTarget(track) : QString());
+	obs_source_t *source = obs_source_create(typeId, name.constData(), settings, nullptr);
+	obs_data_release(settings);
+	if (source) {
+		// OBS 33 cambió los tipos de monitoreo por un interruptor (como hace Multichat).
+#if LIBOBS_API_MAJOR_VER >= 33
+		obs_source_set_monitoring_enabled(source, false);
+#else
+		obs_source_set_monitoring_type(source, OBS_MONITORING_TYPE_NONE);
+#endif
+		createdFresh = true;
+	}
+	return source;
+}
+
+// El canal en un canal de salida libre, para que suene en todas las escenas y salga en el
+// Mezclador. Un canal que usa otra cosa nunca se toca.
+void bindChannel()
+{
+	if (outputChannel) {
+		obs_source_t *current = obs_get_output_source(outputChannel);
+		const bool ours = current == channelSource;
+		obs_source_release(current);
+		if (ours)
+			return;
+		outputChannel = 0;
+	}
+	for (uint32_t channel = MAX_CHANNELS - 1; channel >= kFirstFreeChannel; --channel) {
+		obs_source_t *current = obs_get_output_source(channel);
+		if (current) {
+			obs_log(LOG_INFO, "el canal de salida %u lo usa \"%s\"; se prueba el siguiente", channel,
+				obs_source_get_name(current));
+			obs_source_release(current);
+			continue;
+		}
+		obs_set_output_source(channel, channelSource);
+		outputChannel = channel;
+		obs_log(LOG_INFO, "canal de música \"%s\" en el canal de salida %u", obs_source_get_name(channelSource),
+			channel);
+		return;
+	}
+	obs_log(LOG_WARNING, "no hay un canal de salida libre para el canal de música: no se oirá");
+}
+
+// Suelta el canal de salida y la referencia, guardando antes su estado. remove = además lo
+// quita de la colección (se apagó); si no, OBS está por vaciar la colección él mismo.
+void releaseChannel(bool remove)
+{
+	if (!channelSource)
+		return;
+	saveChannelState();
+	if (outputChannel) {
+		obs_source_t *current = obs_get_output_source(outputChannel);
+		if (current == channelSource)
+			obs_set_output_source(outputChannel, nullptr);
+		obs_source_release(current);
+		outputChannel = 0;
+	}
+	if (remove)
+		obs_source_remove(channelSource);
+	obs_source_release(channelSource);
+	channelSource = nullptr;
+}
+
+// Pone el canal de acuerdo con lo elegido: lo adopta o lo crea y lo pone en un canal de
+// salida si está activado; lo quita si no.
+void syncChannel()
+{
+	if (!collectionReady || shuttingDown)
+		return;
+	if (!enabled) {
+		releaseChannel(true);
+		return;
+	}
+	if (!channelSource) {
+		channelSource = findChannel();
+		if (!channelSource)
+			channelSource = createChannel();
+		if (!channelSource) {
+			obs_log(LOG_WARNING, "no se pudo crear el canal de música");
+			return;
+		}
+	}
+	bindChannel();
+}
+
+// Versiones anteriores ponían el canal en una escena. Si la colección lo tiene en alguna, se
+// saca de las escenas (la fuente queda, con sus ajustes y filtros) y pasa a un canal de
+// salida. Solo el canal del plugin: una fuente sin la marca no se toca.
+void migrateSceneChannel()
+{
+	obs_source_t *found = findChannel();
+	if (!found)
+		return;
+	if (channelSource && channelSource != found) {
+		obs_source_release(found);
+		return;
+	}
+	struct Search {
+		obs_source_t *source;
+		std::vector<obs_sceneitem_t *> items;
+	} search{found, {}};
+	obs_enum_scenes(
+		[](void *param, obs_source_t *sceneSource) {
+			obs_scene_t *scene = obs_group_or_scene_from_source(sceneSource);
+			if (!scene)
+				return true;
+			obs_scene_enum_items(
+				scene,
+				[](obs_scene_t *, obs_sceneitem_t *item, void *param) {
+					auto *s = static_cast<Search *>(param);
+					if (obs_sceneitem_get_source(item) == s->source) {
+						obs_sceneitem_addref(item);
+						s->items.push_back(item);
+					}
+					return true;
+				},
+				param);
+			return true;
+		},
+		&search);
+	if (search.items.empty()) {
+		obs_source_release(found);
+		return;
+	}
+	QStringList scenes;
+	for (obs_sceneitem_t *item : search.items) {
+		scenes << QString::fromUtf8(obs_source_get_name(obs_scene_get_source(obs_sceneitem_get_scene(item))));
+		obs_sceneitem_remove(item);
+		obs_sceneitem_release(item);
+	}
+	obs_log(LOG_INFO, "canal de música \"%s\" migrado: se quitó de la(s) escena(s) %s y pasa a un canal de salida",
+		obs_source_get_name(found), scenes.join(", ").toUtf8().constData());
+	if (channelSource)
+		obs_source_release(found);
+	else
+		channelSource = found;
+	enabled = true;
+	saveChannelState();
+	updateAction();
+}
+
+void onSave(obs_data_t *, bool saving, void *)
+{
+	if (saving)
+		saveChannelState();
+}
+
 } // namespace
 
 QString audio_target(const Track &track)
@@ -190,6 +453,9 @@ QString audio_target(const Track &track)
 
 void follow_music_channel()
 {
+	// Solo el canal del plugin, si está activado.
+	if (!channelSource)
+		return;
 	// Solo lo que está sonando (del reproductor elegido en el dock): una app en pausa no se
 	// lleva el canal.
 	MediaWatcher &watcher = MediaWatcher::instance();
@@ -202,10 +468,7 @@ void follow_music_channel()
 	    target.compare("obs64.exe", Qt::CaseInsensitive) == 0 || target.compare("obs", Qt::CaseInsensitive) == 0)
 		return;
 
-	// Solo el canal que creó el plugin (no otra fuente que se llame igual).
-	obs_source_t *source = findChannel();
-	if (!source)
-		return;
+	obs_source_t *source = channelSource;
 	if (currentTarget(source).compare(target, Qt::CaseInsensitive) != 0) {
 		// Si la app todavía no aparece en la lista de macOS, se reintenta cada 3 segundos
 		// (sin tocar el canal, que si no quedaría en silencio).
@@ -216,69 +479,84 @@ void follow_music_channel()
 			obs_data_t *settings = captureSettings(target);
 			if (refreshAndFindApp(source, settings, target)) {
 				obs_source_update(source, settings);
-				blog(LOG_INFO, "[obs-now-playing] canal de música → %s", target.toUtf8().constData());
+				obs_log(LOG_INFO, "canal de música → %s", target.toUtf8().constData());
 			} else {
-				blog(LOG_INFO, "[obs-now-playing] canal de música: %s aún no se puede capturar, se reintenta",
-				     target.toUtf8().constData());
+				obs_log(LOG_INFO, "canal de música: %s aún no se puede capturar, se reintenta",
+					target.toUtf8().constData());
 			}
 			obs_data_release(settings);
 		}
 	}
-	obs_source_release(source);
 }
 
-void create_music_channel(QWidget *parent)
+void music_channel_init()
 {
-	MediaWatcher &watcher = MediaWatcher::instance();
-	Track track = watcher.current(true, watcher.player());
-	if (!track.valid()) {
-		QMessageBox::information(parent, text("NowPlaying.Channel.Title"), text("NowPlaying.Channel.NothingPlaying"));
-		return;
+	loadConfig();
+	auto *action = static_cast<QAction *>(obs_frontend_add_tools_menu_qaction(obs_module_text("NowPlaying.Channel.Title")));
+	if (action) {
+		action->setCheckable(true);
+		action->setChecked(enabled);
+		QObject::connect(action, &QAction::triggered, action, [](bool checked) {
+			set_music_channel_enabled(checked, static_cast<QWidget *>(obs_frontend_get_main_window()));
+		});
+		toolsAction = action;
 	}
-	QString target = audioTarget(track);
-	const char *sourceId = kSourceId;
+	obs_frontend_add_save_callback(onSave, nullptr);
+}
+
+void music_channel_collection_loaded()
+{
+	collectionReady = true;
+	migrateSceneChannel();
+	syncChannel();
+}
+
+void music_channel_collection_unloading()
+{
+	collectionReady = false;
+	releaseChannel(false);
+}
+
+void music_channel_shutdown()
+{
+	releaseChannel(false); // normalmente ya se hizo cuando OBS vació la colección
+	shuttingDown = true;
+	obs_frontend_remove_save_callback(onSave, nullptr);
+	obs_data_release(savedState);
+	savedState = nullptr;
+}
+
+bool music_channel_enabled()
+{
+	return enabled;
+}
+
+void set_music_channel_enabled(bool on, QWidget *parent)
+{
 	// La captura por aplicación existe en macOS 13+ y Windows 10 2004+ (OBS solo la registra
 	// ahí); en Linux, solo con el plugin de PipeWire instalado.
+	if (on && !obs_get_latest_input_type_id(kSourceId)) {
 #ifdef __linux__
-	const char *unsupported = "NowPlaying.Channel.NeedsPipeWire";
+		const char *unsupported = "NowPlaying.Channel.NeedsPipeWire";
 #else
-	const char *unsupported = "NowPlaying.Channel.Unsupported";
+		const char *unsupported = "NowPlaying.Channel.Unsupported";
 #endif
-	if (target.isEmpty() || !obs_source_get_display_name(sourceId)) {
-		QMessageBox::warning(parent, text("NowPlaying.Channel.Title"),
-				     target.isEmpty() ? text("NowPlaying.Channel.UnknownApp").arg(track.label)
-						      : text(unsupported));
-		return;
-	}
-
-	obs_data_t *settings = captureSettings(target);
-
-	// Si el canal ya existe se reapunta a la app de ahora (de Spotify a YouTube Music…).
-	// Solo el canal del plugin: una fuente del usuario con el mismo nombre no se toca (el canal
-	// nuevo toma otro nombre).
-	obs_source_t *source = findChannel();
-	bool created = !source;
-	if (source) {
-		refreshAndFindApp(source, settings, target);
-		obs_source_update(source, settings);
-	} else
-		source = obs_source_create(sourceId, freeChannelName().constData(), settings, nullptr);
-	obs_data_release(settings);
-	if (!source) {
+		updateAction();
 		QMessageBox::warning(parent, text("NowPlaying.Channel.Title"), text(unsupported));
 		return;
 	}
-	const QByteArray name = obs_source_get_name(source);
-
-	// A la escena abierta, si aún no está ahí: así aparece en el Mezclador.
-	obs_source_t *sceneSource = obs_frontend_get_current_scene();
-	obs_scene_t *scene = obs_scene_from_source(sceneSource);
-	if (scene && !obs_scene_find_source(scene, name.constData()))
-		obs_scene_add(scene, source);
-	obs_source_release(sceneSource);
-	obs_source_release(source);
-
-	QMessageBox::information(parent, text("NowPlaying.Channel.Title"),
-				 text(created ? "NowPlaying.Channel.Created" : "NowPlaying.Channel.Updated")
-					 .arg(QString::fromUtf8(name), track.label));
+	if (on != enabled) {
+		enabled = on;
+		saveConfig();
+		createdFresh = false;
+		syncChannel();
+		obs_log(LOG_INFO, "canal de música %s", on ? "activado" : "desactivado");
+		if (on && createdFresh && channelSource)
+			QMessageBox::information(parent, text("NowPlaying.Channel.Title"),
+						 text("NowPlaying.Channel.Enabled")
+							 .arg(QString::fromUtf8(obs_source_get_name(channelSource))));
+		if (on)
+			follow_music_channel();
+	}
+	updateAction();
 }

@@ -1,4 +1,5 @@
 #include "now-playing-dock.hpp"
+#include "music-channel.hpp"
 #include "now-playing-source.hpp"
 
 #include <obs-module.h>
@@ -1119,8 +1120,15 @@ void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
 	shuffle->setChecked(shuffle->isCheckable() && shuffleOn_);
 	QAction *reload = menu.addAction(text("NowPlaying.Dock.Refresh"));
 	reload->setEnabled(refreshButton_->isEnabled());
+	// El mismo interruptor que Herramientas → Canal de música.
+	menu.addSeparator();
+	QAction *channel = menu.addAction(text("NowPlaying.Channel.Title"));
+	channel->setCheckable(true);
+	channel->setChecked(music_channel_enabled());
 	QAction *chosen = menu.exec(event->globalPos());
-	if (chosen == shuffle)
+	if (chosen == channel)
+		set_music_channel_enabled(channel->isChecked(), this);
+	else if (chosen == shuffle)
 		toggleShuffle();
 	else if (chosen == blur)
 		setBlurBackground(blur->isChecked());

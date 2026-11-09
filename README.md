@@ -32,7 +32,7 @@ Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any 
 | 🎬 **Video mode** | The YouTube video instead of the cover (muted and in sync), on Mac, Windows and Linux: the one in the YouTube Music / YouTube tab and, with Spotify (app or web) or other apps, the one found by searching the song on YouTube. On Linux, browsers usually do not share the tab address, so it is almost always the search result. |
 | 🖼️ **Your logo** | An image of your own for songs without a cover. |
 | ⏯️ **Control dock** | Previous / pause / next, back and forward 10 s and a draggable progress bar to jump around, plus shuffle, a player volume bar and a **Player** list to show only Spotify, YouTube Music, YouTube or the system player (Apple Music on Mac, Media Player on Windows), inside OBS and off-stream. |
-| 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound; it follows you when you switch players. |
+| 🔊 **Music channel** | Turn it on and the Audio Mixer gets a channel with only the player's sound, in every scene; it follows you when you switch players. |
 | 🔄 **Updates** | OBS tells you when there's a new version and installs it for you (on Linux it opens the download page instead). |
 
 ## 📦 Install the plugin
@@ -65,7 +65,7 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 
 1. **Sources → + → ♫ Now Playing (music)** to add the card. Open its **Properties** to change the style.
 2. **Docks → Música** for the buttons.
-3. Optional: in the source Properties, **Crear canal de música** (Create music channel) to control the music volume separately.
+3. Optional: **Tools → Music channel** (or right-click the Music dock) to control the music volume separately. The channel appears in the Audio Mixer in every scene without being part of any scene, starts without monitoring and keeps your volume, monitoring and filters across restarts. A channel created by an older version inside a scene is moved out of the scene automatically.
 
 > [!NOTE]
 > On Linux, the music channel needs the [obs-pipewire-audio-capture](https://github.com/dimtpap/obs-pipewire-audio-capture) plugin (OBS has no per-application audio capture of its own there).
