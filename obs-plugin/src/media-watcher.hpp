@@ -107,7 +107,13 @@ private:
 
 	QProcess *process_ = nullptr;
 	QHash<QString, Track> tracks_;
-	QHash<QString, QString> artworks_; // app → carátula de su canción actual
+	// Borra las carátulas más viejas si hay más de kMaxArtworks, nunca la de keep ni la de una
+	// sesión viva.
+	void evictArtworks(const QString &keep);
+
+	static constexpr qsizetype kMaxArtworks = 30;
+	QHash<QString, QString> artworks_; // app + canción → carátula de esa canción
+	QStringList artworkOrder_;         // claves de artworks_, de la más vieja a la más nueva
 	QHash<QString, PlayerState> states_; // app → volumen y aleatorio
 	bool stateAsked_ = false;            // hay una pregunta de estado en curso (macOS, Linux)
 	// macOS y Linux: un cambio de volumen a la vez; mientras va uno, el último pedido espera.

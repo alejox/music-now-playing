@@ -309,12 +309,14 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		QString artKey = app + '\n' + track.title + '\n' + track.artist;
 		if (s.contains("artwork")) {
 			QString art = s.value("artwork").toString();
-			if (art.startsWith("data:image/"))
+			artworkOrder_.removeAll(artKey);
+			if (art.startsWith("data:image/")) {
 				artworks_.insert(artKey, art);
-			else
+				artworkOrder_.append(artKey);
+			} else {
 				artworks_.remove(artKey);
-			if (artworks_.size() > 30)
-				artworks_.erase(artworks_.begin());
+			}
+			evictArtworks(artKey);
 		}
 		track.artwork = artworks_.value(artKey);
 
@@ -340,6 +342,27 @@ void MediaWatcher::handleLine(const QByteArray &line)
 	status_ = Status::Ok;
 	error_.clear();
 	emit updated();
+}
+
+void MediaWatcher::evictArtworks(const QString &keep)
+{
+	if (artworks_.size() <= kMaxArtworks)
+		return;
+	// Las carátulas de las canciones que están en una sesión viva no se borran: el lector la
+	// manda una sola vez por canción y no volvería a llegar.
+	QSet<QString> live{keep};
+	for (const Track &track : tracks_)
+		live.insert(track.app + '\n' + track.title + '\n' + track.artist);
+	// artworkOrder_ va de la más vieja a la más nueva: se borran primero las viejas.
+	for (qsizetype i = 0; i < artworkOrder_.size() && artworks_.size() > kMaxArtworks;) {
+		const QString key = artworkOrder_.at(i);
+		if (live.contains(key)) {
+			++i;
+			continue;
+		}
+		artworks_.remove(key);
+		artworkOrder_.removeAt(i);
+	}
 }
 
 Track MediaWatcher::current(bool includePaused, const QString &player) const
