@@ -32,7 +32,7 @@ Works with **Spotify** (app or web), **YouTube Music**, **Apple Music** and any 
 | 🎬 **Video mode** | The YouTube video instead of the cover (muted and in sync), on Mac, Windows and Linux: the one in the YouTube Music / YouTube tab and, with Spotify (app or web) or other apps, the one found by searching the song on YouTube. On Linux, browsers usually do not share the tab address, so it is almost always the search result. |
 | 🖼️ **Your logo** | An image of your own for songs without a cover. |
 | ⏯️ **Control dock** | Previous / pause / next, back and forward 10 s and a draggable progress bar to jump around, plus shuffle, a player volume bar and a **Player** list to show only Spotify, YouTube Music, YouTube or the system player (Apple Music on Mac, Media Player on Windows), inside OBS and off-stream. |
-| 🔊 **Music channel** | One click adds an Audio Mixer channel with only the player's sound; it follows you when you switch players. |
+| 🔊 **Music channel** | Turn it on and the Audio Mixer gets a channel with only the player's sound, in every scene; it follows you when you switch players. |
 | 🔄 **Updates** | OBS tells you when there's a new version and installs it for you (on Linux it opens the download page instead). |
 
 ## 📦 Install the plugin
@@ -65,10 +65,12 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 
 1. **Sources → + → ♫ Now Playing (music)** to add the card. Open its **Properties** to change the style.
 2. **Docks → Música** for the buttons.
-3. Optional: in the source Properties, **Crear canal de música** (Create music channel) to control the music volume separately.
+3. Optional: **+ Add music channel** in the source Properties (or right-click the Music dock, where you can also remove it) to control the music volume separately. The channel appears in the Audio Mixer in every scene without being part of any scene, starts without monitoring and keeps your volume, monitoring and filters across restarts. A channel created by an older version inside a scene is moved out of the scene automatically.
 
 > [!NOTE]
 > On Linux, the music channel needs the [obs-pipewire-audio-capture](https://github.com/dimtpap/obs-pipewire-audio-capture) plugin (OBS has no per-application audio capture of its own there).
+>
+> On macOS, the music channel captures the player even when it has no visible window (for example the YouTube Music installed app, whose sound comes from Chrome).
 
 > [!NOTE]
 > On Mac, for the YouTube Music buttons to work, turn on once in Chrome: **View → Developer → Allow JavaScript from Apple Events**.
@@ -166,6 +168,7 @@ URL options (combine with `&`):
 
 - Everything runs on your computer; there's no server of ours.
 - The plugin only goes online to check for updates on GitHub, to look up missing cover art in Apple's public catalog (song title and artist), in video mode to search YouTube for the song's video (title and artist; on Windows also when the address bar can't be read) and to load the YouTube player.
+- Before installing an update, the plugin checks its Ed25519 signature against a key built into the plugin; if the signature is missing or doesn't match, it installs nothing.
 - The app only listens on `127.0.0.1` and doesn't let other web pages read what you listen to.
 
 ## 🛠️ For developers

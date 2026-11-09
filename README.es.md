@@ -32,7 +32,7 @@ Funciona con **Spotify** (app o web), **YouTube Music**, **Apple Music** y cualq
 | 🎬 **Modo video** | El video de YouTube en vez de la carátula (sin sonido y sincronizado), en Mac, Windows y Linux: el de la pestaña con YouTube Music / YouTube y, con Spotify (app o web) u otras apps, el que encuentra buscando la canción en YouTube. En Linux los navegadores casi nunca comparten la dirección de la pestaña, así que casi siempre es el de la búsqueda. |
 | 🖼️ **Tu logo** | Una imagen tuya para las canciones sin carátula. |
 | ⏯️ **Dock de control** | Anterior / pausa / siguiente, retroceder y adelantar 10 s y una barra de progreso que se arrastra para saltar, aleatorio, una barra de volumen del reproductor y una lista **Reproductor** para mostrar solo Spotify, YouTube Music, YouTube o el reproductor del sistema (Apple Music en Mac, el Reproductor multimedia en Windows), dentro de OBS y fuera del stream. |
-| 🔊 **Canal de música** | Con un clic, un canal en el Mezclador de audio solo con el sonido del reproductor; te sigue si cambias de reproductor. |
+| 🔊 **Canal de música** | Lo activas y el Mezclador de audio tiene un canal solo con el sonido del reproductor, en todas las escenas; te sigue si cambias de reproductor. |
 | 🔄 **Actualizaciones** | OBS te avisa cuando hay una versión nueva y la instala por ti (en Linux abre la página de descarga). |
 
 ## 📦 Instalar el plugin
@@ -65,10 +65,12 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 
 1. **Fuentes → + → ♫ Now Playing (música)** para agregar la tarjeta. En sus **Propiedades** cambias el estilo.
 2. **Docks → Música** para los botones.
-3. Opcional: en las Propiedades de la fuente, **Crear canal de música** para manejar el volumen de la música aparte.
+3. Opcional: **+ Agregar canal de música** en las Propiedades de la fuente (o clic derecho en el dock Música, donde también se quita) para manejar el volumen de la música aparte. El canal aparece en el Mezclador de audio en todas las escenas sin estar en ninguna, empieza sin monitoreo y conserva tu volumen, monitoreo y filtros al reiniciar OBS. Un canal creado por una versión anterior dentro de una escena se saca de la escena solo.
 
 > [!NOTE]
 > En Linux, el canal de música necesita el plugin [obs-pipewire-audio-capture](https://github.com/dimtpap/obs-pipewire-audio-capture) (allí OBS no trae captura de audio por aplicación).
+>
+> En macOS, el canal de música captura al reproductor aunque no tenga una ventana a la vista (por ejemplo la app instalada de YouTube Music, cuyo sonido sale de Chrome).
 
 > [!NOTE]
 > En Mac, para que los botones funcionen con YouTube Music, activa una vez en Chrome: **Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events**.
@@ -170,6 +172,7 @@ Opciones para la URL (se combinan con `&`):
 
 - Todo corre en tu computador; no hay servidores nuestros.
 - El plugin solo se conecta a internet para buscar actualizaciones en GitHub, para buscar la carátula que falte en el catálogo público de Apple (nombre de la canción y artista), en el modo video para buscar en YouTube el video de la canción (título y artista; en Windows también cuando no se puede leer la barra de direcciones) y para cargar el reproductor de YouTube.
+- Antes de instalar una actualización, el plugin comprueba su firma Ed25519 con una clave que lleva dentro; si falta la firma o no coincide, no instala nada.
 - La app solo escucha en `127.0.0.1` y no deja que otras páginas web lean lo que escuchas.
 
 ## 🛠️ Para desarrolladores

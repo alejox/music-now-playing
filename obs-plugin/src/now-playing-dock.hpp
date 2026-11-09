@@ -4,10 +4,16 @@
 
 #include <QColor>
 #include <QImage>
+#include <QPixmap>
 #include <QWidget>
 
+class QBoxLayout;
 class QComboBox;
+class QHBoxLayout;
 class QLabel;
+class QScrollArea;
+class QSpacerItem;
+class QVBoxLayout;
 class QSlider;
 class QTimer;
 class QToolButton;
@@ -21,6 +27,8 @@ class NowPlayingDock : public QWidget {
 
 public:
 	explicit NowPlayingDock(QWidget *parent = nullptr);
+	// Pequeño: el dock se puede achicar libremente (lo que no quepa se desplaza).
+	QSize minimumSizeHint() const override;
 
 protected:
 	void changeEvent(QEvent *event) override;
@@ -43,9 +51,45 @@ private:
 	void styleVolumeRow();
 	void applyVolume();
 	void toggleMute();
+	// Aleatorio (botón y clic derecho): con encendido/apagado se ve al instante y la próxima
+	// lectura lo confirma; en YouTube Music (mezcla la cola una vez) destella y lo avisa.
+	void toggleShuffle();
 	void setBlurBackground(bool on);
+	// Botón Refrescar (y su opción del clic derecho).
+	void manualRefresh();
+	// Diseño según el tamaño del dock: grande, mediano o compacto (alto) y angosto (ancho).
+	enum class Tier { Compact, Medium, Large };
+	void updateLayoutForSize();
+	void applyTier();
+	void updateArtSize();
+	void setArtSize(int size);
+	void updateArtPixmap();
+
+	QScrollArea *scroll_ = nullptr;
+	QVBoxLayout *layout_ = nullptr;
+	QBoxLayout *header_ = nullptr;     // carátula y textos: en columna, o en fila si es compacto
+	QVBoxLayout *textColumn_ = nullptr;
+	QHBoxLayout *buttons_ = nullptr;
+	QHBoxLayout *volumeRow_ = nullptr;
+	QHBoxLayout *optionsRow_ = nullptr;
+	QSpacerItem *gapAfterPlayer_ = nullptr;
+	QSpacerItem *gapBeforeSource_ = nullptr;
+	QSpacerItem *gapAfterHeader_ = nullptr;
+	QSpacerItem *gapAfterProgress_ = nullptr;
+	QSpacerItem *gapBeforeVolume_ = nullptr;
+	QSpacerItem *gapBeforeOptions_ = nullptr;
+	QSpacerItem *gapBeforeStatus_ = nullptr;
+	Tier tier_ = Tier::Large;
+	bool narrow_ = false;
+	bool tierApplied_ = false;
+	int sideSize_ = 40; // anterior / siguiente
+	int mainSize_ = 52; // pausa
+	QPixmap artSource_; // la carátula decodificada una vez por canción
+	int artSize_ = 0;
+	qreal artDpr_ = 0;
 
 	QComboBox *player_ = nullptr;
+	QLabel *playerLabel_ = nullptr;
 	QLabel *art_ = nullptr;
 	QLabel *title_ = nullptr;
 	QLabel *artist_ = nullptr;
@@ -61,12 +105,19 @@ private:
 	QToolButton *forward_ = nullptr;
 	QToolButton *shuffle_ = nullptr;
 	QToolButton *backdropButton_ = nullptr;
+	QToolButton *refreshButton_ = nullptr;
 	QToolButton *mute_ = nullptr;
 	QSlider *volume_ = nullptr;
 	QLabel *volumeLabel_ = nullptr;
 	QTimer *volumeTimer_ = nullptr;
 	bool muted_ = false;
 	bool shuffleOn_ = false;
+	QString shuffleMode_;            // "on" | "off" | "action" | "" (lo que dice el reproductor)
+	qint64 shuffleHoldUntil_ = 0;    // recién pulsado: se muestra lo pedido hasta que el lector lo diga
+	bool shuffleFlash_ = false;      // destello tras mezclar la cola (YouTube Music)
+	QTimer *shuffleFlashTimer_ = nullptr;
+	QString notice_;                 // aviso breve (no error) en la línea de estado
+	qint64 noticeUntil_ = 0;
 	int lastVolume_ = 50;         // para volver después de silenciar
 	qint64 volumeHoldUntil_ = 0;  // recién cambiado: la barra no salta a lo que diga el lector
 	QString artKey_;

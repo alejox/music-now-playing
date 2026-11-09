@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QProcess>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -73,6 +74,9 @@ public:
 	void toggleShuffle();
 	// Vuelve a preguntar el volumen y el aleatorio (el dock lo hace cada pocos segundos).
 	void refreshPlayerState();
+	// Botón Refrescar del dock: olvida la carátula y el video de lo que suena (se buscan de
+	// nuevo) y reinicia el lector, sin esperas de reintento.
+	void restartReader();
 
 	static qint64 now();
 
@@ -107,16 +111,25 @@ private:
 
 	QProcess *process_ = nullptr;
 	QHash<QString, Track> tracks_;
-	QHash<QString, QString> artworks_; // app → carátula de su canción actual
+	// Borra las carátulas más viejas si hay más de kMaxArtworks, nunca la de keep ni la de una
+	// sesión viva.
+	void evictArtworks(const QString &keep);
+
+	static constexpr qsizetype kMaxArtworks = 30;
+	static constexpr qint64 kArtMissingLogMs = 10000; // sin carátula tras esto: se anota en el log
+	QHash<QString, QString> artworks_; // app + canción → carátula de esa canción
+	QStringList artworkOrder_;         // claves de artworks_, de la más vieja a la más nueva
+	QSet<QString> artMissingLogged_;   // canciones (app + canción) ya anotadas en el log sin carátula
 	QHash<QString, PlayerState> states_; // app → volumen y aleatorio
-	bool stateAsked_ = false;            // hay una pregunta de estado en curso (macOS, Linux)
-	// macOS y Linux: un cambio de volumen a la vez; mientras va uno, el último pedido espera.
+	bool stateAsked_ = false;            // hay una pregunta de estado en curso
+	// Un cambio de volumen a la vez; mientras va uno, el último pedido espera.
 	bool volumeBusy_ = false;
 	int pendingVolume_ = -1;
 	qint64 volumeDoneAt_ = 0;
 	Status status_ = Status::Starting;
 	QString error_;
-	QString commandFile_;
+	QString commandDir_;     // Windows: un archivo por comando para el lector
+	qint64 commandSeq_ = 0;  // número del último comando (crece siempre, también entre reinicios)
 	QString videoFlagFile_;
 	QString othersFlagFile_;
 	bool videoWanted_ = false;

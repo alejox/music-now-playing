@@ -7,3 +7,7 @@ void register_now_playing_source();
 
 // Manda la canción actual a todas las tarjetas (lo llama el lector).
 void push_now_playing_sources();
+
+// Botón Refrescar del dock: recarga la página de todas las tarjetas (sin caché) y les
+// vuelve a mandar la configuración y la canción cuando cargan.
+void refresh_now_playing_sources();

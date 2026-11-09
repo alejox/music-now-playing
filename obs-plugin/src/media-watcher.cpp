@@ -5,6 +5,7 @@
 #include <obs-module.h>
 #include <plugin-support.h>
 
+#include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -126,9 +127,9 @@ void MediaWatcher::start()
 {
 	stopping_ = false;
 #if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
-	// Los comandos para el lector de Windows van por este archivo (ver media/windows.ps1).
+	// Los comandos para el lector de Windows van por esta carpeta (ver media/windows.ps1).
 	QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-	commandFile_ = QDir(dir).filePath("obs-now-playing-command.json");
+	commandDir_ = QDir(dir).filePath("obs-now-playing-commands");
 	videoFlagFile_ = QDir(dir).filePath("obs-now-playing-video.flag");
 	othersFlagFile_ = QDir(dir).filePath("obs-now-playing-others.flag");
 	QFile saved(playerFile());
@@ -157,7 +158,8 @@ void MediaWatcher::stop()
 
 void MediaWatcher::launch()
 {
-	if (stopping_)
+	// Con un lector andando no se abre otro (un reinicio pendiente tras el botón Refrescar).
+	if (stopping_ || process_)
 		return;
 
 	QString program;
@@ -171,11 +173,13 @@ void MediaWatcher::launch()
 		"Bypass",
 		"-File",
 		QDir::toNativeSeparators(moduleFile("media/windows.ps1")),
-		"-CommandFile",
-		QDir::toNativeSeparators(commandFile_),
+		"-CommandDir",
+		QDir::toNativeSeparators(commandDir_),
 		"-VideoFlag",
 		QDir::toNativeSeparators(videoFlagFile_)};
-	QFile::remove(commandFile_); // un comando viejo no se ejecuta al arrancar
+	// Un comando viejo no se ejecuta al arrancar.
+	QDir(commandDir_).removeRecursively();
+	QDir().mkpath(commandDir_);
 #elif defined(__APPLE__)
 	// Desde macOS 15.4 solo programas del sistema pueden leer "Ahora suena": por eso
 	// el lector corre en osascript y no dentro de OBS.
@@ -309,23 +313,36 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		QString artKey = app + '\n' + track.title + '\n' + track.artist;
 		if (s.contains("artwork")) {
 			QString art = s.value("artwork").toString();
-			if (art.startsWith("data:image/"))
+			artworkOrder_.removeAll(artKey);
+			if (art.startsWith("data:image/")) {
 				artworks_.insert(artKey, art);
-			else
+				artworkOrder_.append(artKey);
+			} else {
 				artworks_.remove(artKey);
-			if (artworks_.size() > 30)
-				artworks_.erase(artworks_.begin());
+			}
+			evictArtworks(artKey);
 		}
 		track.artwork = artworks_.value(artKey);
 
 		const Track prev = tracks_.value(app);
 		// Una vez por canción: si llegó el video de YouTube (para saber qué pasó si no se ve).
 		if (!track.videoId.isEmpty() && track.videoId != prev.videoId)
-			obs_log(LOG_INFO, "video de YouTube para %s: %s", app.toUtf8().constData(),
-				track.videoId.toUtf8().constData());
+			obs_log(LOG_INFO, "video de YouTube para %s (%s): %s", app.toUtf8().constData(),
+				track.title.left(80).toUtf8().constData(), track.videoId.toUtf8().constData());
 		bool changed = !prev.valid() || prev.title != track.title || prev.artist != track.artist ||
 			       (!prev.isPlaying && track.isPlaying);
 		track.changedAt = changed ? t : prev.changedAt;
+		// Una vez por canción: si sigue sin carátula después de un rato sonando (para los
+		// avisos de "se quedó sin carátula").
+		if (track.artwork.isEmpty() && track.isPlaying && t - track.changedAt >= kArtMissingLogMs &&
+		    !artMissingLogged_.contains(artKey)) {
+			if (artMissingLogged_.size() >= 200)
+				artMissingLogged_.clear();
+			artMissingLogged_.insert(artKey);
+			obs_log(LOG_INFO, "sin carátula tras %d s: %s (%s), video: %s", int(kArtMissingLogMs / 1000),
+				app.toUtf8().constData(), track.title.left(80).toUtf8().constData(),
+				track.videoId.isEmpty() ? "ninguno" : track.videoId.toUtf8().constData());
+		}
 		tracks_.insert(app, track);
 		seen.insert(app);
 	}
@@ -340,6 +357,52 @@ void MediaWatcher::handleLine(const QByteArray &line)
 	status_ = Status::Ok;
 	error_.clear();
 	emit updated();
+}
+
+void MediaWatcher::restartReader()
+{
+	obs_log(LOG_INFO, "refresco manual");
+	// Lo que suena vuelve a buscar su carátula y su video: el lector nuevo los manda de nuevo.
+	for (Track &track : tracks_) {
+		const QString artKey = track.app + '\n' + track.title + '\n' + track.artist;
+		artworks_.remove(artKey);
+		artworkOrder_.removeAll(artKey);
+		artMissingLogged_.remove(artKey);
+		track.artwork.clear();
+		track.videoId.clear();
+	}
+	failures_ = 0;
+	if (process_) {
+		process_->disconnect(this);
+		process_->kill();
+		process_->waitForFinished(1000);
+		delete process_;
+		process_ = nullptr;
+	}
+	if (status_ != Status::Unsupported)
+		launch();
+	emit updated();
+}
+
+void MediaWatcher::evictArtworks(const QString &keep)
+{
+	if (artworks_.size() <= kMaxArtworks)
+		return;
+	// Las carátulas de las canciones que están en una sesión viva no se borran: el lector la
+	// manda una sola vez por canción y no volvería a llegar.
+	QSet<QString> live{keep};
+	for (const Track &track : tracks_)
+		live.insert(track.app + '\n' + track.title + '\n' + track.artist);
+	// artworkOrder_ va de la más vieja a la más nueva: se borran primero las viejas.
+	for (qsizetype i = 0; i < artworkOrder_.size() && artworks_.size() > kMaxArtworks;) {
+		const QString key = artworkOrder_.at(i);
+		if (live.contains(key)) {
+			++i;
+			continue;
+		}
+		artworks_.remove(key);
+		artworkOrder_.removeAt(i);
+	}
 }
 
 Track MediaWatcher::current(bool includePaused, const QString &player) const
@@ -458,16 +521,24 @@ void MediaWatcher::refreshPlayerState()
 	Track track = current(true, player_);
 	if (!track.valid())
 		return;
-#ifdef _WIN32
-	int volume = app_volume(audio_target(track));
-	if (states_.value(track.app).volume != volume) {
-		states_[track.app].volume = volume;
-		emit playerStateChanged();
-	}
-#else
 	if (stateAsked_)
 		return;
 	stateAsked_ = true;
+#ifdef _WIN32
+	// El volumen del Mezclador se lee en otro hilo (ver app-volume.hpp); la interfaz no espera.
+	const QString app = track.app;
+	app_volume_read(audio_target(track), this, [this, app](int volume) {
+		stateAsked_ = false;
+		// Los pedidos van en orden: una lectura que vuelve mientras cambia el volumen se pidió
+		// antes del cambio y trae el nivel viejo (la barra volvería atrás).
+		if (volumeBusy_ || pendingVolume_ >= 0)
+			return;
+		if (states_.value(app).volume != volume) {
+			states_[app].volume = volume;
+			emit playerStateChanged();
+		}
+	});
+#else
 	runCommand("state", -1);
 #endif
 }
@@ -479,18 +550,28 @@ void MediaWatcher::setVolume(int percent)
 		return;
 	percent = std::clamp(percent, 0, 100);
 	states_[track.app].volume = percent; // la barra no salta atrás mientras llega la respuesta
-#ifdef _WIN32
-	if (!set_app_volume(audio_target(track), percent))
-		emit commandFailed(QString::fromUtf8(obs_module_text("NowPlaying.Volume.NoSound")));
-#else
-	// Al arrastrar la barra llegan varios cambios seguidos. Cada uno abre el lector aparte y,
-	// si van a la vez, pueden terminar en otro orden y quedar aplicado uno viejo (el volumen
-	// "vuelve"). Por eso va uno a la vez y, al terminar, se manda el último pedido.
+	// Al arrastrar la barra llegan varios cambios seguidos. Cada uno abre el lector aparte (en
+	// Windows, un pedido al hilo del volumen) y, si van a la vez, pueden terminar en otro orden
+	// y quedar aplicado uno viejo (el volumen "vuelve"). Por eso va uno a la vez y, al
+	// terminar, se manda el último pedido.
 	if (volumeBusy_) {
 		pendingVolume_ = percent;
 		return;
 	}
 	volumeBusy_ = true;
+#ifdef _WIN32
+	app_volume_set(audio_target(track), percent, this, [this](bool ok) {
+		volumeBusy_ = false;
+		volumeDoneAt_ = now();
+		if (!ok)
+			emit commandFailed(QString::fromUtf8(obs_module_text("NowPlaying.Volume.NoSound")));
+		if (pendingVolume_ >= 0) {
+			const int next = pendingVolume_;
+			pendingVolume_ = -1;
+			setVolume(next);
+		}
+	});
+#else
 	runCommand("volume", percent);
 #endif
 }
@@ -513,8 +594,14 @@ void MediaWatcher::runCommand(const QString &action, qint64 arg)
 	if (action != "state" && action != "volume")
 		obs_log(LOG_INFO, "comando %s para %s", action.toUtf8().constData(), track.app.toUtf8().constData());
 #ifdef _WIN32
-	// El lector revisa este archivo cada 100 ms.
-	QSaveFile file(commandFile_);
+	// El lector revisa la carpeta cada 100 ms y atiende todos los comandos que encuentre, en el
+	// orden de su número: un archivo por comando para que dos "siguiente" seguidos no se pisen.
+	// QSaveFile lo escribe aparte y lo renombra al final: el lector nunca lee uno a medias.
+	if (commandSeq_ == 0)
+		commandSeq_ = QDateTime::currentMSecsSinceEpoch() * 1000;
+	const QString name = QString("%1.json").arg(++commandSeq_, 20, 10, QChar('0'));
+	QDir().mkpath(commandDir_);
+	QSaveFile file(QDir(commandDir_).filePath(name));
 	if (file.open(QIODevice::WriteOnly)) {
 		QJsonObject cmd{{"cmd", action}, {"app", track.app}};
 		if (arg >= 0)

@@ -6,17 +6,23 @@
 #include <obs-module.h>
 #include <plugin-support.h>
 
+#include <QApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMessageBox>
 #include <QMetaObject>
+#include <QPushButton>
+#include <QTimer>
 
 #include <algorithm>
 #include <cstring>
 #include <mutex>
 #include <set>
+#include <utility>
+#include <vector>
 
 void syncVideoWanted(); // abajo, junto a push_now_playing_sources()
 
@@ -57,8 +63,9 @@ struct NowPlayingSource {
 	uint32_t height = 140;
 	QString sentArtKey; // canción cuya carátula ya le mandamos a la página
 	int beats = 0;
-	QString fallbackPath; // imagen del usuario (su logo) para cuando no hay carátula
-	QString fallbackArt;  // esa imagen como data:image/…;base64,…
+	QString fallbackPath;       // imagen del usuario (su logo) para cuando no hay carátula
+	QString fallbackArt;        // esa imagen como data:image/…;base64,…
+	QString fallbackLoadedPath; // de qué archivo es fallbackArt (se carga en el hilo de la interfaz)
 	QString player;       // dock (igual que el dock) | auto | spotify | ytmusic | youtube | system
 };
 
@@ -145,11 +152,8 @@ QString loadImage(const QString &path)
 
 void readSettings(NowPlayingSource *s, obs_data_t *settings)
 {
-	QString fallbackPath = QString::fromUtf8(obs_data_get_string(settings, "fallback_image"));
-	if (fallbackPath != s->fallbackPath) {
-		s->fallbackPath = fallbackPath;
-		s->fallbackArt = loadImage(fallbackPath);
-	}
+	// Solo la ruta: la imagen (hasta 8 MB) se lee después en el hilo de la interfaz.
+	s->fallbackPath = QString::fromUtf8(obs_data_get_string(settings, "fallback_image"));
 	s->player = QString::fromUtf8(obs_data_get_string(settings, "player"));
 	s->width = (uint32_t)std::max<long long>(100, obs_data_get_int(settings, "width"));
 	s->height = (uint32_t)std::max<long long>(60, obs_data_get_int(settings, "height"));
@@ -189,6 +193,41 @@ obs_data_t *browserSettings(const NowPlayingSource *s)
 	return bs;
 }
 
+// En el hilo de la interfaz (dueño del estado de MediaWatcher): carga el logo si cambió y
+// le manda la canción a la tarjeta. La fuente se busca entre las vivas: si OBS la destruyó
+// mientras esto esperaba, no se toca.
+void pushIfAlive(NowPlayingSource *s)
+{
+	QString path;
+	{
+		std::lock_guard<std::mutex> lock(sourcesMutex);
+		if (!sources.count(s))
+			return;
+		if (s->fallbackLoadedPath == s->fallbackPath) {
+			push(s);
+			return;
+		}
+		path = s->fallbackPath;
+	}
+	// Leer el archivo fuera del candado: no frena a OBS si actualiza o destruye la fuente.
+	QString art = loadImage(path);
+	std::lock_guard<std::mutex> lock(sourcesMutex);
+	if (!sources.count(s))
+		return;
+	if (s->fallbackPath == path) {
+		s->fallbackArt = art;
+		s->fallbackLoadedPath = path;
+	}
+	push(s);
+}
+
+// np_create y np_update pueden correr en el hilo de video, que no debe leer el estado del
+// lector: solo guardan los ajustes y piden el envío al hilo de la interfaz.
+void queuePush(NowPlayingSource *s)
+{
+	QMetaObject::invokeMethod(&MediaWatcher::instance(), [s] { pushIfAlive(s); }, Qt::QueuedConnection);
+}
+
 const char *np_get_name(void *)
 {
 	return obs_module_text("NowPlaying.Source");
@@ -206,10 +245,12 @@ void *np_create(obs_data_t *settings, obs_source_t *source)
 	if (!s->browser)
 		obs_log(LOG_WARNING, "no se pudo crear la fuente de navegador (¿falta obs-browser?)");
 
-	std::lock_guard<std::mutex> lock(sourcesMutex);
-	sources.insert(s);
-	syncVideoWanted();
-	push(s);
+	{
+		std::lock_guard<std::mutex> lock(sourcesMutex);
+		sources.insert(s);
+		syncVideoWanted();
+	}
+	queuePush(s);
 	return s;
 }
 
@@ -228,16 +269,18 @@ void np_destroy(void *data)
 void np_update(void *data, obs_data_t *settings)
 {
 	auto *s = static_cast<NowPlayingSource *>(data);
-	std::lock_guard<std::mutex> lock(sourcesMutex);
-	readSettings(s, settings);
-	if (s->browser) {
-		obs_data_t *bs = browserSettings(s);
-		obs_source_update(s->browser, bs);
-		obs_data_release(bs);
+	{
+		std::lock_guard<std::mutex> lock(sourcesMutex);
+		readSettings(s, settings);
+		if (s->browser) {
+			obs_data_t *bs = browserSettings(s);
+			obs_source_update(s->browser, bs);
+			obs_data_release(bs);
+		}
+		s->sentArtKey.clear();
+		syncVideoWanted();
 	}
-	s->sentArtKey.clear();
-	syncVideoWanted();
-	push(s);
+	queuePush(s);
 }
 
 void np_defaults(obs_data_t *settings)
@@ -310,10 +353,37 @@ bool np_fallback_modified(obs_properties_t *props, obs_property_t *, obs_data_t 
 	return true;
 }
 
-bool np_create_channel(obs_properties_t *, obs_property_t *, void *)
+// Agrega el canal de música al mezclador; si ya está, solo lo avisa (se apaga en Herramientas o en el dock).
+bool np_add_channel(obs_properties_t *, obs_property_t *, void *)
 {
-	create_music_channel(static_cast<QWidget *>(obs_frontend_get_main_window()));
+	auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+	if (music_channel_enabled())
+		QMessageBox::information(main, QString::fromUtf8(obs_module_text("NowPlaying.Channel.Title")),
+					 QString::fromUtf8(obs_module_text("NowPlaying.Channel.AlreadyOn")));
+	else
+		set_music_channel_enabled(true, main);
 	return false;
+}
+
+// La API de propiedades de OBS no colorea botones: se busca el botón ya dibujado por su texto y se le da
+// el color de acento. Si OBS cambia su ventana y no se encuentra, el botón queda con el estilo normal.
+void highlightAddChannelButton(const QString &label, int attempt = 0)
+{
+	bool found = false;
+	for (QWidget *top : QApplication::topLevelWidgets()) {
+		for (QPushButton *button : top->findChildren<QPushButton *>()) {
+			if (button->text() != label)
+				continue;
+			button->setStyleSheet("QPushButton { background-color: #6d4aff; color: white; border: none;"
+					      " border-radius: 6px; padding: 6px 14px; font-weight: 600; }"
+					      "QPushButton:hover { background-color: #7f60ff; }"
+					      "QPushButton:pressed { background-color: #5a38e6; }");
+			found = true;
+		}
+	}
+	// El diálogo de propiedades arma sus botones justo después de pedir las propiedades.
+	if (!found && attempt < 5)
+		QTimer::singleShot(100, [label, attempt] { highlightAddChannelButton(label, attempt + 1); });
 }
 
 obs_properties_t *np_properties(void *data)
@@ -406,9 +476,13 @@ obs_properties_t *np_properties(void *data)
 	obs_properties_add_bool(props, "progress", obs_module_text("NowPlaying.Progress"));
 	obs_properties_add_bool(props, "label", obs_module_text("NowPlaying.Label"));
 	obs_properties_add_bool(props, "preview", obs_module_text("NowPlaying.Preview"));
-	// También desde aquí, donde se busca primero (además del dock y de Herramientas).
-	obs_properties_add_button(props, "create_channel", obs_module_text("NowPlaying.Channel.Button"),
-				  np_create_channel);
+	// El canal de música: el mismo interruptor que Herramientas y el menú del dock, a mano aquí.
+	obs_property_t *channel =
+		obs_properties_add_text(props, "channel_info", obs_module_text("NowPlaying.Channel.Info"), OBS_TEXT_INFO);
+	obs_property_text_set_info_word_wrap(channel, true);
+	const QString addLabel = QString::fromUtf8(obs_module_text("NowPlaying.Channel.Add"));
+	obs_properties_add_button2(props, "channel_add", addLabel.toUtf8().constData(), np_add_channel, nullptr);
+	QTimer::singleShot(0, [addLabel] { highlightAddChannelButton(addLabel); });
 	return props;
 }
 
@@ -490,6 +564,65 @@ void push_now_playing_sources()
 	std::lock_guard<std::mutex> lock(sourcesMutex);
 	for (NowPlayingSource *s : sources)
 		push(s);
+}
+
+namespace {
+
+// Recarga la página de una fuente de navegador sin caché: con el botón "refreshnocache" de
+// sus propiedades (el mismo de "Actualizar caché de la página actual" en OBS). Si esa
+// versión de obs-browser no lo tiene, un cambio de CSS sin efecto también la recarga.
+void reloadBrowser(obs_source_t *browser, const NowPlayingSource *s)
+{
+	obs_properties_t *props = obs_source_properties(browser);
+	obs_property_t *button = props ? obs_properties_get(props, "refreshnocache") : nullptr;
+	if (button && obs_property_get_type(button) == OBS_PROPERTY_BUTTON) {
+		obs_property_button_clicked(button, browser);
+	} else {
+		obs_data_t *bs = browserSettings(s);
+		obs_data_set_string(bs, "css", QString("/* %1 */").arg(MediaWatcher::now()).toUtf8().constData());
+		obs_source_update(browser, bs);
+		obs_data_release(bs);
+	}
+	obs_properties_destroy(props);
+}
+
+// Tras recargar: la carátula (que va solo al cambiar) se vuelve a mandar con el próximo envío.
+void resendAll()
+{
+	std::lock_guard<std::mutex> lock(sourcesMutex);
+	for (NowPlayingSource *s : sources) {
+		s->sentArtKey.clear();
+		push(s);
+	}
+}
+
+} // namespace
+
+void refresh_now_playing_sources()
+{
+	// En el hilo de la interfaz. Las fuentes se toman con su referencia y se recargan fuera
+	// del candado (obs-browser puede tardar y OBS destruir fuentes mientras tanto).
+	std::vector<std::pair<obs_source_t *, NowPlayingSource>> browsers;
+	{
+		std::lock_guard<std::mutex> lock(sourcesMutex);
+		for (NowPlayingSource *s : sources) {
+			obs_source_t *ref = s->browser ? obs_source_get_ref(s->browser) : nullptr;
+			if (!ref)
+				continue;
+			NowPlayingSource size; // solo el tamaño, para los ajustes de la fuente de navegador
+			size.width = s->width;
+			size.height = s->height;
+			browsers.emplace_back(ref, size);
+		}
+	}
+	for (auto &[browser, copy] : browsers) {
+		reloadBrowser(browser, &copy);
+		obs_source_release(browser);
+	}
+	obs_log(LOG_INFO, "tarjetas recargadas: %d", int(browsers.size()));
+	// La página tarda en cargar: se le vuelve a mandar todo un par de veces.
+	for (int ms : {1500, 3500})
+		QTimer::singleShot(ms, &MediaWatcher::instance(), resendAll);
 }
 
 void register_now_playing_source()
