@@ -603,42 +603,73 @@ function spotifyArtwork(title) {
 // se acepta si artista y título coinciden, para no mostrar una carátula equivocada.
 // PENDING mientras se busca.
 const lookups = {}; // "artista\ncanción" → carátula ('' = no se encontró), una búsqueda por canción
+const lookupSteps = {}; // "artista\ncanción" → intento en curso (0, 1, 2)
 
+// "Canción (Official Video)" o "Artista - Topic" son cosas de YouTube, no del disco; un
+// "feat. Otro" sin paréntesis al final del título, tampoco.
+const cleanName = (s) =>
+  String(s).replace(/\s*[([][^)\]]*[)\]]/g, '').replace(/\s+(?:feat\.?|ft\.?|featuring)\s.*$/i, '').replace(/\s+-\s+topic$/i, '').trim();
+
+// YouTube Music une varios artistas con una conjunción en el idioma de la página
+// ("YODAKA y Kainbeats", "A & B", "A, B", "A x B", "A feat. B"): el primero es el principal.
+function primaryArtist(artist) {
+  return cleanName(artist).split(/\s*,\s*|\s*&\s*|\s+(?:y|e|and|x|con|with|feat\.?|ft\.?|featuring)\s+/i)[0].trim();
+}
+
+// Los intentos (como mucho 3): artista completo y canción; artista principal y canción;
+// solo la canción, aceptando el resultado si es del artista principal.
+function catalogAttempts(title, artist) {
+  const full = cleanName(artist);
+  const main = primaryArtist(artist) || full;
+  const song = cleanName(title);
+  const attempts = [{ term: `${full} ${song}`, artist: full }];
+  if (normName(main) !== normName(full)) attempts.push({ term: `${main} ${song}`, artist: main });
+  attempts.push({ term: song, artist: main });
+  return attempts.slice(0, 3);
+}
+
+// La carátula del catálogo ('' si no está) o PENDING mientras se busca. Cada intento que
+// no encuentra pasa al siguiente; el resultado queda guardado por canción.
 function catalogArtwork(title, artist) {
   const key = `${artist}\n${title}`;
   if (key in lookups) return lookups[key];
-  // "Canción (Official Video)" o "Artista - Topic" son cosas de YouTube, no del disco.
-  const clean = (s) => s.replace(/\s*[([][^)\]]*[)\]]/g, '').replace(/\s+-\s+topic$/i, '').trim();
-  const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
-  const a = norm(clean(artist));
-  const t = norm(clean(title));
-  if (!a || !t) return (lookups[key] = '');
-  lookups[key] = '';
+  const t = normName(cleanName(title));
+  if (!normName(cleanName(artist)) || !t) return (lookups[key] = '');
+  const attempts = catalogAttempts(title, artist);
   try {
-    const term = encodeURIComponent(`${clean(artist)} ${clean(title)}`);
-    const json = fetchAsync(`https://itunes.apple.com/search?media=music&entity=song&limit=10&term=${term}`);
-    if (json === PENDING) {
-      delete lookups[key];
-      return PENDING;
+    for (let step = lookupSteps[key] || 0; step < attempts.length; step++) {
+      lookupSteps[key] = step;
+      const a = normName(attempts[step].artist);
+      const term = encodeURIComponent(attempts[step].term);
+      const json = fetchAsync(`https://itunes.apple.com/search?media=music&entity=song&limit=10&term=${term}`);
+      if (json === PENDING) return PENDING;
+      if (!json) continue;
+      const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(json, $.NSUTF8StringEncoding));
+      const hit = (JSON.parse(text).results || []).find((r) => {
+        const ra = normName(r.artistName || '');
+        const rt = normName(r.trackName || '');
+        return ra && rt && (ra.includes(a) || a.includes(ra)) && (rt.includes(t) || t.includes(rt));
+      });
+      if (!hit || !hit.artworkUrl100) continue;
+      const image = fetchAsync(hit.artworkUrl100.replace(/\/\d+x\d+bb\./, '/600x600bb.'));
+      if (image === PENDING) return PENDING;
+      delete lookupSteps[key];
+      return (lookups[key] = image ? dataUrl(image) : '');
     }
-    if (!json) return '';
-    const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(json, $.NSUTF8StringEncoding));
-    const hit = (JSON.parse(text).results || []).find((r) => {
-      const ra = norm(r.artistName || '');
-      const rt = norm(r.trackName || '');
-      return ra && rt && (ra.includes(a) || a.includes(ra)) && (rt.includes(t) || t.includes(rt));
-    });
-    if (!hit || !hit.artworkUrl100) return '';
-    const image = fetchAsync(hit.artworkUrl100.replace(/\/\d+x\d+bb\./, '/600x600bb.'));
-    if (image === PENDING) {
-      delete lookups[key];
-      return PENDING;
-    }
-    if (image) lookups[key] = dataUrl(image);
   } catch (e) {
     // sin internet o respuesta rara: sin carátula
   }
-  return lookups[key];
+  delete lookupSteps[key];
+  return (lookups[key] = '');
+}
+
+// La miniatura del video de YouTube, cuando el catálogo no tiene la canción ('' si no se
+// pudo bajar). PENDING mientras se baja.
+function videoThumbnail(id) {
+  if (!/^[A-Za-z0-9_-]{11}$/.test(id || '')) return '';
+  const data = fetchAsync(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`);
+  if (data === PENDING) return PENDING;
+  return data ? dataUrl(data) : '';
 }
 
 // Modo video: el id del video de YouTube / YouTube Music que suena, leído de la dirección
@@ -659,9 +690,16 @@ const BROWSERS = [
 ];
 const YOUTUBE_WATCH = /^https:\/\/(music\.|www\.|m\.)?youtube\.com\/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})/;
 
+// La app instalada de YouTube Music (una PWA del navegador): ese id en Chrome, o
+// cualquier "<navegador>.app.<id>" que se llame "YouTube Music".
+const YTMUSIC_PWA = 'com.google.Chrome.app.cinhimbnkkaeohfgghhklpknlkffjgod';
+function isYouTubeMusicApp(app, name) {
+  return app === YTMUSIC_PWA || (/\.app\./.test(app) && /^youtube music$/i.test(String(name || '').trim()));
+}
+
 // { id, site } del video que suena (site: "ytmusic" en music.youtube.com, si no "youtube"),
-// o null.
-function youtubeVideo(app, title) {
+// o null. strict: solo una pestaña con el título de la canción (sin la de "la única que hay").
+function youtubeVideo(app, title, strict) {
   // Las apps instaladas (PWA) llevan el id del navegador como prefijo:
   // com.google.Chrome.app.cinhimbnkkaeohfgghhklpknlkffjgod es YouTube Music en Chrome.
   const browser = BROWSERS.find(([id]) => app === id || app.startsWith(`${id}.`));
@@ -677,7 +715,7 @@ function youtubeVideo(app, title) {
       }
     }
     // Con varias pestañas de YouTube, la que tiene el título de la canción.
-    const hit = found.find((f) => title && f.name.includes(title.toLowerCase())) || (found.length === 1 ? found[0] : null);
+    const hit = found.find((f) => title && f.name.includes(title.toLowerCase())) || (!strict && found.length === 1 ? found[0] : null);
     return hit ? { id: hit.id, site: hit.site } : null;
   } catch (e) {
     return null; // sin permiso o navegador sin AppleScript: sin video
@@ -753,8 +791,13 @@ function searchedVideo(title, artist, site) {
 
 const videoSearches = {}; // "app\ncanción" → { site } del video que se está buscando en YouTube
 
+// ¿Se está buscando en YouTube el video de esta canción? (la carátula puede esperarlo)
+function videoSearching(app, title) {
+  return Boolean(videoSearches[`${app}\n${title}`]);
+}
+
 // { id, site } o null (también mientras se busca: llega en una vuelta posterior).
-function videoFor(app, title, artist, album, videoFlag) {
+function videoFor(app, name, title, artist, album, videoFlag) {
   if (!videoFlag || !$.NSFileManager.defaultManager.fileExistsAtPath(videoFlag)) return null;
   if (/obsproject/i.test(app)) return null; // el video de la propia tarjeta
   const key = `${app}\n${title}`;
@@ -768,7 +811,14 @@ function videoFor(app, title, artist, album, videoFlag) {
   if ((videoTries[key] || 0) >= 3) return null; // la dirección cambia un instante después del título
   videoTries[key] = (videoTries[key] || 0) + 1;
   let video = null;
-  if (BROWSERS.some(([id]) => app === id || app.startsWith(`${id}.`))) {
+  if (isYouTubeMusicApp(app, name)) {
+    // La app instalada no es una pestaña: el navegador no da su dirección. Si ninguna
+    // pestaña de YouTube Music tiene esta canción, el video se busca en YouTube (aunque no
+    // traiga álbum, que YouTube Music a veces no manda).
+    video = youtubeVideo(app, title, true);
+    if (video) video = { id: video.id, site: 'ytmusic' };
+    else videoSearches[key] = { site: 'ytmusic' };
+  } else if (BROWSERS.some(([id]) => app === id || app.startsWith(`${id}.`))) {
     video = youtubeVideo(app, title);
     // Sin pestaña de YouTube: el reproductor web de Spotify u otra página de música. Solo
     // si trae álbum (una canción): un stream o una serie no lo traen y no se les busca video.
@@ -950,6 +1000,14 @@ function watch(videoFlag, othersFlag) {
           durationMs: Math.max(0, Math.round((Number(value('kMRMediaRemoteNowPlayingInfoDuration')) || 0) * 1000)),
         };
 
+        // El sitio dice si es YouTube o YouTube Music ("Escuchando en …").
+        if (isYouTubeMusicApp(app, entry.name)) entry.site = 'ytmusic';
+        const video = videoFor(app, entry.name, entry.title, entry.artist, entry.album, videoFlag);
+        if (video) {
+          entry.videoId = video.id;
+          if (video.site) entry.site = video.site;
+        }
+
         const key = `${app}\n${entry.title}\n${entry.artist}`;
         if (key !== sentKey) {
           tries++;
@@ -965,6 +1023,10 @@ function watch(videoFlag, othersFlag) {
           } else {
             if (app === 'com.spotify.client') art = spotifyArtwork(entry.title);
             if (!art) art = catalogArtwork(entry.title, entry.artist);
+            // Sin carátula en el catálogo: la miniatura del video, si se conoce (o se espera
+            // a que la búsqueda del video termine).
+            if (!art && video) art = videoThumbnail(video.id);
+            else if (!art && videoSearching(app, entry.title)) art = PENDING;
             if (art === PENDING) {
               waiting = true;
               art = '';
@@ -977,12 +1039,6 @@ function watch(videoFlag, othersFlag) {
             sentHash = hash;
             tries = 0;
           }
-        }
-        // El sitio dice si es YouTube o YouTube Music ("Escuchando en …").
-        const video = videoFor(app, entry.title, entry.artist, entry.album, videoFlag);
-        if (video) {
-          entry.videoId = video.id;
-          if (video.site) entry.site = video.site;
         }
         // OBS (el video sin sonido de la tarjeta) nunca es la música.
         if (!/obsproject/i.test(app)) {
@@ -1026,6 +1082,7 @@ function watch(videoFlag, othersFlag) {
             }
             if (!art && other.app === 'com.spotify.client') art = spotifyArtwork(other.title);
             if (!art) art = catalogArtwork(other.title, other.artist);
+            if (!art && other.videoId) art = videoThumbnail(other.videoId);
             // Mientras se baja, la línea sale sin carátula y se vuelve a mirar en la próxima.
             if (art !== PENDING) {
               otherArt[artKey] = true;

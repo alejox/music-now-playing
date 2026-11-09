@@ -152,31 +152,49 @@ $netCode = {
     }
   }
 
-  # "Canción (Official Video)" o "Artista - Topic" son cosas de YouTube, no del disco.
-  function Clean-Name($s) { (("$s" -replace '\s*[\(\[][^\)\]]*[\)\]]', '') -replace '\s+-\s+topic$', '').Trim() }
+  # "Canción (Official Video)" o "Artista - Topic" son cosas de YouTube, no del disco; un
+  # "feat. Otro" sin paréntesis al final del título, tampoco.
+  function Clean-Name($s) { ((("$s" -replace '\s*[\(\[][^\)\]]*[\)\]]', '') -replace '(?i)\s+(feat\.?|ft\.?|featuring)\s.*$', '') -replace '\s+-\s+topic$', '').Trim() }
   function Normalize-Name($s) {
     $plain = "$s".ToLowerInvariant().Normalize([Text.NormalizationForm]::FormD) -replace '\p{Mn}', ''
     $plain -replace '[^a-z0-9]', ''
   }
 
+  # YouTube Music une varios artistas con una conjunción en el idioma de la página
+  # ("YODAKA y Kainbeats", "A & B", "A, B", "A x B", "A feat. B"): el primero es el principal.
+  function Get-PrimaryArtist($artist) {
+    ((Clean-Name $artist) -split '(?i)\s*,\s*|\s*&\s*|\s+(?:y|e|and|x|con|with|feat\.?|ft\.?|featuring)\s+')[0].Trim()
+  }
+
   # Carátula del catálogo público de Apple (iTunes Search, sin cuenta ni clave). Solo se
-  # acepta si artista y título coinciden, para no mostrar una carátula equivocada.
+  # acepta si artista y título coinciden, para no mostrar una carátula equivocada. Como
+  # mucho 3 intentos: artista completo y canción; artista principal y canción; solo la
+  # canción, aceptando el resultado si es del artista principal.
   function Search-CatalogArtwork($title, $artist) {
-    $a = Normalize-Name (Clean-Name $artist)
-    $t = Normalize-Name (Clean-Name $title)
-    if (-not $a -or -not $t) { return $null }
-    try {
-      $term = [Uri]::EscapeDataString("$(Clean-Name $artist) $(Clean-Name $title)")
-      $json = [Text.Encoding]::UTF8.GetString((Get-WebBytes "https://itunes.apple.com/search?media=music&entity=song&limit=10&term=$term")) | ConvertFrom-Json
-      $hit = $json.results | Where-Object {
-        $ra = Normalize-Name $_.artistName
-        $rt = Normalize-Name $_.trackName
-        $ra -and $rt -and ($ra.Contains($a) -or $a.Contains($ra)) -and ($rt.Contains($t) -or $t.Contains($rt))
-      } | Select-Object -First 1
-      if ($hit -and $hit.artworkUrl100) {
-        return Get-WebImage ($hit.artworkUrl100 -replace '/\d+x\d+bb\.', '/600x600bb.')
-      }
-    } catch {}
+    $full = Clean-Name $artist
+    $song = Clean-Name $title
+    $t = Normalize-Name $song
+    if (-not (Normalize-Name $full) -or -not $t) { return $null }
+    $main = Get-PrimaryArtist $artist
+    if (-not $main) { $main = $full }
+    $attempts = @(@{ term = "$full $song"; artist = $full })
+    if ((Normalize-Name $main) -ne (Normalize-Name $full)) { $attempts += @{ term = "$main $song"; artist = $main } }
+    $attempts += @{ term = $song; artist = $main }
+    foreach ($attempt in $attempts) {
+      $a = Normalize-Name $attempt.artist
+      try {
+        $term = [Uri]::EscapeDataString($attempt.term)
+        $json = [Text.Encoding]::UTF8.GetString((Get-WebBytes "https://itunes.apple.com/search?media=music&entity=song&limit=10&term=$term")) | ConvertFrom-Json
+        $hit = $json.results | Where-Object {
+          $ra = Normalize-Name $_.artistName
+          $rt = Normalize-Name $_.trackName
+          $ra -and $rt -and ($ra.Contains($a) -or $a.Contains($ra)) -and ($rt.Contains($t) -or $t.Contains($rt))
+        } | Select-Object -First 1
+        if ($hit -and $hit.artworkUrl100) {
+          return Get-WebImage ($hit.artworkUrl100 -replace '/\d+x\d+bb\.', '/600x600bb.')
+        }
+      } catch {}
+    }
     $null
   }
 

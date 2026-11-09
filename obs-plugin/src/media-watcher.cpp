@@ -326,11 +326,22 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		const Track prev = tracks_.value(app);
 		// Una vez por canción: si llegó el video de YouTube (para saber qué pasó si no se ve).
 		if (!track.videoId.isEmpty() && track.videoId != prev.videoId)
-			obs_log(LOG_INFO, "video de YouTube para %s: %s", app.toUtf8().constData(),
-				track.videoId.toUtf8().constData());
+			obs_log(LOG_INFO, "video de YouTube para %s (%s): %s", app.toUtf8().constData(),
+				track.title.left(80).toUtf8().constData(), track.videoId.toUtf8().constData());
 		bool changed = !prev.valid() || prev.title != track.title || prev.artist != track.artist ||
 			       (!prev.isPlaying && track.isPlaying);
 		track.changedAt = changed ? t : prev.changedAt;
+		// Una vez por canción: si sigue sin carátula después de un rato sonando (para los
+		// avisos de "se quedó sin carátula").
+		if (track.artwork.isEmpty() && track.isPlaying && t - track.changedAt >= kArtMissingLogMs &&
+		    !artMissingLogged_.contains(artKey)) {
+			if (artMissingLogged_.size() >= 200)
+				artMissingLogged_.clear();
+			artMissingLogged_.insert(artKey);
+			obs_log(LOG_INFO, "sin carátula tras %d s: %s (%s), video: %s", int(kArtMissingLogMs / 1000),
+				app.toUtf8().constData(), track.title.left(80).toUtf8().constData(),
+				track.videoId.isEmpty() ? "ninguno" : track.videoId.toUtf8().constData());
+		}
 		tracks_.insert(app, track);
 		seen.insert(app);
 	}

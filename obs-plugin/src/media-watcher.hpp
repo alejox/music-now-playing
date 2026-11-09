@@ -4,6 +4,7 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QProcess>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
@@ -112,8 +113,10 @@ private:
 	void evictArtworks(const QString &keep);
 
 	static constexpr qsizetype kMaxArtworks = 30;
+	static constexpr qint64 kArtMissingLogMs = 10000; // sin carátula tras esto: se anota en el log
 	QHash<QString, QString> artworks_; // app + canción → carátula de esa canción
 	QStringList artworkOrder_;         // claves de artworks_, de la más vieja a la más nueva
+	QSet<QString> artMissingLogged_;   // canciones (app + canción) ya anotadas en el log sin carátula
 	QHash<QString, PlayerState> states_; // app → volumen y aleatorio
 	bool stateAsked_ = false;            // hay una pregunta de estado en curso
 	// Un cambio de volumen a la vez; mientras va uno, el último pedido espera.
