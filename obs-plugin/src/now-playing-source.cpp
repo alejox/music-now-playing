@@ -57,8 +57,9 @@ struct NowPlayingSource {
 	uint32_t height = 140;
 	QString sentArtKey; // canción cuya carátula ya le mandamos a la página
 	int beats = 0;
-	QString fallbackPath; // imagen del usuario (su logo) para cuando no hay carátula
-	QString fallbackArt;  // esa imagen como data:image/…;base64,…
+	QString fallbackPath;       // imagen del usuario (su logo) para cuando no hay carátula
+	QString fallbackArt;        // esa imagen como data:image/…;base64,…
+	QString fallbackLoadedPath; // de qué archivo es fallbackArt (se carga en el hilo de la interfaz)
 	QString player;       // dock (igual que el dock) | auto | spotify | ytmusic | youtube | system
 };
 
@@ -145,11 +146,8 @@ QString loadImage(const QString &path)
 
 void readSettings(NowPlayingSource *s, obs_data_t *settings)
 {
-	QString fallbackPath = QString::fromUtf8(obs_data_get_string(settings, "fallback_image"));
-	if (fallbackPath != s->fallbackPath) {
-		s->fallbackPath = fallbackPath;
-		s->fallbackArt = loadImage(fallbackPath);
-	}
+	// Solo la ruta: la imagen (hasta 8 MB) se lee después en el hilo de la interfaz.
+	s->fallbackPath = QString::fromUtf8(obs_data_get_string(settings, "fallback_image"));
 	s->player = QString::fromUtf8(obs_data_get_string(settings, "player"));
 	s->width = (uint32_t)std::max<long long>(100, obs_data_get_int(settings, "width"));
 	s->height = (uint32_t)std::max<long long>(60, obs_data_get_int(settings, "height"));
@@ -189,6 +187,41 @@ obs_data_t *browserSettings(const NowPlayingSource *s)
 	return bs;
 }
 
+// En el hilo de la interfaz (dueño del estado de MediaWatcher): carga el logo si cambió y
+// le manda la canción a la tarjeta. La fuente se busca entre las vivas: si OBS la destruyó
+// mientras esto esperaba, no se toca.
+void pushIfAlive(NowPlayingSource *s)
+{
+	QString path;
+	{
+		std::lock_guard<std::mutex> lock(sourcesMutex);
+		if (!sources.count(s))
+			return;
+		if (s->fallbackLoadedPath == s->fallbackPath) {
+			push(s);
+			return;
+		}
+		path = s->fallbackPath;
+	}
+	// Leer el archivo fuera del candado: no frena a OBS si actualiza o destruye la fuente.
+	QString art = loadImage(path);
+	std::lock_guard<std::mutex> lock(sourcesMutex);
+	if (!sources.count(s))
+		return;
+	if (s->fallbackPath == path) {
+		s->fallbackArt = art;
+		s->fallbackLoadedPath = path;
+	}
+	push(s);
+}
+
+// np_create y np_update pueden correr en el hilo de video, que no debe leer el estado del
+// lector: solo guardan los ajustes y piden el envío al hilo de la interfaz.
+void queuePush(NowPlayingSource *s)
+{
+	QMetaObject::invokeMethod(&MediaWatcher::instance(), [s] { pushIfAlive(s); }, Qt::QueuedConnection);
+}
+
 const char *np_get_name(void *)
 {
 	return obs_module_text("NowPlaying.Source");
@@ -206,10 +239,12 @@ void *np_create(obs_data_t *settings, obs_source_t *source)
 	if (!s->browser)
 		obs_log(LOG_WARNING, "no se pudo crear la fuente de navegador (¿falta obs-browser?)");
 
-	std::lock_guard<std::mutex> lock(sourcesMutex);
-	sources.insert(s);
-	syncVideoWanted();
-	push(s);
+	{
+		std::lock_guard<std::mutex> lock(sourcesMutex);
+		sources.insert(s);
+		syncVideoWanted();
+	}
+	queuePush(s);
 	return s;
 }
 
@@ -228,16 +263,18 @@ void np_destroy(void *data)
 void np_update(void *data, obs_data_t *settings)
 {
 	auto *s = static_cast<NowPlayingSource *>(data);
-	std::lock_guard<std::mutex> lock(sourcesMutex);
-	readSettings(s, settings);
-	if (s->browser) {
-		obs_data_t *bs = browserSettings(s);
-		obs_source_update(s->browser, bs);
-		obs_data_release(bs);
+	{
+		std::lock_guard<std::mutex> lock(sourcesMutex);
+		readSettings(s, settings);
+		if (s->browser) {
+			obs_data_t *bs = browserSettings(s);
+			obs_source_update(s->browser, bs);
+			obs_data_release(bs);
+		}
+		s->sentArtKey.clear();
+		syncVideoWanted();
 	}
-	s->sentArtKey.clear();
-	syncVideoWanted();
-	push(s);
+	queuePush(s);
 }
 
 void np_defaults(obs_data_t *settings)
