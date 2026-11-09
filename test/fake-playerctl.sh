@@ -65,9 +65,18 @@ case $1 in
       status) if [ "$target" = spotify ]; then echo Playing; else echo Paused; fi ;;
       play-pause | next | previous) ;;
       # Spotify deja leer y cambiar el volumen y el aleatorio; Firefox no.
+      # El volumen que se le pone queda en FAKE_PLAYERCTL_VOLUME_FILE; con
+      # FAKE_PLAYERCTL_VOLUME=ignore acepta el cambio pero no lo aplica (como Spotify).
       volume)
         if [ "$target" != spotify ]; then exit 1; fi
-        if [ -z "${4:-}" ]; then echo 0.400000; fi
+        vfile=${FAKE_PLAYERCTL_VOLUME_FILE:-}
+        if [ -n "${4:-}" ]; then
+          if [ -n "$vfile" ] && [ "${FAKE_PLAYERCTL_VOLUME:-}" != ignore ]; then printf '%s' "$4" >"$vfile"; fi
+        elif [ -n "$vfile" ] && [ -f "$vfile" ]; then
+          printf '%s\n' "$(<"$vfile")"
+        else
+          echo 0.400000
+        fi
         ;;
       shuffle)
         if [ "$target" != spotify ]; then exit 1; fi

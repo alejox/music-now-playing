@@ -21,6 +21,26 @@ const bin = path.join(tmp, 'bin');
 fs.mkdirSync(bin);
 fs.copyFileSync(path.join(__dirname, 'fake-playerctl.sh'), path.join(bin, 'playerctl'));
 fs.chmodSync(path.join(bin, 'playerctl'), 0o755);
+// pactl y busctl falsos van aparte: solo las pruebas del mezclador los ponen (PACTL / BUSCTL).
+const fakePactl = path.join(tmp, 'pactl');
+fs.copyFileSync(path.join(__dirname, 'fake-pactl.sh'), fakePactl);
+fs.chmodSync(fakePactl, 0o755);
+const fakeBusctl = path.join(tmp, 'busctl');
+fs.copyFileSync(path.join(__dirname, 'fake-busctl.sh'), fakeBusctl);
+fs.chmodSync(fakeBusctl, 0o755);
+const missing = path.join(tmp, 'no-existe');
+const pactlDir = path.join(tmp, 'pactl-state');
+const runtimeDir = path.join(tmp, 'runtime');
+const volumeFile = path.join(tmp, 'mpris-volume');
+// Procesos de prueba: 5001 (el audio de Firefox) es hijo de 5000 (Firefox).
+const procDir = path.join(tmp, 'proc');
+for (const [pid, comm, ppid] of [
+  [5000, 'firefox', 1],
+  [5001, 'Socket Process', 5000],
+]) {
+  fs.mkdirSync(path.join(procDir, String(pid)), { recursive: true });
+  fs.writeFileSync(path.join(procDir, String(pid), 'stat'), `${pid} (${comm}) S ${ppid} ${pid} ${pid} 0 -1\n`);
+}
 
 // Una carátula PNG de 1×1 en una carpeta con espacio (llega como file://…%20…).
 const PNG =
@@ -33,6 +53,9 @@ const log = path.join(tmp, 'calls.log');
 
 function run(args, extraEnv = {}) {
   fs.writeFileSync(log, '');
+  fs.rmSync(volumeFile, { force: true });
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  fs.mkdirSync(pactlDir, { recursive: true });
   const r = spawnSync('bash', [READER, ...args], {
     encoding: 'utf8',
     timeout: 20000,
@@ -42,6 +65,14 @@ function run(args, extraEnv = {}) {
       OBS_NOW_PLAYING_LOOPS: '2',
       FAKE_ART: art,
       FAKE_PLAYERCTL_LOG: log,
+      FAKE_PLAYERCTL_VOLUME_FILE: volumeFile,
+      FAKE_PACTL_DIR: pactlDir,
+      XDG_RUNTIME_DIR: runtimeDir,
+      OBS_NOW_PLAYING_PROC: procDir,
+      // Sin mezclador salvo que la prueba lo pida (el de la máquina no entra).
+      PACTL: missing,
+      BUSCTL: missing,
+      DBUS_SEND: missing,
       ...extraEnv,
     },
   });
@@ -142,7 +173,12 @@ try {
   // Volumen y aleatorio (dock): 0–100 y On/Off de playerctl → {"state":…}.
   r = run(['command', 'state'], { OBS_NOW_PLAYING_PLAYER: 'spotify' });
   assert.equal(r.code, 0);
-  assert.deepEqual(r.lines.at(-1), { ok: true, via: 'spotify', state: { volume: 40, shuffle: true } });
+  assert.deepEqual(r.lines.at(-1), {
+    ok: true,
+    via: 'spotify',
+    volumeVia: 'mpris',
+    state: { volume: 40, shuffle: true },
+  });
 
   r = run(['command', 'volume', '7'], { OBS_NOW_PLAYING_PLAYER: 'spotify' });
   assert.equal(r.code, 0);
@@ -162,12 +198,82 @@ try {
   assert.equal(r.code, 1);
   assert.match(r.lines.at(-1).error, /volumen/);
 
+  // ---- Volumen por el mezclador de PulseAudio/PipeWire ----
+  const pulse = { PACTL: fakePactl, BUSCTL: fakeBusctl };
+  const resetPulse = () => {
+    fs.rmSync(pactlDir, { recursive: true, force: true });
+    fs.rmSync(runtimeDir, { recursive: true, force: true });
+  };
+
+  // (b) El reproductor aplica el volumen de MPRIS: no se toca el mezclador.
+  resetPulse();
+  r = run(['command', 'volume', '7'], { OBS_NOW_PLAYING_PLAYER: 'spotify', ...pulse });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.lines.at(-1).volumeVia, 'mpris');
+  assert.equal(r.lines.at(-1).state.volume, 7);
+  assert.doesNotMatch(r.calls, /^pactl /m);
+
+  // (a) Spotify acepta el volumen de MPRIS pero no lo aplica: va al flujo de audio de su pid.
+  resetPulse();
+  r = run(['command', 'volume', '55'], { OBS_NOW_PLAYING_PLAYER: 'spotify', FAKE_PLAYERCTL_VOLUME: 'ignore', ...pulse });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.lines.at(-1).ok, true);
+  assert.equal(r.lines.at(-1).volumeVia, 'pulse');
+  assert.equal(r.lines.at(-1).state.volume, 55);
+  assert.match(r.calls, /^-p spotify volume 0\.55$/m, 'primero prueba MPRIS');
+  assert.match(r.calls, /^busctl .*GetConnectionUnixProcessID s org\.mpris\.MediaPlayer2\.spotify$/m);
+  assert.match(r.calls, /^pactl set-sink-input-volume 7 55%$/m);
+  assert.doesNotMatch(r.calls, /^pactl set-sink-input-volume (8|9) /m, 'solo el flujo de Spotify');
+  // La barra lee lo mismo: el nivel del mezclador, no el 40 que dice MPRIS.
+  r = run(['command', 'state'], { OBS_NOW_PLAYING_PLAYER: 'spotify', FAKE_PLAYERCTL_VOLUME: 'ignore', ...pulse });
+  assert.deepEqual(r.lines.at(-1), {
+    ok: true,
+    via: 'spotify',
+    volumeVia: 'pulse',
+    state: { volume: 55, shuffle: true },
+  });
+
+  // Sin el pid (sin busctl ni dbus-send): por el nombre del programa.
+  resetPulse();
+  r = run(['command', 'volume', '20'], {
+    OBS_NOW_PLAYING_PLAYER: 'spotify',
+    FAKE_PLAYERCTL_VOLUME: 'ignore',
+    PACTL: fakePactl,
+  });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.lines.at(-1).volumeVia, 'pulse');
+  assert.match(r.calls, /^pactl set-sink-input-volume 7 20%$/m);
+  assert.doesNotMatch(r.calls, /^pactl set-sink-input-volume (8|9) /m);
+
+  // Firefox (sin volumen MPRIS): el audio sale de un proceso hijo.
+  resetPulse();
+  r = run(['command', 'volume', '50'], { OBS_NOW_PLAYING_PLAYER: 'firefox', ...pulse });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(r.lines.at(-1).volumeVia, 'pulse');
+  assert.equal(r.lines.at(-1).state.volume, 50);
+  assert.match(r.calls, /^pactl set-sink-input-volume 8 50%$/m);
+  assert.doesNotMatch(r.calls, /^pactl set-sink-input-volume (7|9) /m);
+  r = run(['command', 'state'], { OBS_NOW_PLAYING_PLAYER: 'firefox', ...pulse });
+  assert.equal(r.lines.at(-1).state.volume, 50);
+  assert.equal(r.lines.at(-1).volumeVia, 'pulse');
+
+  // (c) Sin pactl, como antes: Firefox no deja y un volumen que no se aplica no es "ok".
+  resetPulse();
+  r = run(['command', 'volume', '50'], { OBS_NOW_PLAYING_PLAYER: 'firefox' });
+  assert.equal(r.code, 1);
+  assert.match(r.lines.at(-1).error, /volumen/);
+  r = run(['command', 'state'], { OBS_NOW_PLAYING_PLAYER: 'firefox' });
+  assert.deepEqual(r.lines.at(-1).state, { volume: null, shuffle: null });
+  r = run(['command', 'volume', '55'], { OBS_NOW_PLAYING_PLAYER: 'spotify', FAKE_PLAYERCTL_VOLUME: 'ignore' });
+  assert.equal(r.code, 1);
+  assert.match(r.lines.at(-1).error, /volumen/);
+
   r = run(['command', 'bailar']);
   assert.equal(r.code, 2);
   assert.match(r.lines.at(-1).error, /desconocido/);
 
   // ---- Sin playerctl: un error del protocolo que dice qué instalar ----
-  r = run([], { PLAYERCTL: path.join(tmp, 'no-existe') });
+  r = run([], { PLAYERCTL: missing });
   assert.equal(r.code, 2);
   assert.match(r.lines[0].error, /playerctl/);
 

@@ -454,16 +454,214 @@ watch() {
 
 # ---- Comandos ----------------------------------------------------------------------
 
+# ---- Volumen por el mezclador (PulseAudio / PipeWire) ------------------------------
+# Muchos reproductores (Spotify, Chromium, Firefox…) no tienen el volumen de MPRIS o lo
+# aceptan sin aplicarlo: la barra del dock volvía atrás. Entonces se cambia el volumen de sus
+# flujos de audio en el mezclador del sistema con pactl (PulseAudio, y PipeWire con
+# pipewire-pulse). Se lee el texto de "pactl list sink-inputs" en inglés (LC_ALL=C): sale
+# igual en todas las versiones de pactl y no hace falta leer JSON desde bash.
+# Un flujo es del reproductor si lo abrió su proceso (el pid del reproductor en D-Bus) o un
+# proceso hijo (el navegador saca el audio de otro proceso). Si no se sabe el pid, por el
+# nombre del programa: entonces cambia todo el navegador, como en Windows.
+# Sin pactl todo sigue como antes (solo MPRIS).
+
+# tool_cmd <variable de prueba> <programa> → TOOL (el comando, vacío si no está). Con OBS en
+# Flatpak, el de la máquina (como playerctl).
+tool_cmd() {
+  TOOL=()
+  if [ -n "$1" ]; then
+    if command -v "$1" >/dev/null 2>&1; then TOOL=("$1"); fi
+  elif command -v "$2" >/dev/null 2>&1; then
+    TOOL=(env LC_ALL=C "$2")
+  elif [ "${PCTL[0]:-}" = flatpak-spawn ]; then
+    TOOL=(flatpak-spawn --host --env=LC_ALL=C "$2")
+  fi
+}
+
+# El pid del reproductor <instancia> según D-Bus, en PID_OUT ('' si no se sabe).
+player_pid() {
+  local bus="org.mpris.MediaPlayer2.$1" out=''
+  PID_OUT=''
+  tool_cmd "${BUSCTL-}" busctl
+  if [ "${#TOOL[@]}" -gt 0 ]; then
+    out=$("${TOOL[@]}" --user call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus \
+      GetConnectionUnixProcessID s "$bus" 2>/dev/null) || out=''
+  fi
+  if [ -z "$out" ]; then
+    tool_cmd "${DBUS_SEND-}" dbus-send
+    if [ "${#TOOL[@]}" -gt 0 ]; then
+      out=$("${TOOL[@]}" --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus \
+        org.freedesktop.DBus.GetConnectionUnixProcessID "string:$bus" 2>/dev/null) || out=''
+    fi
+  fi
+  if [[ $out =~ ([0-9]+)[[:space:]]*$ ]]; then PID_OUT=${BASH_REMATCH[1]}; fi
+}
+
+# ¿El proceso <pid> es <ancestro> o desciende de él? Sube por /proc/<pid>/stat (8 niveles).
+# En Flatpak no: la caja de arena no ve los procesos de la máquina.
+descends_from() {
+  local pid=$1 depth stat proc=${OBS_NOW_PLAYING_PROC:-/proc}
+  if [ -z "${OBS_NOW_PLAYING_PROC:-}" ] && [ -f /.flatpak-info ]; then return 1; fi
+  for ((depth = 0; depth < 8; depth++)); do
+    if [ "$pid" = "$2" ]; then return 0; fi
+    case $pid in '' | 0 | 1 | *[!0-9]*) return 1 ;; esac
+    [ -r "$proc/$pid/stat" ] || return 1
+    stat=$(<"$proc/$pid/stat")
+    stat=${stat##*) } # tras el nombre (puede tener espacios y paréntesis): "S <padre> …"
+    stat=${stat#* }
+    pid=${stat%% *}
+  done
+  return 1
+}
+
+PCT_RE='([0-9]+)%'
+
+# Promedio de los canales de "Volume: front-left: 26214 /  40% / … dB, …" en VOL_OUT.
+average_percent() {
+  local s=$1 sum=0 n=0
+  VOL_OUT=''
+  while [[ $s =~ $PCT_RE ]]; do
+    sum=$((sum + 10#${BASH_REMATCH[1]}))
+    n=$((n + 1))
+    s=${s#*"${BASH_REMATCH[0]}"}
+  done
+  if [ "$n" -gt 0 ]; then
+    VOL_OUT=$(((sum + n / 2) / n))
+    if [ "$VOL_OUT" -gt 100 ]; then VOL_OUT=100; fi
+  fi
+}
+
+# Los flujos de audio del reproductor <instancia>: índices en SINKS y el volumen del primero
+# en SINK_VOL. Falla si no hay pactl o ningún flujo es suyo.
+find_sinks() {
+  local base key pid out line index='' spid='' sbin='' sname='' svol=''
+  local strong=() weak=() strong_vol='' weak_vol=''
+  SINKS=()
+  SINK_VOL=''
+  [ -n "$1" ] || return 1
+  tool_cmd "${PACTL-}" pactl
+  PACTL_CMD=("${TOOL[@]}")
+  [ "${#PACTL_CMD[@]}" -gt 0 ] || return 1
+  out=$("${PACTL_CMD[@]}" list sink-inputs 2>/dev/null) || return 1
+  [ -n "$out" ] || return 1
+  base=$(printf '%s' "${1%%.*}" | tr '[:upper:]' '[:lower:]')
+  case $base in
+    google-chrome) key=chrome ;;
+    microsoft-edge | msedge) key=edge ;;
+    *) key=$base ;;
+  esac
+  player_pid "$1"
+  pid=$PID_OUT
+  out="$out"$'\nSink Input #end'
+  while IFS= read -r line; do
+    case $line in
+      'Sink Input #'*)
+        if [ -n "$index" ]; then
+          average_percent "$svol"
+          if [ -n "$pid" ] && [ -n "$spid" ] && descends_from "$spid" "$pid"; then
+            strong[${#strong[@]}]=$index
+            if [ -z "$strong_vol" ]; then strong_vol=$VOL_OUT; fi
+          else
+            sbin=$(printf '%s\n%s' "$sbin" "$sname" | tr '[:upper:]' '[:lower:]')
+            if [ "${#key}" -ge 3 ] && [[ $sbin == *"$key"* ]]; then
+              weak[${#weak[@]}]=$index
+              if [ -z "$weak_vol" ]; then weak_vol=$VOL_OUT; fi
+            fi
+          fi
+        fi
+        index=${line#'Sink Input #'}
+        spid=''
+        sbin=''
+        sname=''
+        svol=''
+        ;;
+      *)
+        line=${line#"${line%%[![:space:]]*}"} # sin la sangría
+        case $line in
+          'Volume:'*) svol=$line ;;
+          'application.process.id = "'*) spid=${line#*\"} spid=${spid%\"} ;;
+          'application.process.binary = "'*) sbin=${line#*\"} sbin=${sbin%\"} ;;
+          'application.name = "'*) sname=${line#*\"} sname=${sname%\"} ;;
+        esac
+        ;;
+    esac
+  done <<<"$out"
+  # Por el proceso, si alguno es suyo; si no, por el nombre.
+  if [ "${#strong[@]}" -gt 0 ]; then
+    SINKS=("${strong[@]}")
+    SINK_VOL=$strong_vol
+  elif [ "${#weak[@]}" -gt 0 ]; then
+    SINKS=("${weak[@]}")
+    SINK_VOL=$weak_vol
+  else
+    return 1
+  fi
+}
+
+# pulse_set <instancia> <0–100>: cambia todos sus flujos; falla si no cambió ninguno.
+pulse_set() {
+  local index changed=1
+  find_sinks "$1" || return 1
+  for index in "${SINKS[@]}"; do
+    if "${PACTL_CMD[@]}" set-sink-input-volume "$index" "$2%" >/dev/null 2>&1; then changed=0; fi
+  done
+  return $changed
+}
+
+# El volumen de MPRIS (0–100) en VOL_OUT ('' si el reproductor no lo da). playerctl lo da de
+# 0 a 1 ("0.400000").
+mpris_volume() {
+  local vol whole frac
+  VOL_OUT=''
+  vol=$("${PCTL[@]}" "$@" volume 2>/dev/null) || vol=''
+  if [[ $vol =~ ^[0-9]+(\.[0-9]*)?$ ]]; then
+    whole=${vol%%.*}
+    frac=0
+    if [[ $vol == *.* ]]; then frac=${vol#*.}; fi
+    frac="${frac}00"
+    VOL_OUT=$((10#$whole * 100 + 10#${frac:0:2}))
+    if [ "$VOL_OUT" -gt 100 ]; then VOL_OUT=100; fi
+  fi
+}
+
+# Por dónde anduvo el volumen con este reproductor: si fue el mezclador, la barra lo lee de
+# ahí (MPRIS puede seguir diciendo el volumen viejo). Un archivo por reproductor.
+via_file() {
+  local base=${1%%.*}
+  VIA_FILE="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/obs-now-playing-volume.${base//[!A-Za-z0-9_-]/_}"
+}
+
 # Volumen y aleatorio del reproductor (dock): state los lee; volume y shuffle los cambian y
-# también responden con lo que quedó. playerctl da el volumen de 0 a 1 ("0.400000").
+# también responden con lo que quedó. "volumeVia" dice de dónde salió el volumen: mpris (el
+# reproductor) o pulse (el mezclador de PulseAudio/PipeWire).
 player_state() {
-  local action=$1 arg=$2 via=$3 v vol shuf whole frac pct=null shuffle=null
+  local action=$1 arg=$2 via=$3 inst='' v tries shuf pct=null shuffle=null volume_via='' extra=''
   shift 3
+  if [ "${1:-}" = -p ]; then inst=$2; fi
+  via_file "${inst:-playerctl}"
   if [ "$action" = volume ]; then
     non_negative_int "$arg"
     v=$INT_OUT
     if [ "$v" -gt 100 ]; then v=100; fi
-    if ! "${PCTL[@]}" "$@" volume "$((v / 100)).$(printf '%02d' $((v % 100)))" >/dev/null 2>&1; then
+    # Si ya se sabe que el reproductor no aplica el de MPRIS, directo al mezclador.
+    if [ -n "$inst" ] && [ -f "$VIA_FILE" ] && pulse_set "$inst" "$v"; then volume_via=pulse; fi
+    if [ -z "$volume_via" ] && "${PCTL[@]}" "$@" volume "$((v / 100)).$(printf '%02d' $((v % 100)))" >/dev/null 2>&1; then
+      # Que diga que sí no basta: se comprueba leyéndolo (hasta ~150 ms después).
+      for ((tries = 0; tries < 3; tries++)); do
+        if [ "$tries" -gt 0 ]; then sleep 0.075 2>/dev/null || sleep 1; fi
+        mpris_volume "$@"
+        if [ -n "$VOL_OUT" ] && [ $((VOL_OUT - v)) -le 2 ] && [ $((v - VOL_OUT)) -le 2 ]; then
+          volume_via=mpris
+          rm -f "$VIA_FILE"
+          break
+        fi
+      done
+    fi
+    if [ -z "$volume_via" ] && [ -n "$inst" ] && pulse_set "$inst" "$v"; then
+      volume_via=pulse
+      : 2>/dev/null >"$VIA_FILE"
+    fi
+    if [ -z "$volume_via" ]; then
       json_str 'Este reproductor no deja cambiar el volumen desde OBS.'
       emit "{\"error\":$JSON_OUT}"
       return 1
@@ -475,22 +673,32 @@ player_state() {
       return 1
     fi
   fi
-  vol=$("${PCTL[@]}" "$@" volume 2>/dev/null) || vol=''
-  if [[ $vol =~ ^[0-9]+(\.[0-9]*)?$ ]]; then
-    whole=${vol%%.*}
-    frac=0
-    if [[ $vol == *.* ]]; then frac=${vol#*.}; fi
-    frac="${frac}00"
-    pct=$((10#$whole * 100 + 10#${frac:0:2}))
-    if [ "$pct" -gt 100 ]; then pct=100; fi
+  # La lectura sigue la misma regla: del mezclador si por ahí anduvo; si no, de MPRIS y, si
+  # el reproductor no lo da, del mezclador.
+  if [ -n "$inst" ] && { [ "$volume_via" = pulse ] || { [ -z "$volume_via" ] && [ -f "$VIA_FILE" ]; }; } &&
+    find_sinks "$inst" && [ -n "$SINK_VOL" ]; then
+    pct=$SINK_VOL
+    volume_via=pulse
+  else
+    mpris_volume "$@"
+    if [ -n "$VOL_OUT" ]; then
+      pct=$VOL_OUT
+      volume_via=mpris
+    elif [ -n "$inst" ] && find_sinks "$inst" && [ -n "$SINK_VOL" ]; then
+      pct=$SINK_VOL
+      volume_via=pulse
+    else
+      volume_via=''
+    fi
   fi
+  if [ -n "$volume_via" ]; then extra=",\"volumeVia\":\"$volume_via\""; fi
   shuf=$("${PCTL[@]}" "$@" shuffle 2>/dev/null) || shuf=''
   case $shuf in
     On) shuffle=true ;;
     Off) shuffle=false ;;
   esac
   json_str "$via"
-  emit "{\"ok\":true,\"via\":$JSON_OUT,\"state\":{\"volume\":$pct,\"shuffle\":$shuffle}}"
+  emit "{\"ok\":true,\"via\":$JSON_OUT$extra,\"state\":{\"volume\":$pct,\"shuffle\":$shuffle}}"
   return 0
 }
 
