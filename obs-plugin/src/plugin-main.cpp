@@ -36,12 +36,22 @@ namespace {
 
 void on_frontend_event(enum obs_frontend_event event, void *)
 {
-	// Al cerrar OBS, el lector se apaga antes de que Qt desarme la interfaz.
-	if (event == OBS_FRONTEND_EVENT_EXIT)
+	// Al cerrar OBS, el lector se apaga antes de que Qt desarme la interfaz, el actualizador
+	// deja de avisar y este callback se quita aquí (después de EXIT la interfaz ya no existe).
+	// Quitarlo dentro del callback es seguro: OBS los recorre de atrás hacia adelante.
+	if (event == OBS_FRONTEND_EVENT_EXIT) {
 		MediaWatcher::instance().stop();
+		Updater::instance().shutdown();
+		obs_frontend_remove_event_callback(on_frontend_event, nullptr);
+		return;
+	}
+	// El aviso automático de actualización espera a que no estés en vivo.
+	if (event == OBS_FRONTEND_EVENT_STREAMING_STOPPED || event == OBS_FRONTEND_EVENT_RECORDING_STOPPED ||
+	    event == OBS_FRONTEND_EVENT_REPLAY_BUFFER_STOPPED || event == OBS_FRONTEND_EVENT_VIRTUALCAM_STOPPED)
+		Updater::instance().outputsStopped();
 	// Con OBS ya abierto, revisa si hay una versión nueva (sin apurar el arranque).
 	if (event == OBS_FRONTEND_EVENT_FINISHED_LOADING) {
-		QTimer::singleShot(5000, &Updater::instance(), [] { Updater::instance().check(false); });
+		Updater::instance().scheduleAutomaticCheck(5000);
 		// Con las escenas ya cargadas, el canal de música sigue a la app que suena. Una
 		// sola vez: Qt::UniqueConnection no sirve con una función suelta (con el Qt de
 		// OBS 32 en Mac la conexión falla y el canal nunca seguía a la música).
@@ -73,7 +83,7 @@ bool obs_module_load(void)
 
 void obs_module_unload(void)
 {
-	obs_frontend_remove_event_callback(on_frontend_event, nullptr);
+	// El callback de eventos ya se quitó al recibir OBS_FRONTEND_EVENT_EXIT.
 	MediaWatcher::instance().stop();
 	obs_log(LOG_INFO, "plugin unloaded");
 }

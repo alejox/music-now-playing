@@ -21,6 +21,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QUrl>
 
 #include <algorithm>
@@ -326,8 +327,9 @@ bool offerMoveToNewFolder()
 	box.setTextFormat(Qt::RichText);
 	box.setText(text("NowPlaying.Update.Move").arg(QDir::toNativeSeparators(target).toHtmlEscaped()));
 	QPushButton *move = box.addButton(text("NowPlaying.Update.MoveNow"), QMessageBox::AcceptRole);
-	box.addButton(text("NowPlaying.Update.Later"), QMessageBox::RejectRole);
-	box.setDefaultButton(move);
+	QPushButton *later = box.addButton(text("NowPlaying.Update.Later"), QMessageBox::RejectRole);
+	box.setDefaultButton(later);
+	box.setEscapeButton(later);
 	box.exec();
 	if (box.clickedButton() != move) {
 		obs_log(LOG_INFO, "no se movió el plugin a la carpeta de OBS 33 (se vuelve a ofrecer al abrir OBS)");
@@ -400,10 +402,56 @@ void Updater::cleanupPreviousUpdate()
 		.removeRecursively();
 }
 
+bool Updater::live()
+{
+	return obs_frontend_streaming_active() || obs_frontend_recording_active() ||
+	       obs_frontend_replay_buffer_active() || obs_frontend_virtualcam_active();
+}
+
+void Updater::scheduleAutomaticCheck(int delayMs)
+{
+	QTimer::singleShot(delayMs, this, [this] { check(false); });
+}
+
+// Se espera a los eventos de OBS (las salidas al detenerse) en vez de revisar cada tanto:
+// no hay sondeo y, como al dispararse se vuelve a preguntar si queda algo en vivo, una salida
+// que sigue (o que arrancó en el medio) solo pospone el aviso hasta que también pare.
+void Updater::outputsStopped()
+{
+	if (exiting_ || (!checkPending_ && pendingVersion_.isEmpty()))
+		return;
+	// Unos segundos de margen: al cerrar una transmisión suele parar también la grabación.
+	QTimer::singleShot(3000, this, [this] {
+		if (exiting_ || busy_ || live())
+			return;
+		if (!pendingVersion_.isEmpty()) {
+			if (pendingVersion_ != skippedVersion())
+				askToUpdate(pendingVersion_, pendingUrl_, pendingPage_);
+			pendingVersion_.clear();
+		} else if (checkPending_) {
+			checkPending_ = false;
+			check(false);
+		}
+	});
+}
+
+void Updater::shutdown()
+{
+	exiting_ = true;
+	checkPending_ = false;
+	pendingVersion_.clear();
+}
+
 void Updater::check(bool manual)
 {
-	if (busy_)
+	if (busy_ || exiting_)
 		return;
+	// Nada automático en vivo (ni siquiera ofrecer mover la carpeta en Windows).
+	if (!manual && live()) {
+		checkPending_ = true;
+		obs_log(LOG_INFO, "en vivo: la revisión de actualizaciones espera a que termine");
+		return;
+	}
 #ifdef _WIN32
 	// OBS 33+: primero el plugin a la carpeta nueva (si se movió, lo demás espera al reinicio).
 	if (!manual && offerMoveToNewFolder())
@@ -415,6 +463,8 @@ void Updater::check(bool manual)
 		QByteArray json = curl->readAllStandardOutput();
 		curl->deleteLater();
 		busy_ = false;
+		if (exiting_)
+			return;
 		if (code != 0) {
 			obs_log(LOG_INFO, "no se pudo revisar si hay actualizaciones (curl %d)", code);
 			if (manual)
@@ -482,11 +532,20 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 #endif
 	if (!manual && version == skippedVersion())
 		return;
+	// Si empezaste a transmitir o grabar mientras se revisaba, el aviso espera.
+	if (!manual && live()) {
+		pendingVersion_ = version;
+		pendingUrl_ = url;
+		pendingPage_ = pageUrl;
+		obs_log(LOG_INFO, "hay una versión nueva (%s): se avisa cuando no estés en vivo", version.toUtf8().constData());
+		return;
+	}
 	askToUpdate(version, url, pageUrl);
 }
 
 void Updater::askToUpdate(const QString &version, const QString &url, const QString &pageUrl)
 {
+	pendingVersion_.clear();
 	QMessageBox box(mainWindow());
 	box.setWindowTitle(text("NowPlaying.Update.Title"));
 	box.setIcon(QMessageBox::Information);
@@ -495,9 +554,11 @@ void Updater::askToUpdate(const QString &version, const QString &url, const QStr
 	box.setText(text("NowPlaying.Update.Available")
 			    .arg(version, QString::fromUtf8(PLUGIN_VERSION), pageUrl.toHtmlEscaped()));
 	QPushButton *update = box.addButton(text("NowPlaying.Update.Now"), QMessageBox::AcceptRole);
-	box.addButton(text("NowPlaying.Update.Later"), QMessageBox::RejectRole);
+	QPushButton *later = box.addButton(text("NowPlaying.Update.Later"), QMessageBox::RejectRole);
 	QPushButton *skip = box.addButton(text("NowPlaying.Update.Skip"), QMessageBox::DestructiveRole);
-	box.setDefaultButton(update);
+	// Un Enter o un Esc sin querer no instala nada.
+	box.setDefaultButton(later);
+	box.setEscapeButton(later);
 #ifdef __linux__
 	// En Linux no se instala solo: el botón abre la página para bajar el zip.
 	update->setText(text("NowPlaying.Update.OpenPage"));

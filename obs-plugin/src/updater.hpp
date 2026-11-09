@@ -22,8 +22,18 @@ class Updater : public QObject {
 public:
 	static Updater &instance();
 
-	// manual: también avisa si ya está al día o si falla la revisión.
+	// manual: también avisa si ya está al día o si falla la revisión. La revisión manual
+	// (Herramientas) avisa aunque estés en vivo: la pediste tú.
 	void check(bool manual);
+
+	// La revisión automática al abrir OBS, dentro de delayMs. Su aviso nunca aparece mientras
+	// transmites, grabas, usas el búfer de repetición o la cámara virtual: espera a que paren.
+	void scheduleAutomaticCheck(int delayMs);
+	// OBS avisó que se detuvo una salida: si ya no queda ninguna en vivo, sigue la revisión o
+	// el aviso que estaba esperando.
+	void outputsStopped();
+	// OBS se cierra: no se revisa ni se avisa más (ningún temporizador pendiente hace nada).
+	void shutdown();
 
 	// Limpia lo que haya quedado de una actualización anterior (la descarga temporal; en
 	// Windows los .dll viejos los borra la actualización siguiente, que tiene el permiso).
@@ -40,6 +50,15 @@ private:
 	void install(const QString &version, const QString &zipPath);
 	void fail(const QString &message, const QString &pageUrl, const QString &detail = QString());
 
+	// Transmisión, grabación, búfer de repetición o cámara virtual activos.
+	static bool live();
+
 	bool busy_ = false;
+	bool exiting_ = false;
+	bool checkPending_ = false; // la revisión automática espera a que no estés en vivo
+	// El aviso automático que espera a que no estés en vivo (vacío: ninguno).
+	QString pendingVersion_;
+	QString pendingUrl_;
+	QString pendingPage_;
 	QProgressDialog *progress_ = nullptr;
 };
