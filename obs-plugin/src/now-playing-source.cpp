@@ -1,5 +1,6 @@
 #include "now-playing-source.hpp"
 #include "media-watcher.hpp"
+#include "music-channel.hpp"
 
 #include <obs-frontend-api.h>
 #include <obs-module.h>
@@ -349,6 +350,13 @@ bool np_fallback_modified(obs_properties_t *props, obs_property_t *, obs_data_t 
 	return true;
 }
 
+// Prende o apaga el canal de música; devuelve true para que el botón muestre el estado nuevo.
+bool np_toggle_channel(obs_properties_t *, obs_property_t *, void *)
+{
+	set_music_channel_enabled(!music_channel_enabled(), static_cast<QWidget *>(obs_frontend_get_main_window()));
+	return true;
+}
+
 obs_properties_t *np_properties(void *data)
 {
 	auto *source = static_cast<NowPlayingSource *>(data);
@@ -439,10 +447,14 @@ obs_properties_t *np_properties(void *data)
 	obs_properties_add_bool(props, "progress", obs_module_text("NowPlaying.Progress"));
 	obs_properties_add_bool(props, "label", obs_module_text("NowPlaying.Label"));
 	obs_properties_add_bool(props, "preview", obs_module_text("NowPlaying.Preview"));
-	// El canal de música se activa en Herramientas (o en el menú del dock): aquí, dónde está.
+	// El canal de música: el mismo interruptor que Herramientas y el menú del dock, a mano aquí.
 	obs_property_t *channel =
 		obs_properties_add_text(props, "channel_info", obs_module_text("NowPlaying.Channel.Info"), OBS_TEXT_INFO);
 	obs_property_text_set_info_word_wrap(channel, true);
+	obs_properties_add_button2(props, "channel_toggle",
+				   obs_module_text(music_channel_enabled() ? "NowPlaying.Channel.TurnOff"
+									   : "NowPlaying.Channel.TurnOn"),
+				   np_toggle_channel, nullptr);
 	return props;
 }
 
