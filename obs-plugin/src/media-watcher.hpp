@@ -115,8 +115,8 @@ private:
 	QHash<QString, QString> artworks_; // app + canción → carátula de esa canción
 	QStringList artworkOrder_;         // claves de artworks_, de la más vieja a la más nueva
 	QHash<QString, PlayerState> states_; // app → volumen y aleatorio
-	bool stateAsked_ = false;            // hay una pregunta de estado en curso (macOS, Linux)
-	// macOS y Linux: un cambio de volumen a la vez; mientras va uno, el último pedido espera.
+	bool stateAsked_ = false;            // hay una pregunta de estado en curso
+	// Un cambio de volumen a la vez; mientras va uno, el último pedido espera.
 	bool volumeBusy_ = false;
 	int pendingVolume_ = -1;
 	qint64 volumeDoneAt_ = 0;

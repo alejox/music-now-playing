@@ -481,16 +481,24 @@ void MediaWatcher::refreshPlayerState()
 	Track track = current(true, player_);
 	if (!track.valid())
 		return;
-#ifdef _WIN32
-	int volume = app_volume(audio_target(track));
-	if (states_.value(track.app).volume != volume) {
-		states_[track.app].volume = volume;
-		emit playerStateChanged();
-	}
-#else
 	if (stateAsked_)
 		return;
 	stateAsked_ = true;
+#ifdef _WIN32
+	// El volumen del Mezclador se lee en otro hilo (ver app-volume.hpp); la interfaz no espera.
+	const QString app = track.app;
+	app_volume_read(audio_target(track), this, [this, app](int volume) {
+		stateAsked_ = false;
+		// Los pedidos van en orden: una lectura que vuelve mientras cambia el volumen se pidió
+		// antes del cambio y trae el nivel viejo (la barra volvería atrás).
+		if (volumeBusy_ || pendingVolume_ >= 0)
+			return;
+		if (states_.value(app).volume != volume) {
+			states_[app].volume = volume;
+			emit playerStateChanged();
+		}
+	});
+#else
 	runCommand("state", -1);
 #endif
 }
@@ -502,18 +510,28 @@ void MediaWatcher::setVolume(int percent)
 		return;
 	percent = std::clamp(percent, 0, 100);
 	states_[track.app].volume = percent; // la barra no salta atrás mientras llega la respuesta
-#ifdef _WIN32
-	if (!set_app_volume(audio_target(track), percent))
-		emit commandFailed(QString::fromUtf8(obs_module_text("NowPlaying.Volume.NoSound")));
-#else
-	// Al arrastrar la barra llegan varios cambios seguidos. Cada uno abre el lector aparte y,
-	// si van a la vez, pueden terminar en otro orden y quedar aplicado uno viejo (el volumen
-	// "vuelve"). Por eso va uno a la vez y, al terminar, se manda el último pedido.
+	// Al arrastrar la barra llegan varios cambios seguidos. Cada uno abre el lector aparte (en
+	// Windows, un pedido al hilo del volumen) y, si van a la vez, pueden terminar en otro orden
+	// y quedar aplicado uno viejo (el volumen "vuelve"). Por eso va uno a la vez y, al
+	// terminar, se manda el último pedido.
 	if (volumeBusy_) {
 		pendingVolume_ = percent;
 		return;
 	}
 	volumeBusy_ = true;
+#ifdef _WIN32
+	app_volume_set(audio_target(track), percent, this, [this](bool ok) {
+		volumeBusy_ = false;
+		volumeDoneAt_ = now();
+		if (!ok)
+			emit commandFailed(QString::fromUtf8(obs_module_text("NowPlaying.Volume.NoSound")));
+		if (pendingVolume_ >= 0) {
+			const int next = pendingVolume_;
+			pendingVolume_ = -1;
+			setVolume(next);
+		}
+	});
+#else
 	runCommand("volume", percent);
 #endif
 }

@@ -23,6 +23,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QMainWindow>
 #include <QTimer>
 
+#include "app-volume.hpp"
 #include "media-watcher.hpp"
 #include "music-channel.hpp"
 #include "now-playing-dock.hpp"
@@ -41,6 +42,8 @@ void on_frontend_event(enum obs_frontend_event event, void *)
 	// Quitarlo dentro del callback es seguro: OBS los recorre de atrás hacia adelante.
 	if (event == OBS_FRONTEND_EVENT_EXIT) {
 		MediaWatcher::instance().stop();
+		// Windows: el volumen que el plugin cambió en el Mezclador vuelve a como estaba.
+		app_volume_shutdown();
 		Updater::instance().shutdown();
 		obs_frontend_remove_event_callback(on_frontend_event, nullptr);
 		return;
@@ -85,5 +88,6 @@ void obs_module_unload(void)
 {
 	// El callback de eventos ya se quitó al recibir OBS_FRONTEND_EVENT_EXIT.
 	MediaWatcher::instance().stop();
+	app_volume_shutdown();
 	obs_log(LOG_INFO, "plugin unloaded");
 }
