@@ -31,6 +31,19 @@ jobs:
           $errors = $null
           [System.Management.Automation.Language.Parser]::ParseFile("$PWD/media/windows.ps1", [ref]$null, [ref]$errors) | Out-Null
           if ($errors) { $errors | ForEach-Object { Write-Error "$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
+      # El script que instala el plugin en Windows va dentro de updater.cpp (kNewFolderScript).
+      - name: Sintaxis del script de instalación del plugin en Windows
+        shell: pwsh
+        run: |
+          $source = Get-Content -Raw obs-plugin/src/updater.cpp
+          $match = [regex]::Match($source, '(?s)R"PS\((.*?)\)PS"')
+          if (-not $match.Success) { Write-Error 'No se encontró kNewFolderScript en updater.cpp'; exit 1 }
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseInput("& {`n$($match.Groups[1].Value)`n}", [ref]$null, [ref]$errors) | Out-Null
+          if ($errors) { $errors | ForEach-Object { Write-Error "$($_.Extent.StartLineNumber): $($_.Message)" }; exit 1 }
+      # La verificación de firmas del plugin (Monocypher) acepta lo que firma OpenSSL, como en la Release.
+      - name: Firma de las actualizaciones del plugin
+        run: OPENSSL=openssl obs-plugin/tests/run-signature-test.sh
       # Incluye el lector de Linux del plugin con un playerctl falso (test/linux-reader.js).
       - name: Prueba de humo
         run: npm test

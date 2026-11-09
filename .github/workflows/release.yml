@@ -3,7 +3,8 @@ name: Release
 # Publicar una versión: sube la versión en package.json, haz commit y luego
 #   - empuja un tag:  git tag v2.0.1 && git push origin v2.0.1
 #   - o en GitHub: Actions → Release → Run workflow (crea el tag v<versión> solo).
-# Esto compila el plugin de OBS y adjunta sus 3 zips (macOS, Windows, Linux) a la Release.
+# Esto compila el plugin de OBS y adjunta sus 3 zips (macOS, Windows, Linux) a la Release,
+# cada uno con su firma <zip>.sig (hace falta el secreto RELEASE_SIGNING_KEY).
 on:
   push:
     tags: ['v*']
@@ -42,18 +43,47 @@ jobs:
           pattern: plugin-*
           path: dist
           merge-multiple: true
-      # Los 3 archivos de la Release, uno por sistema, y nada más.
+      # Cada zip lleva su firma Ed25519 (<zip>.sig, 64 bytes): el actualizador del plugin no
+      # instala un zip sin firma válida. La clave privada es el secreto RELEASE_SIGNING_KEY (PEM);
+      # su clave pública tiene que ser la que va dentro del plugin (src/release-signature.cpp).
+      - name: Firmar los zips
+        env:
+          RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+        run: |
+          [ -n "$RELEASE_SIGNING_KEY" ] || { echo "Falta el secreto RELEASE_SIGNING_KEY"; exit 1; }
+          openssl version
+          key="$RUNNER_TEMP/release-signing-key.pem"
+          pub="$RUNNER_TEMP/release-signing-key.pub.pem"
+          trap 'rm -f "$key" "$pub"' EXIT
+          (umask 077 && printf '%s\n' "$RELEASE_SIGNING_KEY" > "$key")
+          chmod 600 "$key"
+          openssl pkey -in "$key" -pubout -out "$pub"
+          expected="$(sed -nE 's#^// ([0-9a-f]{64})$#\1#p' obs-plugin/src/release-signature.cpp)"
+          actual="$(openssl pkey -in "$key" -pubout -outform DER | tail -c 32 | od -An -tx1 | tr -d ' \n')"
+          [ -n "$expected" ] && [ "$actual" = "$expected" ] || {
+            echo "La clave de RELEASE_SIGNING_KEY ($actual) no es la del plugin ($expected)"; exit 1; }
+          pv="${{ steps.version.outputs.pv }}"
+          for f in "dist/music-now-playing-$pv-macos.zip" "dist/music-now-playing-$pv-windows-x64.zip" \
+                   "dist/music-now-playing-$pv-linux-x86_64.zip"; do
+            test -f "$f" || { echo "Falta $f"; ls dist; exit 1; }
+            openssl pkeyutl -sign -rawin -inkey "$key" -in "$f" -out "$f.sig"
+            [ "$(stat -c %s "$f.sig")" -eq 64 ] || { echo "La firma de $f no tiene 64 bytes"; exit 1; }
+            openssl pkeyutl -verify -pubin -inkey "$pub" -rawin -in "$f" -sigfile "$f.sig"
+          done
+      # Los 3 zips de la Release (uno por sistema) con sus firmas, y nada más.
       - name: Archivos de la Release
         run: |
           shopt -s nullglob
           pv="${{ steps.version.outputs.pv }}"
           for f in "dist/music-now-playing-$pv-macos.zip" "dist/music-now-playing-$pv-windows-x64.zip" \
                    "dist/music-now-playing-$pv-linux-x86_64.zip"; do
-            test -f "$f" || { echo "Falta $f"; ls dist; exit 1; }
-            echo "$f"
+            for g in "$f" "$f.sig"; do
+              test -f "$g" || { echo "Falta $g"; ls dist; exit 1; }
+              echo "$g"
+            done
           done
           files=(dist/*)
-          [ "${#files[@]}" -eq 3 ] || { echo "Esperaba 3 archivos y hay ${#files[@]}: ${files[*]}"; exit 1; }
+          [ "${#files[@]}" -eq 6 ] || { echo "Esperaba 6 archivos y hay ${#files[@]}: ${files[*]}"; exit 1; }
       - name: Publicar Release
         uses: softprops/action-gh-release@v2
         with:
@@ -64,6 +94,9 @@ jobs:
             dist/music-now-playing-${{ steps.version.outputs.pv }}-macos.zip
             dist/music-now-playing-${{ steps.version.outputs.pv }}-windows-x64.zip
             dist/music-now-playing-${{ steps.version.outputs.pv }}-linux-x86_64.zip
+            dist/music-now-playing-${{ steps.version.outputs.pv }}-macos.zip.sig
+            dist/music-now-playing-${{ steps.version.outputs.pv }}-windows-x64.zip.sig
+            dist/music-now-playing-${{ steps.version.outputs.pv }}-linux-x86_64.zip.sig
           generate_release_notes: true
           body: |
             > Desde esta versión solo se publica el plugin de OBS, para instalar copiando y pegando una carpeta. Si tienes el plugin 1.0.35 o una versión anterior, no se actualiza solo a esta: descarga el zip de tu sistema una vez (abajo); desde ahí las actualizaciones vuelven a ser automáticas.

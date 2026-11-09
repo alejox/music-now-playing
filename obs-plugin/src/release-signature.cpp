@@ -4,6 +4,8 @@
 
 namespace release_signature {
 
+// La línea de abajo (la clave en hexadecimal) la lee release.yml para comprobar que el secreto
+// RELEASE_SIGNING_KEY firma con esta clave: si cambia la clave, cambia también esa línea.
 // e614461f088694160336f4b0825e7d0917de81c9742994ce7b221e8cd606bd94
 const std::uint8_t kReleasePublicKey[kPublicKeySize] = {
 	0xe6, 0x14, 0x46, 0x1f, 0x08, 0x86, 0x94, 0x16, 0x03, 0x36, 0xf4, 0xb0, 0x82, 0x5e, 0x7d, 0x09,
