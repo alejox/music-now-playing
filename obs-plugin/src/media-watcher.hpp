@@ -122,7 +122,8 @@ private:
 	qint64 volumeDoneAt_ = 0;
 	Status status_ = Status::Starting;
 	QString error_;
-	QString commandFile_;
+	QString commandDir_;     // Windows: un archivo por comando para el lector
+	qint64 commandSeq_ = 0;  // número del último comando (crece siempre, también entre reinicios)
 	QString videoFlagFile_;
 	QString othersFlagFile_;
 	bool videoWanted_ = false;

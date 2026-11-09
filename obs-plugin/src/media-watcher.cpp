@@ -5,6 +5,7 @@
 #include <obs-module.h>
 #include <plugin-support.h>
 
+#include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -126,9 +127,9 @@ void MediaWatcher::start()
 {
 	stopping_ = false;
 #if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
-	// Los comandos para el lector de Windows van por este archivo (ver media/windows.ps1).
+	// Los comandos para el lector de Windows van por esta carpeta (ver media/windows.ps1).
 	QString dir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-	commandFile_ = QDir(dir).filePath("obs-now-playing-command.json");
+	commandDir_ = QDir(dir).filePath("obs-now-playing-commands");
 	videoFlagFile_ = QDir(dir).filePath("obs-now-playing-video.flag");
 	othersFlagFile_ = QDir(dir).filePath("obs-now-playing-others.flag");
 	QFile saved(playerFile());
@@ -171,11 +172,13 @@ void MediaWatcher::launch()
 		"Bypass",
 		"-File",
 		QDir::toNativeSeparators(moduleFile("media/windows.ps1")),
-		"-CommandFile",
-		QDir::toNativeSeparators(commandFile_),
+		"-CommandDir",
+		QDir::toNativeSeparators(commandDir_),
 		"-VideoFlag",
 		QDir::toNativeSeparators(videoFlagFile_)};
-	QFile::remove(commandFile_); // un comando viejo no se ejecuta al arrancar
+	// Un comando viejo no se ejecuta al arrancar.
+	QDir(commandDir_).removeRecursively();
+	QDir().mkpath(commandDir_);
 #elif defined(__APPLE__)
 	// Desde macOS 15.4 solo programas del sistema pueden leer "Ahora suena": por eso
 	// el lector corre en osascript y no dentro de OBS.
@@ -554,8 +557,14 @@ void MediaWatcher::runCommand(const QString &action, qint64 arg)
 	if (action != "state" && action != "volume")
 		obs_log(LOG_INFO, "comando %s para %s", action.toUtf8().constData(), track.app.toUtf8().constData());
 #ifdef _WIN32
-	// El lector revisa este archivo cada 100 ms.
-	QSaveFile file(commandFile_);
+	// El lector revisa la carpeta cada 100 ms y atiende todos los comandos que encuentre, en el
+	// orden de su número: un archivo por comando para que dos "siguiente" seguidos no se pisen.
+	// QSaveFile lo escribe aparte y lo renombra al final: el lector nunca lee uno a medias.
+	if (commandSeq_ == 0)
+		commandSeq_ = QDateTime::currentMSecsSinceEpoch() * 1000;
+	const QString name = QString("%1.json").arg(++commandSeq_, 20, 10, QChar('0'));
+	QDir().mkpath(commandDir_);
+	QSaveFile file(QDir(commandDir_).filePath(name));
 	if (file.open(QIODevice::WriteOnly)) {
 		QJsonObject cmd{{"cmd", action}, {"app", track.app}};
 		if (arg >= 0)

@@ -1,7 +1,10 @@
 # Lee "lo que está sonando" en Windows: los System Media Transport Controls (SMTC),
 # la misma información que muestra el control de volumen. Escribe una línea JSON
-# por segundo en la salida estándar; server.js la lee. Los comandos llegan en el
-# archivo -CommandFile (server.js lo escribe y aquí se borra al leerlo):
+# por segundo en la salida estándar; server.js la lee. Los comandos llegan como archivos
+# (aquí se borran al leerlos): el plugin de OBS deja uno por comando en la carpeta
+# -CommandDir, con un número que crece en el nombre (00000000001234567890.json), y se
+# atienden todos en ese orden (si se pulsa "siguiente" varias veces seguidas, no se pierde
+# ninguna); server.js escribe uno solo en el archivo -CommandFile. Cada uno es:
 #
 #   {"cmd":"next","app":"Spotify.exe"}      cmd: previous | playpause | next
 #   {"cmd":"seek","app":"chrome.exe","positionMs":61000}   saltar a esa posición
@@ -35,7 +38,7 @@
 #
 # Usa solo lo que trae Windows PowerShell 5.1 (Windows 10/11): sin módulos extra.
 
-param([string]$CommandFile = '', [string]$VideoFlag = '', [switch]$SelfTest)
+param([string]$CommandFile = '', [string]$CommandDir = '', [string]$VideoFlag = '', [switch]$SelfTest)
 
 $ErrorActionPreference = 'Stop'
 $stdout = New-Object System.IO.StreamWriter ([Console]::OpenStandardOutput()), (New-Object System.Text.UTF8Encoding $false)
@@ -565,6 +568,33 @@ try {
   exit 3
 }
 
+# Los comandos que llegaron, en orden: los de -CommandDir (por nombre) y el de -CommandFile.
+# Cada archivo se borra antes de atenderlo; si no se puede borrar (lo están escribiendo), se
+# deja para la próxima vuelta, así no se repite.
+function Read-Commands {
+  $lines = New-Object System.Collections.ArrayList
+  if ($CommandDir -and [System.IO.Directory]::Exists($CommandDir)) {
+    $files = @([System.IO.Directory]::GetFiles($CommandDir, '*.json') |
+      Where-Object { [System.IO.Path]::GetFileName($_) -match '^\d+\.json$' } |
+      Sort-Object { [System.IO.Path]::GetFileName($_) })
+    foreach ($file in $files) {
+      try {
+        $text = [System.IO.File]::ReadAllText($file)
+        [System.IO.File]::Delete($file)
+        if ($text) { [void]$lines.Add($text) }
+      } catch {}
+    }
+  }
+  if ($CommandFile -and [System.IO.File]::Exists($CommandFile)) {
+    try {
+      $text = [System.IO.File]::ReadAllText($CommandFile)
+      [System.IO.File]::Delete($CommandFile)
+      if ($text) { [void]$lines.Add($text) }
+    } catch {}
+  }
+  , $lines
+}
+
 # Por app: qué canción ya tiene carátula enviada, el hash de esa carátula y cuántos
 # intentos van. Al cambiar de canción, algunas apps (Spotify) actualizan el título un
 # instante antes que la carátula: si llega la misma imagen de antes, reintentamos.
@@ -665,17 +695,13 @@ for ($i = 0; $i -lt 1800; $i++) {
   # Espera ~1 s, pero atiende al instante los comandos que lleguen.
   for ($wait = 0; $wait -lt 10; $wait++) {
     Update-Lookups
-    if ($CommandFile -and [System.IO.File]::Exists($CommandFile)) {
-      $line = ''
-      try {
-        $line = [System.IO.File]::ReadAllText($CommandFile)
-        [System.IO.File]::Delete($CommandFile)
-      } catch {}
-      if ($line) {
+    $commands = Read-Commands
+    if ($commands.Count -gt 0) {
+      foreach ($line in $commands) {
         try { Send-MediaCommand $line } catch { Emit @{ error = "No se pudo controlar el reproductor: $($_.Exception.Message)" } }
-        Start-Sleep -Milliseconds 300 # que la app alcance a cambiar de canción antes de leerla
-        break
       }
+      Start-Sleep -Milliseconds 300 # que la app alcance a cambiar de canción antes de leerla
+      break
     }
     Start-Sleep -Milliseconds 100
   }
