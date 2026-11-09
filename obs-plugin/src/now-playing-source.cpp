@@ -6,12 +6,15 @@
 #include <obs-module.h>
 #include <plugin-support.h>
 
+#include <QApplication>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QMessageBox>
 #include <QMetaObject>
+#include <QPushButton>
 #include <QTimer>
 
 #include <algorithm>
@@ -350,11 +353,37 @@ bool np_fallback_modified(obs_properties_t *props, obs_property_t *, obs_data_t 
 	return true;
 }
 
-// Prende o apaga el canal de música; devuelve true para que el botón muestre el estado nuevo.
-bool np_toggle_channel(obs_properties_t *, obs_property_t *, void *)
+// Agrega el canal de música al mezclador; si ya está, solo lo avisa (se apaga en Herramientas o en el dock).
+bool np_add_channel(obs_properties_t *, obs_property_t *, void *)
 {
-	set_music_channel_enabled(!music_channel_enabled(), static_cast<QWidget *>(obs_frontend_get_main_window()));
-	return true;
+	auto *main = static_cast<QWidget *>(obs_frontend_get_main_window());
+	if (music_channel_enabled())
+		QMessageBox::information(main, QString::fromUtf8(obs_module_text("NowPlaying.Channel.Title")),
+					 QString::fromUtf8(obs_module_text("NowPlaying.Channel.AlreadyOn")));
+	else
+		set_music_channel_enabled(true, main);
+	return false;
+}
+
+// La API de propiedades de OBS no colorea botones: se busca el botón ya dibujado por su texto y se le da
+// el color de acento. Si OBS cambia su ventana y no se encuentra, el botón queda con el estilo normal.
+void highlightAddChannelButton(const QString &label, int attempt = 0)
+{
+	bool found = false;
+	for (QWidget *top : QApplication::topLevelWidgets()) {
+		for (QPushButton *button : top->findChildren<QPushButton *>()) {
+			if (button->text() != label)
+				continue;
+			button->setStyleSheet("QPushButton { background-color: #6d4aff; color: white; border: none;"
+					      " border-radius: 6px; padding: 6px 14px; font-weight: 600; }"
+					      "QPushButton:hover { background-color: #7f60ff; }"
+					      "QPushButton:pressed { background-color: #5a38e6; }");
+			found = true;
+		}
+	}
+	// El diálogo de propiedades arma sus botones justo después de pedir las propiedades.
+	if (!found && attempt < 5)
+		QTimer::singleShot(100, [label, attempt] { highlightAddChannelButton(label, attempt + 1); });
 }
 
 obs_properties_t *np_properties(void *data)
@@ -451,10 +480,9 @@ obs_properties_t *np_properties(void *data)
 	obs_property_t *channel =
 		obs_properties_add_text(props, "channel_info", obs_module_text("NowPlaying.Channel.Info"), OBS_TEXT_INFO);
 	obs_property_text_set_info_word_wrap(channel, true);
-	obs_properties_add_button2(props, "channel_toggle",
-				   obs_module_text(music_channel_enabled() ? "NowPlaying.Channel.TurnOff"
-									   : "NowPlaying.Channel.TurnOn"),
-				   np_toggle_channel, nullptr);
+	const QString addLabel = QString::fromUtf8(obs_module_text("NowPlaying.Channel.Add"));
+	obs_properties_add_button2(props, "channel_add", addLabel.toUtf8().constData(), np_add_channel, nullptr);
+	QTimer::singleShot(0, [addLabel] { highlightAddChannelButton(addLabel); });
 	return props;
 }
 
