@@ -51,6 +51,9 @@ private:
 	void styleVolumeRow();
 	void applyVolume();
 	void toggleMute();
+	// Aleatorio (botón y clic derecho): con encendido/apagado se ve al instante y la próxima
+	// lectura lo confirma; en YouTube Music (mezcla la cola una vez) destella y lo avisa.
+	void toggleShuffle();
 	void setBlurBackground(bool on);
 	// Botón Refrescar (y su opción del clic derecho).
 	void manualRefresh();
@@ -109,6 +112,12 @@ private:
 	QTimer *volumeTimer_ = nullptr;
 	bool muted_ = false;
 	bool shuffleOn_ = false;
+	QString shuffleMode_;            // "on" | "off" | "action" | "" (lo que dice el reproductor)
+	qint64 shuffleHoldUntil_ = 0;    // recién pulsado: se muestra lo pedido hasta que el lector lo diga
+	bool shuffleFlash_ = false;      // destello tras mezclar la cola (YouTube Music)
+	QTimer *shuffleFlashTimer_ = nullptr;
+	QString notice_;                 // aviso breve (no error) en la línea de estado
+	qint64 noticeUntil_ = 0;
 	int lastVolume_ = 50;         // para volver después de silenciar
 	qint64 volumeHoldUntil_ = 0;  // recién cambiado: la barra no salta a lo que diga el lector
 	QString artKey_;

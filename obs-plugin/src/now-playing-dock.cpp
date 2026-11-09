@@ -44,6 +44,9 @@ constexpr qint64 kSkipMs = 10000;
 constexpr int kMainButton = 52;
 constexpr int kSmallButton = 28;
 constexpr int kRefreshCooldownMs = 2000; // el botón Refrescar se apaga este rato (evita repetirlo)
+constexpr int kShuffleFlashMs = 1200;    // destello del aleatorio tras mezclar la cola
+constexpr int kNoticeMs = 2500;          // aviso breve en la línea de estado ("Cola mezclada")
+constexpr int kShuffleHoldMs = 4000;     // tras pulsar, se muestra lo pedido mientras el lector se entera
 // Botones del transporte en compacto o angosto (los de ±10 s se ocultan).
 constexpr int kSideButtonSmall = 32;
 constexpr int kMainButtonSmall = 40;
@@ -658,9 +661,17 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	optionsRow->addWidget(refreshButton_, 0, Qt::AlignVCenter);
 	connect(refreshButton_, &QToolButton::clicked, this, &NowPlayingDock::manualRefresh);
 	optionsRow->addStretch(1);
-	connect(shuffle_, &QToolButton::clicked, this, [this] {
-		MediaWatcher::instance().toggleShuffle();
-		QTimer::singleShot(600, this, [] { MediaWatcher::instance().refreshPlayerState(); });
+	// Marcable: el estado encendido también llega a la accesibilidad. El clic lo maneja
+	// toggleShuffle (que fija el marcado sin volver a emitir clicked).
+	shuffle_->setCheckable(true);
+	connect(shuffle_, &QToolButton::clicked, this, &NowPlayingDock::toggleShuffle);
+	shuffleFlashTimer_ = new QTimer(this);
+	shuffleFlashTimer_->setSingleShot(true);
+	shuffleFlashTimer_->setInterval(kShuffleFlashMs);
+	connect(shuffleFlashTimer_, &QTimer::timeout, this, [this] {
+		shuffleFlash_ = false;
+		styleVolumeRow();
+		updateIcons();
 	});
 	mute_ = makeSmall("NowPlaying.Mute");
 	volumeRow->addWidget(mute_, 0, Qt::AlignVCenter);
@@ -721,6 +732,10 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	connect(&MediaWatcher::instance(), &MediaWatcher::commandFailed, this, [this](const QString &message) {
 		commandError_ = message;
 		commandErrorUntil_ = MediaWatcher::now() + 12000;
+		// Si falló, no se sostiene lo pedido ni se anuncia la mezcla: manda lo que diga el lector.
+		notice_.clear();
+		shuffleHoldUntil_ = 0;
+		updateVolumeRow();
 		refresh();
 	});
 	auto *timer = new QTimer(this);
@@ -781,7 +796,17 @@ void NowPlayingDock::styleVolumeRow()
 				    "QToolButton:hover { background: rgba(127,127,127,0.18); }")
 				    .arg(kSmallButton / 2);
 	};
-	shuffle_->setStyleSheet(toggle(shuffleOn_));
+	// El aleatorio encendido (o el destello tras mezclar) va relleno del color de la carátula,
+	// con el ícono en contraste: que no quede duda de que está activado.
+	if (shuffleOn_ || shuffleFlash_)
+		shuffle_->setStyleSheet(QString("QToolButton { border-radius: %1px; border: 0; background: %2; }"
+						"QToolButton:hover { background: %3; }"
+						"QToolButton:pressed { background: %4; }"
+						"QToolButton:disabled { background: rgba(127,127,127,0.25); }")
+						.arg(kSmallButton / 2)
+						.arg(accent_.name(), accent_.lighter(115).name(), accent_.darker(120).name()));
+	else
+		shuffle_->setStyleSheet(toggle(false));
 	backdropButton_->setStyleSheet(toggle(blurBackground_));
 	refreshButton_->setStyleSheet(toggle(false));
 	mute_->setStyleSheet(QString("QToolButton { border-radius: %1px; border: 0; background: transparent; }"
@@ -819,6 +844,32 @@ void NowPlayingDock::toggleMute()
 	applyVolume();
 }
 
+void NowPlayingDock::toggleShuffle()
+{
+	if (shuffleMode_.isEmpty())
+		return;
+	MediaWatcher::instance().toggleShuffle();
+	if (shuffleMode_ == "action") {
+		// YouTube Music: mezcla la cola una vez, sin estado. Destello y aviso breve.
+		shuffleFlash_ = true;
+		shuffleFlashTimer_->start();
+		notice_ = text("NowPlaying.Shuffle.Shuffled");
+		noticeUntil_ = MediaWatcher::now() + kNoticeMs;
+		QTimer::singleShot(kNoticeMs + 50, this, &NowPlayingDock::refresh);
+		refresh();
+	} else {
+		// Encendido / apagado: se ve al instante; la próxima lectura lo confirma o lo revierte.
+		shuffleOn_ = !shuffleOn_;
+		shuffleHoldUntil_ = MediaWatcher::now() + kShuffleHoldMs;
+		QSignalBlocker blocker(shuffle_);
+		shuffle_->setChecked(shuffleOn_);
+		shuffle_->setToolTip(text(shuffleOn_ ? "NowPlaying.Shuffle.On" : "NowPlaying.Shuffle.Off"));
+	}
+	styleVolumeRow();
+	updateIcons();
+	QTimer::singleShot(600, this, [] { MediaWatcher::instance().refreshPlayerState(); });
+}
+
 void NowPlayingDock::updateVolumeRow()
 {
 	MediaWatcher &watcher = MediaWatcher::instance();
@@ -839,11 +890,29 @@ void NowPlayingDock::updateVolumeRow()
 	volume_->setToolTip(text(usable ? "NowPlaying.Volume.PlayerHelp" : "NowPlaying.Volume.Unsupported"));
 
 	// Aleatorio: el del reproductor. "action": un botón sin estado (YouTube Music).
-	shuffle_->setEnabled(hasTrack && !state.shuffle.isEmpty());
-	shuffle_->setToolTip(text(state.shuffle.isEmpty() ? "NowPlaying.Shuffle.Unsupported"
-				  : state.shuffle == "action" ? "NowPlaying.Shuffle.Action"
-							      : "NowPlaying.Shuffle"));
-	const bool shuffleOn = hasTrack && state.shuffle == "on";
+	shuffleMode_ = hasTrack ? state.shuffle : QString();
+	const bool toggleable = shuffleMode_ == "on" || shuffleMode_ == "off";
+	bool shuffleOn = shuffleMode_ == "on";
+	// Recién pulsado: se sostiene lo pedido hasta que el lector lo confirme (o pase el plazo
+	// y mande lo que diga el reproductor, por si no se aplicó).
+	if (!toggleable) {
+		shuffleHoldUntil_ = 0;
+	} else if (shuffleHoldUntil_ > 0) {
+		if (shuffleOn == shuffleOn_ || MediaWatcher::now() >= shuffleHoldUntil_)
+			shuffleHoldUntil_ = 0;
+		else
+			shuffleOn = shuffleOn_;
+	}
+	shuffle_->setEnabled(!shuffleMode_.isEmpty());
+	shuffle_->setCheckable(toggleable);
+	{
+		QSignalBlocker blocker(shuffle_);
+		shuffle_->setChecked(toggleable && shuffleOn);
+	}
+	shuffle_->setToolTip(text(shuffleMode_.isEmpty()     ? "NowPlaying.Shuffle.Unsupported"
+				  : shuffleMode_ == "action" ? "NowPlaying.Shuffle.Action"
+				  : shuffleOn                ? "NowPlaying.Shuffle.On"
+							     : "NowPlaying.Shuffle.Off"));
 	if (showMuted != muted_ || shuffleOn != shuffleOn_) {
 		muted_ = showMuted;
 		shuffleOn_ = shuffleOn;
@@ -1043,10 +1112,17 @@ void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
 	QAction *blur = menu.addAction(text("NowPlaying.Dock.Backdrop"));
 	blur->setCheckable(true);
 	blur->setChecked(blurBackground_);
+	// El aleatorio también aquí (en compacto no hay botón), con el mismo estado que el botón.
+	QAction *shuffle = menu.addAction(text(shuffleMode_ == "action" ? "NowPlaying.Shuffle.Queue" : "NowPlaying.Shuffle"));
+	shuffle->setEnabled(!shuffleMode_.isEmpty());
+	shuffle->setCheckable(shuffleMode_ == "on" || shuffleMode_ == "off");
+	shuffle->setChecked(shuffle->isCheckable() && shuffleOn_);
 	QAction *reload = menu.addAction(text("NowPlaying.Dock.Refresh"));
 	reload->setEnabled(refreshButton_->isEnabled());
 	QAction *chosen = menu.exec(event->globalPos());
-	if (chosen == blur)
+	if (chosen == shuffle)
+		toggleShuffle();
+	else if (chosen == blur)
 		setBlurBackground(blur->isChecked());
 	else if (chosen == reload)
 		manualRefresh();
@@ -1106,7 +1182,7 @@ void NowPlayingDock::updateIcons()
 	playPause_->setIcon(glyphIcon(playing_ ? Glyph::Pause : Glyph::Play, contrastOn(accent_), main, dpr));
 	playPause_->setIconSize(QSize(main, main));
 	const int small = kSmallButton - 10;
-	shuffle_->setIcon(glyphIcon(Glyph::Shuffle, shuffleOn_ ? accent_ : textColor, small, dpr));
+	shuffle_->setIcon(glyphIcon(Glyph::Shuffle, shuffleOn_ || shuffleFlash_ ? contrastOn(accent_) : textColor, small, dpr));
 	shuffle_->setIconSize(QSize(small, small));
 	backdropButton_->setIcon(glyphIcon(Glyph::Backdrop, blurBackground_ ? accent_ : textColor, small, dpr));
 	backdropButton_->setIconSize(QSize(small, small));
@@ -1129,9 +1205,18 @@ void NowPlayingDock::refresh()
 	default:
 		status_->clear();
 	}
-	if (!commandError_.isEmpty() && MediaWatcher::now() < commandErrorUntil_)
+	// Un aviso breve (no error) tapa el estado unos segundos; después vuelve lo de antes.
+	// Un error de un botón manda sobre el aviso.
+	const qint64 now = MediaWatcher::now();
+	bool notice = false;
+	if (!commandError_.isEmpty() && now < commandErrorUntil_) {
 		status_->setText(commandError_);
-	status_->setStyleSheet("color: #f87171;");
+	} else if (!notice_.isEmpty() && now < noticeUntil_) {
+		status_->setText(notice_);
+		notice = true;
+	}
+	status_->setStyleSheet(notice ? QString("color: %1;").arg(palette().color(QPalette::WindowText).name())
+				      : QString("color: #f87171;"));
 	status_->setVisible(!status_->text().isEmpty());
 
 	Track track = shown();
