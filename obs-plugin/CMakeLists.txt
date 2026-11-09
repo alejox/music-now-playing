@@ -56,6 +56,22 @@ target_sources(
     src/third-party/monocypher/monocypher-ed25519.h
 )
 
+# macOS: captura propia del audio de una app para el canal de música (ScreenCaptureKit, macOS 13+).
+# El destino mínimo es macOS 12.0 y ScreenCaptureKit existe desde 12.3: se enlaza débil y el código
+# lo usa solo tras comprobar @available(macOS 13.0, *). Xcode compila el .mm con ARC (xcode.cmake).
+if(APPLE)
+  enable_language(OBJCXX)
+  target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/app-audio-capture-mac.mm src/app-audio-capture.hpp)
+  target_link_libraries(
+    ${CMAKE_PROJECT_NAME}
+    PRIVATE
+      "$<LINK_LIBRARY:WEAK_FRAMEWORK,ScreenCaptureKit>"
+      "$<LINK_LIBRARY:FRAMEWORK,CoreMedia>"
+      "$<LINK_LIBRARY:FRAMEWORK,AppKit>"
+      "$<LINK_LIBRARY:FRAMEWORK,CoreGraphics>"
+  )
+endif()
+
 # Monocypher es código de terceros: en MSVC sus conversiones de enteros (intencionales en criptografía)
 # dan avisos que /WX vuelve errores. Se silencian solo en esos dos archivos.
 if(MSVC)

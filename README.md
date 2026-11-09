@@ -69,6 +69,8 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 
 > [!NOTE]
 > On Linux, the music channel needs the [obs-pipewire-audio-capture](https://github.com/dimtpap/obs-pipewire-audio-capture) plugin (OBS has no per-application audio capture of its own there).
+>
+> On macOS, the music channel captures the player even when it has no visible window (for example the YouTube Music installed app, whose sound comes from Chrome).
 
 > [!NOTE]
 > On Mac, for the YouTube Music buttons to work, turn on once in Chrome: **View → Developer → Allow JavaScript from Apple Events**.

@@ -69,6 +69,8 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 
 > [!NOTE]
 > En Linux, el canal de música necesita el plugin [obs-pipewire-audio-capture](https://github.com/dimtpap/obs-pipewire-audio-capture) (allí OBS no trae captura de audio por aplicación).
+>
+> En macOS, el canal de música captura al reproductor aunque no tenga una ventana a la vista (por ejemplo la app instalada de YouTube Music, cuyo sonido sale de Chrome).
 
 > [!NOTE]
 > En Mac, para que los botones funcionen con YouTube Music, activa una vez en Chrome: **Ver → Opciones para desarrolladores → Permitir JavaScript desde Apple Events**.

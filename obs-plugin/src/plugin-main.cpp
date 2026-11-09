@@ -23,6 +23,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <QMainWindow>
 #include <QTimer>
 
+#include "app-audio-capture.hpp"
 #include "app-volume.hpp"
 #include "media-watcher.hpp"
 #include "music-channel.hpp"
@@ -79,6 +80,10 @@ void on_frontend_event(enum obs_frontend_event event, void *)
 bool obs_module_load(void)
 {
 	register_now_playing_source();
+#ifdef __APPLE__
+	// La captura de audio propia del canal de música (macOS 13+; no aparece en "Agregar fuente").
+	register_app_audio_capture();
+#endif
 	MediaWatcher::instance().start();
 
 	auto *main_window = static_cast<QMainWindow *>(obs_frontend_get_main_window());

@@ -1,4 +1,5 @@
 #include "music-channel.hpp"
+#include "app-audio-capture.hpp"
 #include "media-watcher.hpp"
 
 #include <obs-frontend-api.h>
@@ -60,7 +61,11 @@ QString audioTarget(const Track &track)
 #ifdef _WIN32
 constexpr const char *kSourceId = "wasapi_process_output_capture";
 #elif defined(__APPLE__)
-constexpr const char *kSourceId = "sck_audio_capture";
+// La captura propia del plugin (app-audio-capture-mac.mm): la de OBS (sck_audio_capture) solo
+// ve apps con una ventana a la vista y no oye a Chrome detrás de la app de YouTube Music.
+constexpr const char *kSourceId = kAppAudioSourceId;
+// El canal de versiones anteriores: se convierte a la captura propia al encontrarlo.
+constexpr const char *kLegacySourceId = "sck_audio_capture";
 #else
 // OBS no trae captura por aplicación en Linux: la da el plugin obs-pipewire-audio-capture
 // (github.com/dimtpap/obs-pipewire-audio-capture), si está instalado.
@@ -72,9 +77,20 @@ constexpr const char *kSourceId = "pipewire_audio_application_capture";
 // confunde con una fuente propia del usuario que se llame igual.
 constexpr const char *kChannelMarker = "obs_now_playing_channel";
 
+// La fuente es del tipo del canal (en macOS, también la captura de OBS de antes).
+bool isChannelType(obs_source_t *source)
+{
+	const char *id = obs_source_get_id(source);
+#ifdef __APPLE__
+	if (strcmp(id, kLegacySourceId) == 0)
+		return true;
+#endif
+	return strcmp(id, kSourceId) == 0;
+}
+
 bool hasMarker(obs_source_t *source)
 {
-	if (strcmp(obs_source_get_id(source), kSourceId) != 0)
+	if (!isChannelType(source))
 		return false;
 	obs_data_t *settings = obs_source_get_settings(source);
 	bool marked = obs_data_get_bool(settings, kChannelMarker);
@@ -104,7 +120,7 @@ obs_source_t *findChannel()
 	obs_source_t *source = obs_get_source_by_name(name.constData());
 	if (!source)
 		return nullptr;
-	if (strcmp(obs_source_get_id(source), kSourceId) != 0) {
+	if (!isChannelType(source)) {
 		obs_source_release(source);
 		return nullptr;
 	}
@@ -137,7 +153,6 @@ obs_data_t *captureSettings(const QString &target)
 	obs_data_set_string(settings, "window", ("::" + target).toUtf8().constData());
 	obs_data_set_int(settings, "priority", 2); // WINDOW_PRIORITY_EXE
 #elif defined(__APPLE__)
-	obs_data_set_int(settings, "type", 1); // ScreenCaptureAudioApplicationStream
 	obs_data_set_string(settings, "application", target.toUtf8().constData());
 #else
 	obs_data_set_int(settings, "CaptureMode", 0); // CAPTURE_MODE_SINGLE: una sola app
@@ -146,28 +161,14 @@ obs_data_t *captureSettings(const QString &target)
 	return settings;
 }
 
-// En macOS la captura de OBS (ScreenCaptureKit) busca la app en una lista de apps que
-// arma al crearse la fuente o al abrir sus Propiedades, no al cambiarle la app: una app
-// abierta después (o sin ventana a la vista en ese momento) no está en esa lista y la
-// captura queda en silencio sin avisar. Aplicar los ajustes a sus propiedades corre el
-// callback de "Método", que vuelve a pedir la lista y llena la de "Aplicación": así se
-// refresca la lista que usa la captura y se sabe si la app está. En Windows no hace falta.
-bool refreshAndFindApp(obs_source_t *source, obs_data_t *settings, const QString &target)
+// En macOS el canal solo se reapunta a una app que está abierta (con o sin ventana: la captura
+// propia también ve las apps sin ventana a la vista); si no, quedaría en silencio. En Windows y
+// Linux no hace falta.
+bool canCapture(const QString &target)
 {
 #ifdef __APPLE__
-	obs_properties_t *props = obs_source_properties(source);
-	if (!props)
-		return true;
-	obs_properties_apply_settings(props, settings);
-	obs_property_t *apps = obs_properties_get(props, "application");
-	bool found = !apps; // si OBS cambió las propiedades, no se bloquea el cambio
-	for (size_t i = 0; apps && !found && i < obs_property_list_item_count(apps); i++)
-		found = target.compare(QString::fromUtf8(obs_property_list_item_string(apps, i)), Qt::CaseInsensitive) == 0;
-	obs_properties_destroy(props);
-	return found;
+	return app_audio_is_capturable(target);
 #else
-	(void)source;
-	(void)settings;
 	(void)target;
 	return true;
 #endif
@@ -265,6 +266,48 @@ void updateAction()
 
 // Un canal nuevo con el volumen, silencio, monitoreo, balance, pistas y filtros de la última
 // vez; la primera vez, sin monitoreo (solo a la emisión) y apuntando a la app que suena.
+// En macOS, el canal guardado por una versión anterior es una captura de OBS: se avisa una vez
+// en el registro de que pasa a la captura propia (con el mismo volumen, filtros, etc.).
+void logLegacyMigration(obs_data_t *state)
+{
+#ifdef __APPLE__
+	static bool logged = false;
+	if (logged || strcmp(obs_data_get_string(state, "id"), kLegacySourceId) != 0)
+		return;
+	logged = true;
+	obs_log(LOG_INFO, "canal de música \"%s\": pasa de %s a la captura propia %s (se conserva su estado)",
+		obs_data_get_string(state, "name"), kLegacySourceId, kSourceId);
+#else
+	(void)state;
+#endif
+}
+
+// Una fuente del canal a partir de un estado guardado (obs_save_source): con su volumen,
+// silencio, monitoreo, balance, pistas y filtros, del tipo del canal (así se convierte un
+// canal de una versión anterior) y con un uuid nuevo.
+obs_source_t *restoreChannel(obs_data_t *saved, const char *typeId, const QByteArray &name)
+{
+	// Copia profunda: lo guardado no se toca.
+	obs_data_t *state = obs_data_create_from_json(obs_data_get_json(saved));
+	logLegacyMigration(state);
+	obs_data_erase(state, "uuid"); // uno nuevo: la fuente vieja podría seguir en otra parte
+	obs_data_set_string(state, "name", name.constData());
+	obs_data_set_string(state, "id", kSourceId);
+	obs_data_set_string(state, "versioned_id", typeId);
+	obs_data_t *settings = obs_data_get_obj(state, "settings");
+	if (!settings) {
+		settings = obs_data_create();
+		obs_data_set_obj(state, "settings", settings);
+	}
+	obs_data_set_bool(settings, kChannelMarker, true);
+	obs_data_release(settings);
+	obs_source_t *source = obs_load_source(state);
+	obs_data_release(state);
+	if (source)
+		obs_source_load2(source);
+	return source;
+}
+
 obs_source_t *createChannel()
 {
 	const char *typeId = obs_get_latest_input_type_id(kSourceId);
@@ -272,25 +315,8 @@ obs_source_t *createChannel()
 		return nullptr;
 	const QByteArray name = freeChannelName();
 	if (savedState) {
-		// Copia profunda: lo guardado no se toca.
-		obs_data_t *state = obs_data_create_from_json(obs_data_get_json(savedState));
-		obs_data_erase(state, "uuid"); // uno nuevo: la fuente vieja podría seguir en otra parte
-		obs_data_set_string(state, "name", name.constData());
-		obs_data_set_string(state, "id", kSourceId);
-		obs_data_set_string(state, "versioned_id", typeId);
-		obs_data_t *settings = obs_data_get_obj(state, "settings");
-		if (!settings) {
-			settings = obs_data_create();
-			obs_data_set_obj(state, "settings", settings);
-		}
-		obs_data_set_bool(settings, kChannelMarker, true);
-		obs_data_release(settings);
-		obs_source_t *source = obs_load_source(state);
-		obs_data_release(state);
-		if (source) {
-			obs_source_load2(source);
+		if (obs_source_t *source = restoreChannel(savedState, typeId, name))
 			return source;
-		}
 		obs_log(LOG_WARNING, "no se pudo restaurar el canal de música guardado; se crea uno nuevo");
 	}
 
@@ -309,6 +335,37 @@ obs_source_t *createChannel()
 		createdFresh = true;
 	}
 	return source;
+}
+
+// En macOS, un canal de una versión anterior encontrado en la colección (una captura de OBS)
+// pasa a la captura propia con todo su estado; la vieja se quita. Devuelve el canal a usar
+// (con su referencia) y suelta la que recibe si la reemplaza.
+obs_source_t *upgradeChannel(obs_source_t *source)
+{
+#ifdef __APPLE__
+	if (!source || strcmp(obs_source_get_id(source), kLegacySourceId) != 0)
+		return source;
+	const char *typeId = obs_get_latest_input_type_id(kSourceId);
+	if (!typeId)
+		return source; // sin la captura propia (macOS < 13), se queda la de antes
+	obs_data_t *state = obs_save_source(source);
+	if (!state)
+		return source;
+	const QByteArray oldName = obs_source_get_name(source);
+	obs_source_remove(source);
+	obs_source_release(source);
+	// El mismo nombre si la vieja ya se fue; si no, uno libre.
+	obs_source_t *other = obs_get_source_by_name(oldName.constData());
+	const QByteArray name = other ? freeChannelName() : oldName;
+	obs_source_release(other);
+	obs_source_t *upgraded = restoreChannel(state, typeId, name);
+	obs_data_release(state);
+	if (!upgraded)
+		obs_log(LOG_WARNING, "no se pudo convertir el canal de música anterior; se crea uno nuevo");
+	return upgraded;
+#else
+	return source;
+#endif
 }
 
 // El canal en un canal de salida libre, para que suene en todas las escenas y salga en el
@@ -371,7 +428,7 @@ void syncChannel()
 		return;
 	}
 	if (!channelSource) {
-		channelSource = findChannel();
+		channelSource = upgradeChannel(findChannel());
 		if (!channelSource)
 			channelSource = createChannel();
 		if (!channelSource) {
@@ -432,7 +489,7 @@ void migrateSceneChannel()
 	if (channelSource)
 		obs_source_release(found);
 	else
-		channelSource = found;
+		channelSource = upgradeChannel(found);
 	enabled = true;
 	saveChannelState();
 	updateAction();
@@ -477,7 +534,7 @@ void follow_music_channel()
 		if (now - lastTry >= 3000) {
 			lastTry = now;
 			obs_data_t *settings = captureSettings(target);
-			if (refreshAndFindApp(source, settings, target)) {
+			if (canCapture(target)) {
 				obs_source_update(source, settings);
 				obs_log(LOG_INFO, "canal de música → %s", target.toUtf8().constData());
 			} else {
