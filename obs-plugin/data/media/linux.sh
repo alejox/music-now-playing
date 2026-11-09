@@ -16,6 +16,8 @@
 #   OBS_NOW_PLAYING_PLAYER (el "app" de la sesión); sin ella, el que elija playerctl.
 #
 # Carátula: la del reproductor (mpris:artUrl, un archivo local o una dirección https).
+# Lo que se baja de internet (carátula https, búsqueda en YouTube) no frena la lectura: corre
+# en segundo plano y llega en una línea posterior (ver fetch_async).
 # Modo video (plugin de OBS): mientras exista el archivo de "watch", se agrega "videoId",
 # el id del video de YouTube de la dirección que anuncia el reproductor o, si no la anuncia,
 # el primer resultado de buscar título y artista en YouTube.
@@ -94,19 +96,76 @@ is_browser() {
   return 1
 }
 
+# ---- Descargas sin frenar la lectura -----------------------------------------------
+# El plugin da por muerto un lector que no escribe en 10 s: con la red lenta al cambiar de
+# canción, la tarjeta desaparecía en pleno directo. Por eso cada descarga corre con curl en
+# segundo plano (4 s como máximo) y el bucle solo mira en cada vuelta si ya terminó. Una
+# descarga que falló no se repite hasta pasados 30 s; una que salió bien no se repite.
+FETCH_DIR=''
+F_URL=()
+F_PID=()
+F_STATE=() # pending | done | failed
+F_AT=()    # $SECONDS cuando falló
+ERR_FILE=''
+
+cleanup() {
+  local pids
+  pids=$(jobs -p 2>/dev/null)
+  if [ -n "$pids" ]; then kill $pids 2>/dev/null; fi
+  if [ -n "$FETCH_DIR" ]; then rm -rf "$FETCH_DIR"; fi
+  if [ -n "$ERR_FILE" ]; then rm -f "$ERR_FILE"; fi
+}
+trap cleanup EXIT
+
+# fetch_async <url> [opciones de curl…]: deja FETCH_STATE en pending | done | failed y, con
+# done, FETCH_FILE con lo bajado. No espera nunca.
+fetch_async() {
+  local url=$1 i n=${#F_URL[@]} found=-1
+  shift
+  FETCH_FILE=''
+  for ((i = 0; i < n; i++)); do
+    if [ "${F_URL[i]}" = "$url" ]; then found=$i; fi
+  done
+  if [ "$found" -lt 0 ] || { [ "${F_STATE[found]}" = failed ] && [ $((SECONDS - F_AT[found])) -ge 30 ]; }; then
+    if [ "$found" -lt 0 ]; then
+      found=$n
+      F_URL[found]=$url
+    fi
+    if [ -z "$FETCH_DIR" ]; then
+      FETCH_DIR=$(mktemp -d 2>/dev/null) || FETCH_DIR="/tmp/obs-now-playing-fetch.$$"
+      mkdir -p "$FETCH_DIR"
+    fi
+    rm -f "$FETCH_DIR/$found" "$FETCH_DIR/$found.ok"
+    # El .ok dice que curl terminó bien (sin esperar a curl no se sabe cómo salió).
+    (curl -fsSL --max-time 4 "$@" -o "$FETCH_DIR/$found" "$url" && : >"$FETCH_DIR/$found.ok") </dev/null >/dev/null 2>&1 &
+    F_PID[found]=$!
+    F_STATE[found]=pending
+  fi
+  if [ "${F_STATE[found]}" = pending ]; then
+    if [ -e "$FETCH_DIR/$found.ok" ]; then
+      F_STATE[found]=done
+    elif ! kill -0 "${F_PID[found]}" 2>/dev/null; then
+      if [ -e "$FETCH_DIR/$found.ok" ]; then F_STATE[found]=done; else F_STATE[found]=failed; fi
+      F_AT[found]=$SECONDS
+    fi
+  fi
+  FETCH_STATE=${F_STATE[found]}
+  if [ "$FETCH_STATE" = done ]; then FETCH_FILE="$FETCH_DIR/$found"; fi
+}
+
 # ---- Carátula ----------------------------------------------------------------------
 
-ART_FILE=$(mktemp 2>/dev/null || echo "/tmp/obs-now-playing-art.$$")
-trap 'rm -f "$ART_FILE"' EXIT
 
 # La última carátula leída (se reintenta varias veces por canción: no se baja otra vez).
 ART_CACHE_URL=''
 ART_CACHE_DATA=''
 
 # mpris:artUrl → data:image/…;base64,… en ART_OUT ('' si no hay o no se pudo leer).
+# ART_PENDING=1: todavía se está bajando (la carátula llega en otra vuelta).
 artwork_data() {
   local url=$1 file magic mime
   ART_OUT=''
+  ART_PENDING=0
   if [ -z "$url" ]; then return; fi
   if [ "$url" = "$ART_CACHE_URL" ]; then
     ART_OUT=$ART_CACHE_DATA
@@ -120,8 +179,10 @@ artwork_data() {
       ;;
     https://* | http://*)
       command -v curl >/dev/null 2>&1 || return
-      curl -fsSL --max-time 5 --max-filesize 3145728 -o "$ART_FILE" "$url" 2>/dev/null || return
-      file=$ART_FILE
+      fetch_async "$url" --max-filesize 3145728
+      if [ "$FETCH_STATE" = pending ]; then ART_PENDING=1; fi
+      if [ "$FETCH_STATE" != done ]; then return; fi
+      file=$FETCH_FILE
       ;;
     *) return ;;
   esac
@@ -158,16 +219,20 @@ url_encode() {
 }
 
 # El video de una canción que no suena en YouTube: el primer resultado de la búsqueda.
+# VIDEO_PENDING=1: la búsqueda sigue en curso.
 search_youtube_video() {
   local html
   VIDEO_OUT=''
+  VIDEO_PENDING=0
   command -v curl >/dev/null 2>&1 || return
   url_encode "$1 $2"
   # Sin esta cookie, en Europa YouTube responde con la página de consentimiento.
-  html=$(curl -fsSL --max-time 6 \
+  fetch_async "https://www.youtube.com/results?search_query=$ENCODED_OUT" \
     -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36' \
-    -H 'Accept-Language: en-US,en;q=0.8' -H 'Cookie: SOCS=CAI; CONSENT=YES+' \
-    "https://www.youtube.com/results?search_query=$ENCODED_OUT" 2>/dev/null) || return
+    -H 'Accept-Language: en-US,en;q=0.8' -H 'Cookie: SOCS=CAI; CONSENT=YES+'
+  if [ "$FETCH_STATE" = pending ]; then VIDEO_PENDING=1; fi
+  if [ "$FETCH_STATE" != done ]; then return; fi
+  html=$(<"$FETCH_FILE")
   if [[ $html =~ $YOUTUBE_RESULT ]]; then VIDEO_OUT=${BASH_REMATCH[1]}; fi
 }
 
@@ -208,6 +273,8 @@ video_for() {
     # En el navegador, solo si trae álbum (una canción): un stream o una serie no lo traen.
     search_youtube_video "$title" "$artist"
     VIDEO_ID=$VIDEO_OUT
+    # Mientras se busca no cuenta como intento: el resultado llega en otra vuelta.
+    if [ "$VIDEO_PENDING" = 1 ]; then VIDEO_TRIES[found]=$((VIDEO_TRIES[found] - 1)); fi
   fi
   if [ -n "$VIDEO_ID" ]; then VIDEO_VALUES[found]="$VIDEO_ID $VIDEO_SITE"; fi
 }
@@ -254,14 +321,12 @@ watch() {
   local video_flag=$1 loop failures=0 out code err rest rec
   local inst player status pos len title artist album art_url url tail
   local apps entries i n best best_start app key json hash playing
-  local err_file
-  err_file=$(mktemp 2>/dev/null || echo "/tmp/obs-now-playing-err.$$")
-  trap 'rm -f "$ART_FILE" "$err_file"' EXIT
+  ERR_FILE=$(mktemp 2>/dev/null || echo "/tmp/obs-now-playing-err.$$")
 
   for ((loop = 0; loop < LOOPS; loop++)); do
-    out=$("${PCTL[@]}" --all-players metadata --format "$FORMAT" 2>"$err_file")
+    out=$("${PCTL[@]}" --all-players metadata --format "$FORMAT" 2>"$ERR_FILE")
     code=$?
-    err=$(head -c 300 "$err_file" 2>/dev/null)
+    err=$(head -c 300 "$ERR_FILE" 2>/dev/null)
     # Sin reproductores abiertos playerctl termina con error: eso es "nada suena".
     if [ "$code" -ne 0 ] && [ -z "$out" ] && [ -n "$err" ] && [[ $err != *"No player"* ]]; then
       json_str "playerctl: $err"
@@ -361,7 +426,8 @@ watch() {
         artwork_data "$art_url"
         hash=''
         if [ -n "$ART_OUT" ]; then hash="${#ART_OUT}:${ART_OUT: -96}"; fi
-        if { [ -n "$ART_OUT" ] && [ "$hash" != "${ST_HASH[IDX]}" ]; } || [ "${ST_TRIES[IDX]}" -ge 5 ]; then
+        # Mientras la carátula se baja, la línea sale sin ella y no se da por perdida.
+        if { [ -n "$ART_OUT" ] && [ "$hash" != "${ST_HASH[IDX]}" ]; } || { [ "${ST_TRIES[IDX]}" -ge 5 ] && [ "$ART_PENDING" = 0 ]; }; then
           rec="$rec,\"artwork\":\"$ART_OUT\""
           ST_KEY[IDX]=$key
           ST_HASH[IDX]=$hash

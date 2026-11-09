@@ -463,10 +463,125 @@ function searchSong(query) {
   return result.error ? 1 : 0;
 }
 
+// ---- Descargas sin frenar la lectura ----------------------------------------------
+// El plugin da por muerto un lector que no escribe en 10 s: con la red lenta al cambiar de
+// canción, la tarjeta desaparecía en pleno directo. Por eso cada descarga (carátulas,
+// búsqueda en YouTube) corre aparte en /usr/bin/curl, con 4 s como máximo, y el bucle solo
+// mira en cada vuelta si ya terminó. Mientras tanto las funciones de abajo devuelven
+// PENDING y la carátula o el video llegan en una línea posterior. (Desde JXA no hay forma
+// confiable de recibir la respuesta de NSURLSession en otro hilo; un proceso aparte sí se
+// puede mirar sin esperarlo.) Una descarga que falló no se repite hasta pasados 30 s.
+const PENDING = { pending: true };
+const FETCH_DIR = `${ObjC.unwrap($.NSTemporaryDirectory())}obs-now-playing-fetch`;
+const FETCH_TIMEOUT_S = 4;
+const FETCH_RETRY_MS = 30000;
+const FETCH_KEEP_MS = 60000;
+const MAX_FETCHES = 3; // descargas a la vez
+const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+const fetches = {}; // url → { task, path, data (NSData; null si falló), at, used }
+let fetchCount = 0;
+
+function removeFile(path) {
+  $.NSFileManager.defaultManager.removeItemAtPathError(path, $());
+}
+
+function startFetch(url, headers) {
+  const fm = $.NSFileManager.defaultManager;
+  fm.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(FETCH_DIR, true, $(), $());
+  const path = `${FETCH_DIR}/${$.NSProcessInfo.processInfo.processIdentifier}-${++fetchCount}`;
+  const args = ['-sSfL', '--compressed', '--max-time', String(FETCH_TIMEOUT_S), '--max-filesize', '8388608', '-o', path];
+  for (const h of headers) args.push('-H', h);
+  args.push(url);
+  const task = $.NSTask.alloc.init;
+  task.launchPath = '/usr/bin/curl';
+  task.arguments = $(args);
+  task.standardInput = $.NSFileHandle.fileHandleWithNullDevice;
+  task.standardOutput = $.NSFileHandle.fileHandleWithNullDevice;
+  task.standardError = $.NSFileHandle.fileHandleWithNullDevice;
+  task.launch;
+  return { task, path, data: null, at: Date.now(), used: Date.now() };
+}
+
+// Los datos de url (NSData), null si no se pudo bajar o PENDING mientras baja. No espera.
+function fetchAsync(url, headers = []) {
+  let f = fetches[url];
+  if (f && !f.task && !f.data && Date.now() - f.at >= FETCH_RETRY_MS) f = null;
+  if (!f) {
+    if (Object.values(fetches).filter((x) => x.task).length >= MAX_FETCHES) return PENDING;
+    try {
+      f = startFetch(url, headers);
+    } catch (e) {
+      f = { task: null, path: '', data: null, at: Date.now(), used: Date.now() };
+    }
+    fetches[url] = f;
+  }
+  f.used = Date.now();
+  settleFetch(f);
+  return f.task ? PENDING : f.data;
+}
+
+// Si la descarga terminó: guarda lo bajado (si salió bien) y borra su archivo.
+function settleFetch(f) {
+  if (!f.task || f.task.isRunning) return;
+  if (f.task.terminationStatus === 0) {
+    const data = $.NSData.dataWithContentsOfFile(f.path);
+    f.data = data && !data.isNil() && data.length ? data : null;
+  }
+  removeFile(f.path);
+  f.task = null;
+  f.at = Date.now();
+}
+
+// Una vez por vuelta: se recogen las descargas que terminaron (también las que ya nadie
+// pide, para que no ocupen lugar) y se olvidan las que nadie pidió en el último minuto (lo
+// que se necesitaba de ellas ya quedó guardado más arriba).
+function pruneFetches() {
+  const now = Date.now();
+  for (const url of Object.keys(fetches)) {
+    settleFetch(fetches[url]);
+    if (!fetches[url].task && now - fetches[url].used > FETCH_KEEP_MS) delete fetches[url];
+  }
+}
+
+// Al salir: corta las descargas que sigan y borra sus archivos. Al empezar: borra los que
+// dejó un lector anterior que se cerró de golpe (de hace más de 10 min).
+function stopFetches() {
+  for (const f of Object.values(fetches)) {
+    if (!f.task) continue;
+    if (f.task.isRunning) f.task.terminate;
+    removeFile(f.path);
+  }
+}
+
+function cleanOldFetches() {
+  const fm = $.NSFileManager.defaultManager;
+  const names = fm.contentsOfDirectoryAtPathError(FETCH_DIR, $());
+  if (!names || names.isNil()) return;
+  for (const name of ObjC.deepUnwrap(names) || []) {
+    const path = `${FETCH_DIR}/${name}`;
+    const attrs = fm.attributesOfItemAtPathError(path, $());
+    const date = attrs && !attrs.isNil() ? ObjC.unwrap(attrs.objectForKey('NSFileModificationDate')) : null;
+    if (date instanceof Date && Date.now() - date.getTime() > 600000) removeFile(path);
+  }
+}
+
+// Modos de prueba (artwork, ytsearch): esperan lo que en la lectura llega después.
+function waitFor(step) {
+  for (let i = 0; i < 100; i++) {
+    const result = step();
+    if (result !== PENDING) return result;
+    delay(0.1);
+  }
+  return '';
+}
+
+const dataUrl = (data) => `data:image/jpeg;base64,${ObjC.unwrap(data.base64EncodedStringWithOptions(0))}`;
+
 // macOS nuevos (visto en macOS 27) ya no mandan la imagen en "Ahora suena": solo un
 // identificador y su tamaño. A la app de Spotify se la pedimos directamente: da el
 // enlace de la carátula de la canción que suena. La primera vez macOS pregunta si OBS
 // (o la app) puede controlar Spotify; si se le dice que no, simplemente no hay carátula.
+// PENDING mientras se baja.
 function spotifyArtwork(title) {
   try {
     const spotify = Application('com.spotify.client');
@@ -475,9 +590,9 @@ function spotifyArtwork(title) {
     if (String(track.name()) !== title) return ''; // Spotify aún no cambió: se reintenta
     const url = String(track.artworkUrl() || '');
     if (!/^https:\/\//.test(url)) return '';
-    const data = $.NSData.dataWithContentsOfURL($.NSURL.URLWithString(url));
-    if (!data || data.isNil() || !data.length) return '';
-    return `data:image/jpeg;base64,${ObjC.unwrap(data.base64EncodedStringWithOptions(0))}`;
+    const data = fetchAsync(url);
+    if (data === PENDING) return PENDING;
+    return data ? dataUrl(data) : '';
   } catch (e) {
     return '';
   }
@@ -486,26 +601,26 @@ function spotifyArtwork(title) {
 // Último recurso (YouTube Music, navegadores…): buscar la carátula por artista y
 // canción en el catálogo público de Apple (iTunes Search, sin cuenta ni clave). Solo
 // se acepta si artista y título coinciden, para no mostrar una carátula equivocada.
+// PENDING mientras se busca.
 const lookups = {}; // "artista\ncanción" → carátula ('' = no se encontró), una búsqueda por canción
-
-function fetchData(url) {
-  const data = $.NSData.dataWithContentsOfURL($.NSURL.URLWithString(url));
-  return data && !data.isNil() && data.length ? data : null;
-}
 
 function catalogArtwork(title, artist) {
   const key = `${artist}\n${title}`;
   if (key in lookups) return lookups[key];
-  lookups[key] = '';
   // "Canción (Official Video)" o "Artista - Topic" son cosas de YouTube, no del disco.
   const clean = (s) => s.replace(/\s*[([][^)\]]*[)\]]/g, '').replace(/\s+-\s+topic$/i, '').trim();
   const norm = (s) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '');
   const a = norm(clean(artist));
   const t = norm(clean(title));
-  if (!a || !t) return '';
+  if (!a || !t) return (lookups[key] = '');
+  lookups[key] = '';
   try {
     const term = encodeURIComponent(`${clean(artist)} ${clean(title)}`);
-    const json = fetchData(`https://itunes.apple.com/search?media=music&entity=song&limit=10&term=${term}`);
+    const json = fetchAsync(`https://itunes.apple.com/search?media=music&entity=song&limit=10&term=${term}`);
+    if (json === PENDING) {
+      delete lookups[key];
+      return PENDING;
+    }
     if (!json) return '';
     const text = ObjC.unwrap($.NSString.alloc.initWithDataEncoding(json, $.NSUTF8StringEncoding));
     const hit = (JSON.parse(text).results || []).find((r) => {
@@ -514,8 +629,12 @@ function catalogArtwork(title, artist) {
       return ra && rt && (ra.includes(a) || a.includes(ra)) && (rt.includes(t) || t.includes(rt));
     });
     if (!hit || !hit.artworkUrl100) return '';
-    const image = fetchData(hit.artworkUrl100.replace(/\/\d+x\d+bb\./, '/600x600bb.'));
-    if (image) lookups[key] = `data:image/jpeg;base64,${ObjC.unwrap(image.base64EncodedStringWithOptions(0))}`;
+    const image = fetchAsync(hit.artworkUrl100.replace(/\/\d+x\d+bb\./, '/600x600bb.'));
+    if (image === PENDING) {
+      delete lookups[key];
+      return PENDING;
+    }
+    if (image) lookups[key] = dataUrl(image);
   } catch (e) {
     // sin internet o respuesta rara: sin carátula
   }
@@ -567,19 +686,11 @@ function youtubeVideo(app, title) {
 
 // Una página web como texto, con las cabeceras de un navegador (sin la cookie de
 // consentimiento, en Europa YouTube responde con su página de "antes de continuar").
+// PENDING mientras baja.
 function fetchText(url) {
-  // Estas clases no vienen en el puente de Foundation de JXA: se piden por su nombre.
-  const Request = $.NSClassFromString('NSMutableURLRequest');
-  const Connection = $.NSClassFromString('NSURLConnection');
-  const request = Request.requestWithURL($.NSURL.URLWithString(url));
-  request.timeoutInterval = 6;
-  request.setValueForHTTPHeaderField('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36', 'User-Agent');
-  request.setValueForHTTPHeaderField('en-US,en;q=0.8', 'Accept-Language');
-  request.setValueForHTTPHeaderField('SOCS=CAI; CONSENT=YES+', 'Cookie');
-  const response = Ref();
-  const error = Ref();
-  const data = Connection.sendSynchronousRequestReturningResponseError(request, response, error);
-  if (!data || data.isNil() || !data.length) return '';
+  const data = fetchAsync(url, [`User-Agent: ${BROWSER_UA}`, 'Accept-Language: en-US,en;q=0.8', 'Cookie: SOCS=CAI; CONSENT=YES+']);
+  if (data === PENDING) return PENDING;
+  if (!data) return '';
   return ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding)) || '';
 }
 
@@ -587,9 +698,11 @@ const normName = (s) => String(s).toLowerCase().normalize('NFD').replace(/[\u030
 
 // El video de una canción que no suena en YouTube (Spotify, Apple Music…): se busca por
 // título y artista y se usa el primer resultado con ese mismo título (o el primero).
+// PENDING mientras se busca.
 function searchYouTubeVideo(title, artist) {
   const query = encodeURIComponent(`${title} ${artist}`.trim());
   const html = fetchText(`https://www.youtube.com/results?search_query=${query}`);
+  if (html === PENDING) return PENDING;
   const pattern = /"videoRenderer":\{"videoId":"([A-Za-z0-9_-]{11})"[\s\S]{0,4000}?"title":\{"runs":\[\{"text":"((?:[^"\\]|\\.)*)"/g;
   const results = [];
   let m;
@@ -627,20 +740,31 @@ function hasSpotifyTab(app) {
   return false;
 }
 
+// { id, site }, null si no se encontró o PENDING mientras se busca.
 function searchedVideo(title, artist, site) {
   try {
     const id = searchYouTubeVideo(title, artist);
+    if (id === PENDING) return PENDING;
     return id ? { id, site } : null;
   } catch (e) {
-    return null; // sin internet o respuesta rara: sin video
+    return null; // respuesta rara: sin video
   }
 }
 
+const videoSearches = {}; // "app\ncanción" → { site } del video que se está buscando en YouTube
+
+// { id, site } o null (también mientras se busca: llega en una vuelta posterior).
 function videoFor(app, title, artist, album, videoFlag) {
   if (!videoFlag || !$.NSFileManager.defaultManager.fileExistsAtPath(videoFlag)) return null;
   if (/obsproject/i.test(app)) return null; // el video de la propia tarjeta
   const key = `${app}\n${title}`;
   if (videos[key]) return videos[key];
+  if (videoSearches[key]) {
+    const searched = searchedVideo(title, artist, videoSearches[key].site);
+    if (searched === PENDING) return null;
+    delete videoSearches[key];
+    if (searched) return (videos[key] = searched);
+  }
   if ((videoTries[key] || 0) >= 3) return null; // la dirección cambia un instante después del título
   videoTries[key] = (videoTries[key] || 0) + 1;
   let video = null;
@@ -648,9 +772,9 @@ function videoFor(app, title, artist, album, videoFlag) {
     video = youtubeVideo(app, title);
     // Sin pestaña de YouTube: el reproductor web de Spotify u otra página de música. Solo
     // si trae álbum (una canción): un stream o una serie no lo traen y no se les busca video.
-    if (!video && album) video = searchedVideo(title, artist, hasSpotifyTab(app) ? 'spotify' : '');
+    if (!video && album) videoSearches[key] = { site: hasSpotifyTab(app) ? 'spotify' : '' };
   } else {
-    video = searchedVideo(title, artist, '');
+    videoSearches[key] = { site: '' };
   }
   if (video) videos[key] = video;
   return video;
@@ -770,10 +894,16 @@ function watch(videoFlag, othersFlag) {
   let others = [];
   let othersAt = 0;
   const otherArt = {}; // "app\ncanción" → ya se mandó su carátula
+  try {
+    cleanOldFetches();
+  } catch (e) {
+    // sin carpeta todavía
+  }
 
   // ~30 min y salimos: server.js nos vuelve a abrir (evita acumular memoria).
   for (let i = 0; i < 1800; i++) {
     try {
+      pruneFetches();
       const item = Request.localNowPlayingItem;
       const info = item && !item.isNil() ? item.nowPlayingInfo : null;
       const value = (k) => {
@@ -825,6 +955,7 @@ function watch(videoFlag, othersFlag) {
           tries++;
           let art = '';
           let hash = '';
+          let waiting = false; // una descarga sigue en curso: la carátula llega después
           const data = info.objectForKey('kMRMediaRemoteNowPlayingInfoArtworkData');
           if (!data.isNil() && data.length > 0) {
             const b64 = ObjC.unwrap(data.base64EncodedStringWithOptions(0));
@@ -834,9 +965,13 @@ function watch(videoFlag, othersFlag) {
           } else {
             if (app === 'com.spotify.client') art = spotifyArtwork(entry.title);
             if (!art) art = catalogArtwork(entry.title, entry.artist);
+            if (art === PENDING) {
+              waiting = true;
+              art = '';
+            }
             hash = art ? `${art.length}:${art.slice(-96)}` : '';
           }
-          if ((art && hash !== sentHash) || tries >= 5) {
+          if ((art && hash !== sentHash) || (tries >= 5 && !waiting)) {
             entry.artwork = art;
             sentKey = key;
             sentHash = hash;
@@ -883,15 +1018,19 @@ function watch(videoFlag, othersFlag) {
           if (other.videoId) extra.videoId = other.videoId;
           const artKey = `${other.app}\n${other.title}`;
           if (!otherArt[artKey]) {
-            otherArt[artKey] = true;
             let art = '';
-            if (other.art) {
-              const data = fetchData(other.art);
-              if (data) art = `data:image/jpeg;base64,${ObjC.unwrap(data.base64EncodedStringWithOptions(0))}`;
+            if (/^data:image\//.test(other.art || '')) art = other.art;
+            else if (/^https?:\/\//.test(other.art || '')) {
+              const data = fetchAsync(other.art);
+              art = data === PENDING ? PENDING : data ? dataUrl(data) : '';
             }
             if (!art && other.app === 'com.spotify.client') art = spotifyArtwork(other.title);
             if (!art) art = catalogArtwork(other.title, other.artist);
-            extra.artwork = art;
+            // Mientras se baja, la línea sale sin carátula y se vuelve a mirar en la próxima.
+            if (art !== PENDING) {
+              otherArt[artKey] = true;
+              extra.artwork = art;
+            }
           }
           if (extra.current) for (const s2 of sessions) s2.current = false;
           sessions.push(extra);
@@ -903,22 +1042,26 @@ function watch(videoFlag, othersFlag) {
       failures = 0;
     } catch (e) {
       emit({ error: String(e) });
-      if (++failures >= 5) return 4;
+      if (++failures >= 5) {
+        stopFetches();
+        return 4;
+      }
     }
     delay(1);
   }
+  stopFetches();
   return 0;
 }
 
 // Para probar la búsqueda del video de una canción: ... media/macos.js ytsearch "Canción" "Artista"
 function testYouTubeSearch(title, artist) {
-  const id = searchYouTubeVideo(title || '', artist || '');
+  const id = waitFor(() => searchYouTubeVideo(title || '', artist || ''));
   emit({ title, artist, videoId: id });
   return 0;
 }
 
 function testArtwork(title, artist) {
-  const art = catalogArtwork(title || '', artist || '');
+  const art = waitFor(() => catalogArtwork(title || '', artist || ''));
   emit({ title, artist, found: Boolean(art), bytes: art.length });
   return 0;
 }

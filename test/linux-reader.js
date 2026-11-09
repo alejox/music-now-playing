@@ -78,6 +78,33 @@ try {
   assert.ok(!('artwork' in second.sessions.find((s) => s.app === 'spotify')));
   assert.match(watch.calls, /--all-players metadata --format/);
 
+  // ---- Una carátula de internet lenta no frena la lectura ----
+  // curl falso (primero en el PATH) que tarda 2 s y "baja" la carátula de prueba. La línea
+  // sale cada segundo sin esperarlo y la carátula llega en una posterior.
+  const slowBin = path.join(tmp, 'slow-bin');
+  fs.mkdirSync(slowBin);
+  fs.writeFileSync(
+    path.join(slowBin, 'curl'),
+    '#!/usr/bin/env bash\nout=\'\'\nwhile [ $# -gt 0 ]; do\n  if [ "$1" = -o ]; then out=$2; shift; fi\n  shift\ndone\nsleep 2\ncp "$FAKE_ART" "$out"\n',
+  );
+  fs.chmodSync(path.join(slowBin, 'curl'), 0o755);
+  const startedAt = Date.now();
+  const slow = run([], {
+    OBS_NOW_PLAYING_LOOPS: '5',
+    FAKE_ART_URL: 'https://covers.invalid/cover.png',
+    PATH: `${slowBin}${path.delimiter}${bin}${path.delimiter}${process.env.PATH}`,
+  });
+  const slowMs = Date.now() - startedAt;
+  assert.equal(slow.code, 0, slow.stderr);
+  assert.equal(slow.lines.length, 5, 'una línea por vuelta');
+  const slowSpotify = slow.lines.map((l) => l.sessions.find((s) => s.app === 'spotify'));
+  assert.ok(slowSpotify.every(Boolean), 'Spotify está en todas las líneas');
+  assert.ok(!('artwork' in slowSpotify[0]), 'la primera línea no espera a la carátula');
+  assert.equal(slowSpotify.filter((s) => 'artwork' in s).length, 1, 'la carátula va una sola vez');
+  assert.equal(slowSpotify.find((s) => 'artwork' in s).artwork, `data:image/png;base64,${PNG}`);
+  // 5 vueltas de 1 s: esperar a curl (2 s) en la primera las llevaría a más de 7 s.
+  assert.ok(slowMs < 6500, `la lectura esperó a la descarga (${slowMs} ms)`);
+
   // ---- Nada suena ----
   const empty = run([], { FAKE_PLAYERCTL_MODE: 'empty' });
   assert.equal(empty.code, 0);

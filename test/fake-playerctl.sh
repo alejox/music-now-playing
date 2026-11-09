@@ -2,6 +2,7 @@
 # playerctl falso para test/linux-reader.js: llena el --format de verdad (las {{claves}})
 # con reproductores de prueba y anota en FAKE_PLAYERCTL_LOG cada llamada.
 #   FAKE_PLAYERCTL_MODE: normal (Spotify sonando + Firefox en pausa) | youtube | empty
+#   FAKE_ART_URL: la carátula de Spotify (si no, FAKE_ART como file://)
 printf '%s\n' "$*" >>"${FAKE_PLAYERCTL_LOG:-/dev/null}"
 mode=${FAKE_PLAYERCTL_MODE:-normal}
 
@@ -34,7 +35,7 @@ player() {
     spotify)
       fill "$fmt" playerInstance spotify playerName spotify status Playing position 61500000 \
         mpris:length 258000000 title "Say \"Hi\" \\ Bye$(printf '\t')now" artist 'Bomba Estéreo, Bad Bunny' \
-        album 'Canción ñ 🎵' mpris:artUrl "file://${FAKE_ART// /%20}"
+        album 'Canción ñ 🎵' mpris:artUrl "${FAKE_ART_URL:-file://${FAKE_ART// /%20}}"
       ;;
     firefox.instance_1_23)
       fill "$fmt" playerInstance firefox.instance_1_23 playerName firefox status Paused position 0 title 'Un video'
