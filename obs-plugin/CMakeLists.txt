@@ -56,4 +56,14 @@ target_sources(
     src/third-party/monocypher/monocypher-ed25519.h
 )
 
+# Monocypher es código de terceros: en MSVC sus conversiones de enteros (intencionales en criptografía)
+# dan avisos que /WX vuelve errores. Se silencian solo en esos dos archivos.
+if(MSVC)
+  set_source_files_properties(
+    src/third-party/monocypher/monocypher.c
+    src/third-party/monocypher/monocypher-ed25519.c
+    PROPERTIES COMPILE_OPTIONS "/wd4244;/wd4146;/wd4267"
+  )
+endif()
+
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
