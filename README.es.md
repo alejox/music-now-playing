@@ -170,6 +170,7 @@ Opciones para la URL (se combinan con `&`):
 
 - Todo corre en tu computador; no hay servidores nuestros.
 - El plugin solo se conecta a internet para buscar actualizaciones en GitHub, para buscar la carátula que falte en el catálogo público de Apple (nombre de la canción y artista), en el modo video para buscar en YouTube el video de la canción (título y artista; en Windows también cuando no se puede leer la barra de direcciones) y para cargar el reproductor de YouTube.
+- Antes de instalar una actualización, el plugin comprueba su firma Ed25519 con una clave que lleva dentro; si falta la firma o no coincide, no instala nada.
 - La app solo escucha en `127.0.0.1` y no deja que otras páginas web lean lo que escuchas.
 
 ## 🛠️ Para desarrolladores

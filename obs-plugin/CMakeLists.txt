@@ -48,6 +48,12 @@ target_sources(
     src/now-playing-dock.hpp
     src/updater.cpp
     src/updater.hpp
+    src/release-signature.cpp
+    src/release-signature.hpp
+    src/third-party/monocypher/monocypher.c
+    src/third-party/monocypher/monocypher.h
+    src/third-party/monocypher/monocypher-ed25519.c
+    src/third-party/monocypher/monocypher-ed25519.h
 )
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})

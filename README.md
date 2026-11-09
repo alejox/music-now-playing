@@ -166,6 +166,7 @@ URL options (combine with `&`):
 
 - Everything runs on your computer; there's no server of ours.
 - The plugin only goes online to check for updates on GitHub, to look up missing cover art in Apple's public catalog (song title and artist), in video mode to search YouTube for the song's video (title and artist; on Windows also when the address bar can't be read) and to load the YouTube player.
+- Before installing an update, the plugin checks its Ed25519 signature against a key built into the plugin; if the signature is missing or doesn't match, it installs nothing.
 - The app only listens on `127.0.0.1` and doesn't let other web pages read what you listen to.
 
 ## 🛠️ For developers

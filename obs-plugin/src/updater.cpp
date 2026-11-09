@@ -1,4 +1,5 @@
 #include "updater.hpp"
+#include "release-signature.hpp"
 
 #include <obs-module.h>
 #include <obs-frontend-api.h>
@@ -531,7 +532,7 @@ void Updater::outputsStopped()
 			return;
 		if (!pendingVersion_.isEmpty()) {
 			if (pendingVersion_ != skippedVersion())
-				askToUpdate(pendingVersion_, pendingUrl_, pendingPage_);
+				askToUpdate(pendingVersion_, pendingUrl_, pendingSigUrl_, pendingPage_);
 			pendingVersion_.clear();
 		} else if (checkPending_) {
 			checkPending_ = false;
@@ -587,8 +588,8 @@ void Updater::check(bool manual)
 		if (manual)
 			fail(text("NowPlaying.Update.CheckFailed"), kReleasesPage, curl->errorString());
 	});
-	curl->start(systemTool("curl"), {"-fsSL", "--max-time", "20", "-H", "Accept: application/vnd.github+json",
-					 QString::fromUtf8(kLatestRelease)});
+	curl->start(systemTool("curl"), {"-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-time", "20", "-H",
+					 "Accept: application/vnd.github+json", QString::fromUtf8(kLatestRelease)});
 }
 
 void Updater::handleRelease(const QByteArray &json, bool manual)
@@ -600,6 +601,7 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 		QString("^music-now-playing-(\\d+(?:\\.\\d+)*)-%1\\.zip$").arg(QString::fromUtf8(kPlatform)));
 	QString version;
 	QString url;
+	QString name;
 	const QJsonArray assets = release.value("assets").toArray();
 	for (qsizetype i = 0; i < assets.size(); ++i) {
 		QJsonObject asset = assets.at(i).toObject();
@@ -608,7 +610,15 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 			continue;
 		version = match.captured(1);
 		url = asset.value("browser_download_url").toString();
+		name = asset.value("name").toString();
 		break;
+	}
+	// La firma del zip (<zip>.sig): sin ella no se instala (download() lo explica).
+	QString sigUrl;
+	for (qsizetype i = 0; i < assets.size() && !name.isEmpty(); ++i) {
+		QJsonObject asset = assets.at(i).toObject();
+		if (asset.value("name").toString() == name + ".sig")
+			sigUrl = asset.value("browser_download_url").toString();
 	}
 
 	if (version.isEmpty() || !url.startsWith("https://github.com/")) {
@@ -641,14 +651,15 @@ void Updater::handleRelease(const QByteArray &json, bool manual)
 	if (!manual && live()) {
 		pendingVersion_ = version;
 		pendingUrl_ = url;
+		pendingSigUrl_ = sigUrl;
 		pendingPage_ = pageUrl;
 		obs_log(LOG_INFO, "hay una versión nueva (%s): se avisa cuando no estés en vivo", version.toUtf8().constData());
 		return;
 	}
-	askToUpdate(version, url, pageUrl);
+	askToUpdate(version, url, sigUrl, pageUrl);
 }
 
-void Updater::askToUpdate(const QString &version, const QString &url, const QString &pageUrl)
+void Updater::askToUpdate(const QString &version, const QString &url, const QString &sigUrl, const QString &pageUrl)
 {
 	pendingVersion_.clear();
 	QMessageBox box(mainWindow());
@@ -673,20 +684,28 @@ void Updater::askToUpdate(const QString &version, const QString &url, const QStr
 	if (box.clickedButton() == update) {
 #ifdef __linux__
 		Q_UNUSED(url)
+		Q_UNUSED(sigUrl)
 		QDesktopServices::openUrl(QUrl(pageUrl));
 #else
-		download(version, url);
+		download(version, url, sigUrl, pageUrl);
 #endif
 	} else if (box.clickedButton() == skip)
 		skipVersion(version);
 }
 
-void Updater::download(const QString &version, const QString &url)
+void Updater::download(const QString &version, const QString &url, const QString &sigUrl, const QString &pageUrl)
 {
+	// Sin firma no se instala: no hay "instalar de todas formas".
+	if (sigUrl.isEmpty() || !sigUrl.startsWith("https://github.com/")) {
+		obs_log(LOG_WARNING, "la versión %s no trae la firma de su zip: no se instala", version.toUtf8().constData());
+		fail(text("NowPlaying.Update.SignatureMissing"), pageUrl);
+		return;
+	}
 	QString dir = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).filePath("obs-now-playing-update");
 	QDir(dir).removeRecursively();
 	QDir().mkpath(dir);
 	QString zip = QDir(dir).filePath("plugin.zip");
+	QString sig = zip + ".sig";
 
 	progress_ = new QProgressDialog(text("NowPlaying.Update.Downloading").arg(version), QString(), 0, 0, mainWindow());
 	progress_->setWindowTitle(text("NowPlaying.Update.Title"));
@@ -695,16 +714,37 @@ void Updater::download(const QString &version, const QString &url)
 	progress_->show();
 
 	auto *curl = new QProcess(this);
-	connect(curl, &QProcess::finished, this, [this, curl, version, zip](int code, QProcess::ExitStatus) {
+	connect(curl, &QProcess::finished, this, [this, curl, version, zip, sig, pageUrl](int code, QProcess::ExitStatus) {
 		curl->deleteLater();
 		if (code != 0 || QFileInfo(zip).size() == 0) {
 			fail(text("NowPlaying.Update.DownloadFailed"), kReleasesPage,
 			     QString("curl %1: %2").arg(code).arg(QString::fromUtf8(curl->readAllStandardError()).trimmed()));
 			return;
 		}
+		// La firma se comprueba antes de descomprimir o reemplazar nada.
+		QFile zipFile(zip);
+		QFile sigFile(sig);
+		QByteArray zipBytes = zipFile.open(QIODevice::ReadOnly) ? zipFile.readAll() : QByteArray();
+		QByteArray sigBytes = sigFile.open(QIODevice::ReadOnly) ? sigFile.read(1024) : QByteArray();
+		bool valid = !zipBytes.isEmpty() &&
+			     release_signature::verifyRelease(reinterpret_cast<const std::uint8_t *>(zipBytes.constData()),
+							      std::size_t(zipBytes.size()),
+							      reinterpret_cast<const std::uint8_t *>(sigBytes.constData()),
+							      std::size_t(sigBytes.size()));
+		if (!valid) {
+			obs_log(LOG_WARNING,
+				"la firma de la versión %s no es válida (zip de %lld bytes, firma de %lld bytes): no se instala",
+				version.toUtf8().constData(), static_cast<long long>(zipBytes.size()),
+				static_cast<long long>(sigBytes.size()));
+			fail(text("NowPlaying.Update.SignatureInvalid"), pageUrl);
+			return;
+		}
+		obs_log(LOG_INFO, "firma de la versión %s verificada", version.toUtf8().constData());
 		install(version, zip);
 	});
-	curl->start(systemTool("curl"), {"-fsSL", "--max-time", "300", "-o", zip, url});
+	// Solo https, también en las redirecciones (GitHub manda el zip a otro servidor).
+	curl->start(systemTool("curl"), {"-fsSL", "--proto", "=https", "--proto-redir", "=https", "--max-time", "300",
+					 "-o", zip, url, "-o", sig, sigUrl});
 }
 
 void Updater::install(const QString &version, const QString &zipPath)
