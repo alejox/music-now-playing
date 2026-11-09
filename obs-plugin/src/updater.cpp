@@ -5,6 +5,7 @@
 #include <plugin-support.h>
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDesktopServices>
 #include <QDir>
 #include <QDirIterator>
@@ -61,11 +62,23 @@ QWidget *mainWindow()
 	return static_cast<QMainWindow *>(obs_frontend_get_main_window());
 }
 
+#ifdef _WIN32
+// C:\Windows\System32 según Windows (no según una variable de entorno, que el usuario puede cambiar).
+QString systemDirectory()
+{
+	wchar_t buffer[MAX_PATH];
+	UINT size = GetSystemDirectoryW(buffer, MAX_PATH);
+	if (size == 0 || size >= MAX_PATH)
+		return QString();
+	return QString::fromWCharArray(buffer, int(size));
+}
+#endif
+
 QString systemTool(const char *name)
 {
 #ifdef _WIN32
 	// curl.exe y tar.exe vienen con Windows 10 (1803) y 11.
-	return qEnvironmentVariable("SystemRoot", "C:\\Windows") + "\\System32\\" + name + ".exe";
+	return systemDirectory() + "\\" + name + ".exe";
 #else
 	return QString("/usr/bin/") + name;
 #endif
@@ -213,13 +226,38 @@ PluginLocation pluginLocation()
 // no se puede borrar, pero sí renombrar: queda como .old (se borra en la próxima
 // actualización). Si la copia falla, no queda un .dll a medias en la carpeta nueva y la copia
 // de antes sigue como estaba.
-const char *kNewFolderScript = R"PS(param([string]$Dll, [string]$Target, [string]$Data = '', [string]$OldDll = '', [string]$OldData = '', [string]$OldBin = '')
+// El script no se guarda en disco: va dentro de la línea de comandos (-EncodedCommand), así
+// nadie puede cambiarlo mientras Windows pide el permiso. Lo que copia (que está en la carpeta
+// temporal del usuario) primero lo pasa a una carpeta nueva dentro de la de destino, que el
+// usuario no puede modificar, y ahí compara cada archivo con el SHA-256 que el plugin calculó
+// antes de pedir el permiso ($Manifest: "ruta relativa|hash" por línea). Si algo no coincide
+// (o sobra un archivo), no instala nada.
+const char *kNewFolderScript = R"PS(param([string]$Dll, [string]$Target, [string]$Manifest, [string]$Data = '', [string]$Pdb = '', [string]$OldDll = '', [string]$OldData = '', [string]$OldBin = '')
 $ErrorActionPreference = 'Stop'
+$env:PSModulePath = "$PSHOME\Modules"
+$robocopy = Join-Path ([Environment]::SystemDirectory) 'robocopy.exe'
 $newDll = Join-Path $Target 'obs-now-playing.dll'
+$stage = Join-Path $Target ".staging-$([guid]::NewGuid().ToString('N'))"
 $backup = ''
 $copying = $false
 try {
   New-Item -ItemType Directory -Force -Path $Target | Out-Null
+  New-Item -ItemType Directory -Path $stage | Out-Null
+  Copy-Item -LiteralPath $Dll -Destination (Join-Path $stage 'obs-now-playing.dll')
+  if ($Pdb) { Copy-Item -LiteralPath $Pdb -Destination (Join-Path $stage 'obs-now-playing.pdb') }
+  if ($Data) {
+    & $robocopy $Data (Join-Path $stage 'data') /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { throw "robocopy $LASTEXITCODE" }
+  }
+  $expected = @($Manifest -split "`n" | Where-Object { $_ })
+  $staged = @(Get-ChildItem -LiteralPath $stage -Recurse -File -Force)
+  if ($expected.Count -eq 0 -or $staged.Count -ne $expected.Count) { throw 'manifest' }
+  foreach ($entry in $expected) {
+    $rel, $hash = $entry -split '\|', 2
+    $file = Join-Path $stage $rel
+    if (-not (Test-Path -LiteralPath $file -PathType Leaf)) { throw "missing $rel" }
+    if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ne $hash) { throw "hash $rel" }
+  }
   Get-ChildItem -LiteralPath $Target -Filter 'obs-now-playing.dll.*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
   if (Test-Path -LiteralPath $newDll) {
     $name = "obs-now-playing.dll.$([DateTimeOffset]::Now.ToUnixTimeSeconds()).old"
@@ -227,18 +265,19 @@ try {
     $backup = Join-Path $Target $name
   }
   $copying = $true
-  Copy-Item -LiteralPath $Dll -Destination $newDll -Force
-  $pdb = [IO.Path]::ChangeExtension($Dll, '.pdb')
-  if (Test-Path -LiteralPath $pdb) { Copy-Item -LiteralPath $pdb -Destination (Join-Path $Target 'obs-now-playing.pdb') -Force }
+  Copy-Item -LiteralPath (Join-Path $stage 'obs-now-playing.dll') -Destination $newDll -Force
+  if ($Pdb) { Copy-Item -LiteralPath (Join-Path $stage 'obs-now-playing.pdb') -Destination (Join-Path $Target 'obs-now-playing.pdb') -Force }
   if ($Data) {
-    robocopy $Data (Join-Path $Target 'data') /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    & $robocopy (Join-Path $stage 'data') (Join-Path $Target 'data') /E /IS /IT /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { throw "robocopy $LASTEXITCODE" }
   }
 } catch {
   if ($copying) { Remove-Item -LiteralPath $newDll -Force -ErrorAction SilentlyContinue }
   if ($backup) { Rename-Item -LiteralPath $backup -NewName 'obs-now-playing.dll' -ErrorAction SilentlyContinue }
+  Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
   exit 1
 }
+Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue
 if ($OldDll -and (Test-Path -LiteralPath $OldDll)) {
   Get-ChildItem -LiteralPath (Split-Path $OldDll) -Filter 'obs-now-playing.dll.*.old' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
   Rename-Item -LiteralPath $OldDll -NewName "obs-now-playing.dll.$([DateTimeOffset]::Now.ToUnixTimeSeconds()).old" -ErrorAction SilentlyContinue
@@ -249,49 +288,117 @@ if ($OldBin -and (Test-Path -LiteralPath $OldBin)) { Remove-Item -LiteralPath $O
 exit 0
 )PS";
 
+// Un texto como literal de PowerShell entre comillas simples. PowerShell también toma como
+// comilla simple las tipográficas (‘ ’ ‚ ‛): se duplican todas.
+QString psLiteral(const QString &value)
+{
+	QString quoted("'");
+	for (QChar c : value) {
+		quoted += c;
+		if (c == u'\'' || c == QChar(0x2018) || c == QChar(0x2019) || c == QChar(0x201A) || c == QChar(0x201B))
+			quoted += c;
+	}
+	return quoted + "'";
+}
+
+// SHA-256 de un archivo en hexadecimal (vacío si no se pudo leer).
+QString sha256Of(const QString &path)
+{
+	QFile file(path);
+	if (!file.open(QIODevice::ReadOnly))
+		return QString();
+	QCryptographicHash hash(QCryptographicHash::Sha256);
+	if (!hash.addData(&file))
+		return QString();
+	return QString::fromLatin1(hash.result().toHex().toUpper());
+}
+
+bool addToManifest(QStringList *manifest, const QString &relative, const QString &file, QString *problem)
+{
+	QString hash = sha256Of(file);
+	if (hash.isEmpty()) {
+		*problem = text("NowPlaying.Update.Error.ReadFailed").arg(QDir::toNativeSeparators(file));
+		return false;
+	}
+	*manifest << relative + "|" + hash;
+	return true;
+}
+
 // Instala dll y data (data vacío si ya está en su lugar) en la carpeta de OBS 33 con permiso de
 // administrador y quita las copias de la carpeta de donde se cargó el plugin (from).
-bool installToNewFolder(const QString &workDir, const QString &dll, const QString &data, PluginLocation from,
-			QString *problem)
+bool installToNewFolder(const QString &dll, const QString &data, PluginLocation from, QString *problem)
 {
 	QString target = newPluginFolder();
+	QString system = systemDirectory();
 	if (target.isEmpty()) {
-		*problem = QString("No se encontró la carpeta ProgramData.");
+		*problem = text("NowPlaying.Update.Error.NoProgramData");
 		return false;
 	}
-	QDir().mkpath(workDir);
-	QString script = QDir(workDir).filePath("instalar-obs33.ps1");
-	QFile scriptFile(script);
-	if (!scriptFile.open(QIODevice::WriteOnly) || scriptFile.write(kNewFolderScript) < 0) {
-		*problem = QString("No se pudo escribir %1").arg(QDir::toNativeSeparators(script));
+	if (system.isEmpty()) {
+		*problem = text("NowPlaying.Update.Error.NoSystemFolder");
 		return false;
 	}
-	scriptFile.close();
+
+	// Lo que se va a copiar y su SHA-256, antes de pedir el permiso.
+	QStringList manifest;
+	QString pdb = QDir::cleanPath(QFileInfo(dll).absolutePath() + "/" + QFileInfo(dll).completeBaseName() + ".pdb");
+	if (!QFileInfo(pdb).isFile())
+		pdb.clear();
+	if (!addToManifest(&manifest, "obs-now-playing.dll", dll, problem) ||
+	    (!pdb.isEmpty() && !addToManifest(&manifest, "obs-now-playing.pdb", pdb, problem)))
+		return false;
+	if (!data.isEmpty()) {
+		QDir dataDir(data);
+		QDirIterator it(data, QDir::Files | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot,
+				QDirIterator::Subdirectories);
+		while (it.hasNext()) {
+			QString file = it.next();
+			if (!addToManifest(&manifest, "data\\" + QDir::toNativeSeparators(dataDir.relativeFilePath(file)),
+					   file, problem))
+				return false;
+		}
+	}
 
 	auto arg = [](const char *name, const QString &value) {
-		return QString(" -%1 \"%2\"").arg(QString::fromUtf8(name), QDir::toNativeSeparators(value));
+		return QString(" -%1 %2").arg(QString::fromUtf8(name), psLiteral(QDir::toNativeSeparators(value)));
 	};
-	QString params = QString("-NoProfile -ExecutionPolicy Bypass -File \"%1\"").arg(QDir::toNativeSeparators(script));
-	params += arg("Dll", dll) + arg("Target", target);
+	QString command = QString("& {\n%1\n}").arg(QString::fromUtf8(kNewFolderScript));
+	command += arg("Dll", dll) + arg("Target", target) + " -Manifest " + psLiteral(manifest.join('\n'));
 	if (!data.isEmpty())
-		params += arg("Data", data);
+		command += arg("Data", data);
+	if (!pdb.isEmpty())
+		command += arg("Pdb", pdb);
 	// Los datos de la carpeta de OBS no se borran mientras el plugin los usa (overlay y lector):
 	// quedan hasta la próxima actualización, cuando el plugin ya corre desde la carpeta nueva.
 	if (from == PluginLocation::LegacyObsFolder || from == PluginLocation::LegacyProgramData)
-		params += arg("OldDll", moduleBinary());
+		command += arg("OldDll", moduleBinary());
 	if (from == PluginLocation::NewFolder) {
 		QString obsRoot = QDir::cleanPath(QCoreApplication::applicationDirPath() + "/../..");
 		QString oldData = obsRoot + "/data/obs-plugins/obs-now-playing";
 		if (QFileInfo(oldData).isDir())
-			params += arg("OldData", oldData);
+			command += arg("OldData", oldData);
 	}
 	// La carpeta bin\ de antes (lo que quede de ella) está dentro de la carpeta nueva.
 	if (QFileInfo(target + "/bin").isDir())
-		params += arg("OldBin", target + "/bin");
+		command += arg("OldBin", target + "/bin");
 
-	int code = runElevated("powershell.exe", params, problem);
+	// -EncodedCommand: el comando en UTF-16LE y base64.
+	QByteArray utf16;
+	utf16.reserve(command.size() * 2);
+	for (QChar c : command) {
+		utf16.append(char(c.unicode() & 0xff));
+		utf16.append(char(c.unicode() >> 8));
+	}
+	QString params = "-NoLogo -NoProfile -NonInteractive -EncodedCommand " + QString::fromLatin1(utf16.toBase64());
+	// ShellExecuteEx no acepta una línea de comandos de más de 32767 caracteres.
+	if (params.size() > 32000) {
+		*problem = text("NowPlaying.Update.Error.CommandTooLong").arg(params.size());
+		return false;
+	}
+
+	int code = runElevated(system + "\\WindowsPowerShell\\v1.0\\powershell.exe", params, problem);
 	if (code > 0)
-		*problem = QString("No se pudo copiar el plugin a %1 (código %2).").arg(QDir::toNativeSeparators(target)).arg(code);
+		*problem = text("NowPlaying.Update.Error.CopyFailed").arg(QDir::toNativeSeparators(target)).arg(code);
 	return code == 0;
 }
 
@@ -348,9 +455,7 @@ bool offerMoveToNewFolder()
 	if (data.isEmpty() && where == PluginLocation::LegacyObsFolder)
 		problem = QString("No se encontró la carpeta de datos del plugin.");
 	else
-		ok = installToNewFolder(QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation))
-						.filePath("obs-now-playing-update"),
-					moduleBinary(), data, where, &problem);
+		ok = installToNewFolder(moduleBinary(), data, where, &problem);
 	if (!ok) {
 		obs_log(LOG_WARNING, "no se pudo mover el plugin a %s: %s", target.toUtf8().constData(),
 			problem.toUtf8().constData());
@@ -650,8 +755,8 @@ void Updater::install(const QString &version, const QString &zipPath)
 	bool ok = false;
 	QString problem;
 #ifdef _WIN32
-	ok = installToNewFolder(workDir, QDir(newRoot).filePath("obs-now-playing.dll"), QDir(newRoot).filePath("data"),
-				where, &problem);
+	ok = installToNewFolder(QDir(newRoot).filePath("obs-now-playing.dll"), QDir(newRoot).filePath("data"), where,
+				&problem);
 #elif defined(__APPLE__)
 	// En macOS el binario cargado sigue funcionando aunque se reemplace el paquete.
 	QString backup = root + ".old";
