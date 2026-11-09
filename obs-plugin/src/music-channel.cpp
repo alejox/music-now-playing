@@ -6,11 +6,9 @@
 #include <obs-module.h>
 #include <plugin-support.h>
 
-#include <QAction>
 #include <QDir>
 #include <QFileInfo>
 #include <QMessageBox>
-#include <QPointer>
 #include <QRegularExpression>
 #include <QStringList>
 
@@ -211,7 +209,6 @@ obs_data_t *savedState = nullptr;      // el último obs_save_source del canal
 bool collectionReady = false;          // hay una colección de escenas cargada
 bool shuttingDown = false;
 bool createdFresh = false;             // la última sincronización creó un canal nuevo
-QPointer<QAction> toolsAction;
 
 QString configPath()
 {
@@ -258,11 +255,6 @@ void saveChannelState()
 	saveConfig();
 }
 
-void updateAction()
-{
-	if (toolsAction)
-		toolsAction->setChecked(enabled);
-}
 
 // Un canal nuevo con el volumen, silencio, monitoreo, balance, pistas y filtros de la última
 // vez; la primera vez, sin monitoreo (solo a la emisión) y apuntando a la app que suena.
@@ -492,7 +484,6 @@ void migrateSceneChannel()
 		channelSource = upgradeChannel(found);
 	enabled = true;
 	saveChannelState();
-	updateAction();
 }
 
 void onSave(obs_data_t *, bool saving, void *)
@@ -548,16 +539,8 @@ void follow_music_channel()
 
 void music_channel_init()
 {
+	// Se agrega desde las propiedades de la fuente o el clic derecho del dock (no en Herramientas).
 	loadConfig();
-	auto *action = static_cast<QAction *>(obs_frontend_add_tools_menu_qaction(obs_module_text("NowPlaying.Channel.Title")));
-	if (action) {
-		action->setCheckable(true);
-		action->setChecked(enabled);
-		QObject::connect(action, &QAction::triggered, action, [](bool checked) {
-			set_music_channel_enabled(checked, static_cast<QWidget *>(obs_frontend_get_main_window()));
-		});
-		toolsAction = action;
-	}
 	obs_frontend_add_save_callback(onSave, nullptr);
 }
 
@@ -598,7 +581,6 @@ void set_music_channel_enabled(bool on, QWidget *parent)
 #else
 		const char *unsupported = "NowPlaying.Channel.Unsupported";
 #endif
-		updateAction();
 		QMessageBox::warning(parent, text("NowPlaying.Channel.Title"), text(unsupported));
 		return;
 	}
@@ -615,5 +597,4 @@ void set_music_channel_enabled(bool on, QWidget *parent)
 		if (on)
 			follow_music_channel();
 	}
-	updateAction();
 }

@@ -65,7 +65,7 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 
 1. **Fuentes → + → ♫ Now Playing (música)** para agregar la tarjeta. En sus **Propiedades** cambias el estilo.
 2. **Docks → Música** para los botones.
-3. Opcional: **Herramientas → Canal de música** (o clic derecho en el dock Música) para manejar el volumen de la música aparte. El canal aparece en el Mezclador de audio en todas las escenas sin estar en ninguna, empieza sin monitoreo y conserva tu volumen, monitoreo y filtros al reiniciar OBS. Un canal creado por una versión anterior dentro de una escena se saca de la escena solo.
+3. Opcional: **+ Agregar canal de música** en las Propiedades de la fuente (o clic derecho en el dock Música, donde también se quita) para manejar el volumen de la música aparte. El canal aparece en el Mezclador de audio en todas las escenas sin estar en ninguna, empieza sin monitoreo y conserva tu volumen, monitoreo y filtros al reiniciar OBS. Un canal creado por una versión anterior dentro de una escena se saca de la escena solo.
 
 > [!NOTE]
 > En Linux, el canal de música necesita el plugin [obs-pipewire-audio-capture](https://github.com/dimtpap/obs-pipewire-audio-capture) (allí OBS no trae captura de audio por aplicación).

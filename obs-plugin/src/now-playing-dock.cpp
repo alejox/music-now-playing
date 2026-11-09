@@ -1120,7 +1120,7 @@ void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
 	shuffle->setChecked(shuffle->isCheckable() && shuffleOn_);
 	QAction *reload = menu.addAction(text("NowPlaying.Dock.Refresh"));
 	reload->setEnabled(refreshButton_->isEnabled());
-	// El mismo interruptor que Herramientas → Canal de música.
+	// El mismo interruptor que el botón de las Propiedades de la fuente.
 	menu.addSeparator();
 	QAction *channel = menu.addAction(text("NowPlaying.Channel.Title"));
 	channel->setCheckable(true);

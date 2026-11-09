@@ -9,7 +9,7 @@ struct Track;
 // sonido de la app que está sonando, para manejar su volumen aparte en el Mezclador. No está
 // en ninguna escena: vive en un canal de salida libre de OBS (como la voz de Multichat), así
 // suena en todas las escenas y aparece siempre en el Mezclador. Se activa a pedido desde
-// Herramientas → Canal de música o el menú del dock (apagado por defecto). Todo esto corre en
+// el botón de las Propiedades de la fuente o el menú del dock (apagado por defecto). Todo esto corre en
 // el hilo principal de Qt.
 
 // Lee lo guardado y agrega la entrada marcable a Herramientas. Desde obs_module_load.

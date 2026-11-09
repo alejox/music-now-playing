@@ -65,7 +65,7 @@ xattr -cr ~/Library/Application\ Support/obs-studio/plugins/obs-now-playing.plug
 
 1. **Sources → + → ♫ Now Playing (music)** to add the card. Open its **Properties** to change the style.
 2. **Docks → Música** for the buttons.
-3. Optional: **Tools → Music channel** (or right-click the Music dock) to control the music volume separately. The channel appears in the Audio Mixer in every scene without being part of any scene, starts without monitoring and keeps your volume, monitoring and filters across restarts. A channel created by an older version inside a scene is moved out of the scene automatically.
+3. Optional: **+ Add music channel** in the source Properties (or right-click the Music dock, where you can also remove it) to control the music volume separately. The channel appears in the Audio Mixer in every scene without being part of any scene, starts without monitoring and keeps your volume, monitoring and filters across restarts. A channel created by an older version inside a scene is moved out of the scene automatically.
 
 > [!NOTE]
 > On Linux, the music channel needs the [obs-pipewire-audio-capture](https://github.com/dimtpap/obs-pipewire-audio-capture) plugin (OBS has no per-application audio capture of its own there).
