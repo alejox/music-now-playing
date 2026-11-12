@@ -156,6 +156,39 @@ URL options (combine with `&`):
 
 **Plan B:** if the system reader doesn't work, install [Tampermonkey](https://www.tampermonkey.net/) and click **Install script** in the panel.
 
+### Radio: on-air song from a file
+
+Radio automation software (Dinesat, RadioBoss, ZaraRadio, SAM Broadcaster, mAirList…) can usually export the on-air song to a text file (for RDS or the web). Set your software to write the current song to a file and point the app at it in `config.json`:
+
+```json
+"textSource": {
+  "path": "C:\\Radio\\on-air.txt",
+  "separator": " - ",
+  "order": "artist-title",
+  "pattern": "",
+  "idleMinutes": 0,
+  "label": "Radio"
+}
+```
+
+| Key | Effect |
+|---|---|
+| `path` | File to read (empty = disabled). A relative path is relative to the data folder |
+| `separator` | What separates artist and title (default `" - "`) |
+| `order` | `artist-title` (default) or `title-artist` |
+| `pattern` | Optional regex with `(?<artist>…)` and `(?<title>…)` groups; overrides the separator. E.g. `"^(?<title>.+?) / (?<artist>.+)$"` |
+| `idleMinutes` | Hide the song if the text does not change for that many minutes (`0` = shown while the file has text) |
+| `label` | "Listening on …" text (e.g. the station name) |
+
+- The first non-empty line is used. Without the separator, the whole line is the title.
+- If the file is XML, the first `<Title>` and `<Artist>` are used (case-insensitive).
+- Reads UTF-8, UTF-16 and Windows-1252 (common in Windows software).
+- Empty or missing file = nothing playing. The file is checked every second, network folders included.
+- Restart the app after editing `config.json`. The panel shows the state under **Radio (archivo de texto)**.
+- Limitations: no artwork or progress bar, and the buttons do not control the radio software.
+- If the file lives in a network folder (another computer), song changes can take a few extra seconds to show; in a local folder it is almost immediate.
+- **OBS plugin:** same rules, configured in the **Music** dock instead of `config.json`: radio button (or right-click → **Radio from a file…**), tick **Read the song from a file**, choose the file and, if needed, separator, order, name, regex and idle time. It is saved in the plugin settings (`radio.json`) and the **Player** list gains **Radio only (file)**.
+
 ### Troubleshooting
 
 - **Nothing in OBS:** open the panel; if it doesn't load, the app is closed. Try `?preview=1`.

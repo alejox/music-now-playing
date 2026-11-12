@@ -1,6 +1,7 @@
 #include "media-watcher.hpp"
 #include "app-volume.hpp"
 #include "music-channel.hpp"
+#include "text-source-reader.hpp"
 
 #include <obs-module.h>
 #include <plugin-support.h>
@@ -98,6 +99,51 @@ QString playerFile()
 	return result;
 }
 
+// La sesión de la radio desde un archivo (no es una app: el lector del sistema no la conoce).
+const QString kRadioApp = QStringLiteral("radio-file");
+constexpr qint64 kRadioMaxBytes = 64 * 1024;
+
+QString radioFile()
+{
+	char *path = obs_module_config_path("radio.json");
+	QString result = QString::fromUtf8(path);
+	bfree(path);
+	return result;
+}
+
+RadioSettings loadRadio()
+{
+	RadioSettings settings;
+	QFile file(radioFile());
+	if (!file.open(QIODevice::ReadOnly))
+		return settings;
+	const QJsonObject o = QJsonDocument::fromJson(file.readAll()).object();
+	settings.enabled = o.value("enabled").toBool();
+	settings.path = o.value("path").toString();
+	settings.separator = o.value("separator").toString(settings.separator);
+	settings.titleFirst = o.value("order").toString() == "title-artist";
+	settings.pattern = o.value("pattern").toString();
+	settings.idleMinutes = std::max(0, o.value("idleMinutes").toInt());
+	settings.label = o.value("label").toString();
+	return settings;
+}
+
+void saveRadio(const RadioSettings &settings)
+{
+	const QJsonObject o{
+		{"enabled", settings.enabled},     {"path", settings.path},
+		{"separator", settings.separator}, {"order", settings.titleFirst ? "title-artist" : "artist-title"},
+		{"pattern", settings.pattern},     {"idleMinutes", settings.idleMinutes},
+		{"label", settings.label},
+	};
+	QDir().mkpath(QFileInfo(radioFile()).absolutePath());
+	QSaveFile file(radioFile());
+	if (file.open(QIODevice::WriteOnly)) {
+		file.write(QJsonDocument(o).toJson());
+		file.commit();
+	}
+}
+
 } // namespace
 
 qint64 Track::progressNow(qint64 now) const
@@ -142,11 +188,17 @@ void MediaWatcher::start()
 #else
 	setStatus(Status::Unsupported);
 #endif
+	radio_ = loadRadio();
+	if (!radio_.enabled && player_ == "radio")
+		player_.clear();
+	startRadio();
 }
 
 void MediaWatcher::stop()
 {
 	stopping_ = true;
+	if (radioTimer_)
+		radioTimer_->stop();
 	if (process_) {
 		process_->disconnect(this);
 		process_->kill();
@@ -346,9 +398,10 @@ void MediaWatcher::handleLine(const QByteArray &line)
 		tracks_.insert(app, track);
 		seen.insert(app);
 	}
-	// Las sesiones que el sistema ya no reporta (app cerrada) desaparecen.
+	// Las sesiones que el sistema ya no reporta (app cerrada) desaparecen. La radio no viene
+	// del lector: la maneja su propio sondeo.
 	for (auto it = tracks_.begin(); it != tracks_.end();) {
-		if (seen.contains(it.key()))
+		if (seen.contains(it.key()) || it.key() == kRadioApp)
 			++it;
 		else
 			it = tracks_.erase(it);
@@ -431,8 +484,9 @@ Track MediaWatcher::current(bool includePaused, const QString &player) const
 const QStringList &MediaWatcher::players()
 {
 	// system: el reproductor del sistema (Apple Music en Mac; en Windows, el Reproductor
-	// multimedia y también Apple Music o iTunes).
-	static const QStringList list = {"spotify", "ytmusic", "youtube", "system"};
+	// multimedia y también Apple Music o iTunes). radio: la radio desde un archivo (el dock la
+	// muestra solo si está activada).
+	static const QStringList list = {"spotify", "ytmusic", "youtube", "system", "radio"};
 	return list;
 }
 
@@ -470,8 +524,9 @@ void MediaWatcher::writeVideoFlag()
 	if (videoFlagFile_.isEmpty())
 		return;
 	// Con un reproductor elegido (dock o fuente), en macOS hay que buscar lo que suena por
-	// detrás: si suenan dos a la vez, macOS anuncia solo uno.
-	if (othersWanted_ || !player_.isEmpty()) {
+	// detrás: si suenan dos a la vez, macOS anuncia solo uno. La radio no viene del lector.
+	const bool playerChosen = !player_.isEmpty() && player_ != "radio";
+	if (othersWanted_ || playerChosen) {
 		QFile others(othersFlagFile_);
 		if (!others.exists() && others.open(QIODevice::WriteOnly))
 			others.close();
@@ -479,7 +534,7 @@ void MediaWatcher::writeVideoFlag()
 		QFile::remove(othersFlagFile_);
 	}
 	// Con un reproductor elegido en el dock, el lector tiene que distinguir las pestañas.
-	bool wanted = videoWanted_ || !player_.isEmpty();
+	bool wanted = videoWanted_ || playerChosen;
 	if (!wanted) {
 		QFile::remove(videoFlagFile_);
 		return;
@@ -519,7 +574,8 @@ void MediaWatcher::storeState(const QString &app, const QJsonObject &state, bool
 void MediaWatcher::refreshPlayerState()
 {
 	Track track = current(true, player_);
-	if (!track.valid())
+	// La radio no tiene volumen ni aleatorio: se controla desde su propio programa.
+	if (!track.valid() || track.kind == "radio")
 		return;
 	if (stateAsked_)
 		return;
@@ -546,7 +602,7 @@ void MediaWatcher::refreshPlayerState()
 void MediaWatcher::setVolume(int percent)
 {
 	Track track = current(true, player_);
-	if (!track.valid())
+	if (!track.valid() || track.kind == "radio")
 		return;
 	percent = std::clamp(percent, 0, 100);
 	states_[track.app].volume = percent; // la barra no salta atrás mientras llega la respuesta
@@ -584,7 +640,8 @@ void MediaWatcher::toggleShuffle()
 void MediaWatcher::runCommand(const QString &action, qint64 arg)
 {
 	Track track = current(true, player_);
-	if (!track.valid()) {
+	// La radio se controla desde su propio programa: sus botones no hacen nada.
+	if (!track.valid() || track.kind == "radio") {
 		if (action == "state")
 			stateAsked_ = false;
 		if (action == "volume")
@@ -682,4 +739,168 @@ void MediaWatcher::runCommand(const QString &action, qint64 arg)
 	});
 	command->start(program, args);
 #endif
+}
+
+QString MediaWatcher::radioPatternError(const QString &pattern)
+{
+	if (pattern.isEmpty())
+		return QString();
+	QRegularExpression regex(pattern);
+	return regex.isValid() ? QString() : regex.errorString();
+}
+
+QString MediaWatcher::radioPath() const
+{
+	QString path = radio_.path.trimmed();
+	if (path.isEmpty())
+		return QString();
+	if (path == "~" || path.startsWith("~/"))
+		path = QDir::homePath() + path.mid(1);
+	// Relativa: desde la carpeta del usuario (no desde la carpeta de OBS, que cambia).
+	return QFileInfo(QDir::home(), path).absoluteFilePath();
+}
+
+void MediaWatcher::setRadio(const RadioSettings &settings)
+{
+	radio_ = settings;
+	radio_.idleMinutes = std::max(0, radio_.idleMinutes);
+	saveRadio(radio_);
+	// Si estaba elegida en el dock y se apaga, vuelve a Automático.
+	if (!radio_.enabled && player_ == "radio")
+		setPlayer(QString());
+	startRadio();
+}
+
+void MediaWatcher::startRadio()
+{
+	// Desde cero: otro archivo u otras reglas.
+	radioStat_.clear();
+	radioReadStat_.clear();
+	radioPending_.clear();
+	radioHasPending_ = false;
+	radioSeen_ = false;
+	radioTitle_.clear();
+	radioArtist_.clear();
+	const QString file = radioPath();
+	if (!radio_.enabled || file.isEmpty()) {
+		if (radioTimer_)
+			radioTimer_->stop();
+		if (tracks_.remove(kRadioApp))
+			emit updated();
+		return;
+	}
+	radioPattern_ = QRegularExpression();
+	if (!radio_.pattern.isEmpty()) {
+		radioPattern_ = QRegularExpression(radio_.pattern);
+		if (!radioPattern_.isValid())
+			obs_log(LOG_WARNING, "radio: expresión regular inválida (%s); se usa el separador",
+				radioPattern_.errorString().toUtf8().constData());
+	}
+	obs_log(LOG_INFO, "radio desde el archivo: %s", file.toUtf8().constData());
+	if (!radioTimer_) {
+		radioTimer_ = new QTimer(this);
+		radioTimer_->setInterval(1000);
+		connect(radioTimer_, &QTimer::timeout, this, &MediaWatcher::pollRadio);
+	}
+	radioTimer_->start();
+	pollRadio();
+}
+
+void MediaWatcher::pollRadio()
+{
+	const QString file = radioPath();
+	QFileInfo info(file);
+	if (file.isEmpty() || !info.isFile()) {
+		// Todavía no existe (o se está reemplazando): se sigue intentando.
+		radioStat_.clear();
+		radioReadStat_.clear();
+		radioHasPending_ = false;
+		radioTitle_.clear();
+		radioArtist_.clear();
+		refreshRadioTrack();
+		return;
+	}
+	const qint64 modified = info.lastModified().toMSecsSinceEpoch();
+	const QString stat =
+		QString("%1:%2:%3").arg(modified).arg(info.size()).arg(info.birthTime().toMSecsSinceEpoch());
+	const bool settled = stat == radioStat_;
+	radioStat_ = stat;
+	if (stat != radioReadStat_) {
+		QFile f(file);
+		if (!f.open(QIODevice::ReadOnly)) {
+			// Bloqueado por el programa que lo escribe: se reintenta en el próximo sondeo.
+			refreshRadioTrack();
+			return;
+		}
+		const QByteArray raw = f.read(kRadioMaxBytes);
+		// Se cierra enseguida para no estorbar al programa de radio si reemplaza el archivo (Windows).
+		f.close();
+		const std::string text = text_source::decode(raw.toStdString());
+		if (!settled && (!radioHasPending_ || text != radioPending_)) {
+			// Puede estar a medio escribir: se confirma en el próximo sondeo.
+			radioPending_ = text;
+			radioHasPending_ = true;
+			refreshRadioTrack();
+			return;
+		}
+		radioHasPending_ = false;
+		radioPending_.clear();
+
+		text_source::Options options;
+		options.separator = radio_.separator.toStdString();
+		options.titleFirst = radio_.titleFirst;
+		if (radioPattern_.isValid() && !radio_.pattern.isEmpty()) {
+			const QRegularExpression regex = radioPattern_;
+			options.match = [regex](const std::string &line, std::string &artist, std::string &title) {
+				const QRegularExpressionMatch m = regex.match(QString::fromStdString(line));
+				if (!m.hasMatch())
+					return false;
+				artist = m.captured("artist").toStdString();
+				title = m.captured("title").toStdString();
+				return true;
+			};
+		}
+		text_source::Song song;
+		const bool found = text_source::parse(text, options, song);
+		const QString title = found ? QString::fromStdString(song.title).left(300) : QString();
+		const QString artist = found && !title.isEmpty() ? QString::fromStdString(song.artist).left(300)
+								 : QString();
+		if (title.isEmpty() || radioTitle_.isEmpty() || title != radioTitle_ || artist != radioArtist_) {
+			// Al arrancar cuenta la fecha del archivo (una canción de hace horas ya está
+			// inactiva y no le gana a lo que suena); después, el momento del cambio (copiar un
+			// archivo encima puede conservar su fecha).
+			const qint64 wall = QDateTime::currentMSecsSinceEpoch();
+			radioChangedWall_ = radioSeen_ ? wall : std::min(modified, wall);
+			radioChangedAt_ = now() - (wall - radioChangedWall_);
+		}
+		radioSeen_ = true;
+		radioTitle_ = title;
+		radioArtist_ = artist;
+		radioReadStat_ = stat;
+	}
+	refreshRadioTrack();
+}
+
+void MediaWatcher::refreshRadioTrack()
+{
+	const qint64 idleMs = qint64(std::max(0, radio_.idleMinutes)) * 60000;
+	const bool idle = idleMs > 0 && QDateTime::currentMSecsSinceEpoch() - radioChangedWall_ > idleMs;
+	if (radioTitle_.isEmpty() || idle) {
+		if (tracks_.remove(kRadioApp))
+			emit updated();
+		return;
+	}
+	// Sin latido propio: se refresca en cada sondeo para que kStaleMs no la esconda.
+	Track track;
+	track.app = kRadioApp;
+	track.kind = "radio";
+	const QString label = radio_.label.simplified().left(100);
+	track.label = label.isEmpty() ? QString("Radio") : label;
+	track.title = radioTitle_;
+	track.artist = radioArtist_;
+	track.isPlaying = true;
+	track.updatedAt = now();
+	track.changedAt = radioChangedAt_;
+	tracks_.insert(kRadioApp, track);
+	emit updated();
 }

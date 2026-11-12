@@ -63,6 +63,7 @@ Section "${APP_NAME}" SecMain
   File "${STAGE}\icon.ico"
   SetOutPath "$INSTDIR\app"
   File "${STAGE}\app\server.js"
+  File "${STAGE}\app\text-source.js"
   File "${STAGE}\app\overlay.html"
   File "${STAGE}\app\controls.html"
   File "${STAGE}\app\ui.js"
@@ -186,6 +187,7 @@ SectionEnd
 Section "Uninstall"
   !insertmacro StopRunning
   Delete "$INSTDIR\app\server.js"
+  Delete "$INSTDIR\app\text-source.js"
   Delete "$INSTDIR\app\overlay.html"
   Delete "$INSTDIR\app\controls.html"
   Delete "$INSTDIR\app\ui.js"

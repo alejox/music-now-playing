@@ -50,6 +50,8 @@ target_sources(
     src/updater.hpp
     src/release-signature.cpp
     src/release-signature.hpp
+    src/text-source-reader.cpp
+    src/text-source-reader.hpp
     src/third-party/monocypher/monocypher.c
     src/third-party/monocypher/monocypher.h
     src/third-party/monocypher/monocypher-ed25519.c
