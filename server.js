@@ -11,6 +11,7 @@ const crypto = require('node:crypto');
 const os = require('node:os');
 const readline = require('node:readline');
 const { spawn, execFileSync } = require('node:child_process');
+const { decodeBuffer, createParser } = require('./text-source');
 
 const VERSION = '2.4.33';
 const ARGS = new Set(process.argv.slice(2));
@@ -39,9 +40,14 @@ const DEFAULT_CONFIG = {
   textFile: 'now-playing.txt',
   textFormat: '{artist} - {title}',
   ignoredApps: [],
+  // Entrada desde un archivo que escribe un programa de radio (Dinesat, RadioBoss…).
+  // Sin "path" no hace nada. idleMinutes: 0 = se muestra mientras el archivo tenga texto.
+  textSource: { path: '', separator: ' - ', order: 'artist-title', pattern: '', idleMinutes: 0, label: 'Radio' },
 };
 const config = { ...DEFAULT_CONFIG, ...readJson(CONFIG_PATH, {}) };
 if (!Array.isArray(config.ignoredApps)) config.ignoredApps = [];
+const userTextSource = config.textSource && typeof config.textSource === 'object' ? config.textSource : {};
+config.textSource = { ...DEFAULT_CONFIG.textSource, ...userTextSource };
 delete config.spotifyClientId; // v1 usaba la API de Spotify; ya no hace falta
 writeJson(CONFIG_PATH, config);
 
@@ -254,6 +260,117 @@ function refreshTextFile() {
 setInterval(refreshTextFile, 1000);
 
 // ---------------------------------------------------------------------------
+// Radio: canción al aire desde un archivo que exporta el programa de automatización.
+// Se sondea con stat cada segundo (fs.watch falla con archivos que Windows reemplaza o
+// que están en carpetas de red). Un cambio se acepta cuando el archivo dejó de cambiar
+// entre dos sondeos o cuando dos lecturas seguidas dan lo mismo (programas que lo
+// reescriben a cada rato), para no tomar un archivo a medio escribir.
+// ---------------------------------------------------------------------------
+
+const TEXT_SOURCE_KEY = 'textSource';
+const TEXT_SOURCE_MAX_BYTES = 64 * 1024;
+const textSource = { status: 'off', error: '', stat: '', readStat: '', pending: null, track: null, changedAt: 0, seen: false };
+const textSourceParser = createParser(config.textSource);
+const textSourcePath = () =>
+  typeof config.textSource.path === 'string' && config.textSource.path.trim()
+    ? path.resolve(DATA_DIR, config.textSource.path.trim())
+    : '';
+
+function readHead(file) {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(TEXT_SOURCE_MAX_BYTES);
+    return buf.subarray(0, fs.readSync(fd, buf, 0, buf.length, 0));
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function pollTextSource() {
+  const file = textSourcePath();
+  let st;
+  try {
+    st = fs.statSync(file);
+  } catch {
+    // Todavía no existe (o se está reemplazando): se sigue intentando.
+    textSource.status = 'missing';
+    textSource.stat = textSource.readStat = '';
+    textSource.pending = textSource.track = null;
+    tracks.delete(TEXT_SOURCE_KEY);
+    return;
+  }
+  const stat = `${st.mtimeMs}:${st.size}:${st.ino}`;
+  const settled = stat === textSource.stat;
+  textSource.stat = stat;
+  if (stat !== textSource.readStat) {
+    try {
+      const text = decodeBuffer(readHead(file));
+      if (!settled && text !== textSource.pending) {
+        textSource.pending = text; // puede estar a medio escribir: se confirma en el próximo sondeo
+        return refreshTextSourceTrack();
+      }
+      textSource.pending = null;
+      const parsed = textSourceParser.parse(text);
+      const track = parsed && { title: cleanString(parsed.title), artist: cleanString(parsed.artist) };
+      const prev = textSource.track;
+      if (!track || !prev || prev.title !== track.title || prev.artist !== track.artist) {
+        // Al arrancar cuenta la fecha del archivo (una canción de hace horas ya está inactiva);
+        // después, el momento del cambio (copiar un archivo encima puede conservar su fecha).
+        textSource.changedAt = textSource.seen ? Date.now() : Math.min(st.mtimeMs, Date.now());
+      }
+      textSource.seen = true;
+      textSource.track = track && track.title ? track : null;
+      textSource.readStat = stat;
+      textSource.status = 'ok';
+      textSource.error = '';
+    } catch (err) {
+      // Bloqueado por el programa que lo escribe: se reintenta en el próximo sondeo.
+      textSource.status = 'error';
+      textSource.error = err.message;
+    }
+  }
+  refreshTextSourceTrack();
+}
+
+function refreshTextSourceTrack() {
+  const idleMs = Math.max(0, Number(config.textSource.idleMinutes) || 0) * 60000;
+  const idle = idleMs > 0 && Date.now() - textSource.changedAt > idleMs;
+  if (!textSource.track || idle) {
+    tracks.delete(TEXT_SOURCE_KEY);
+    return;
+  }
+  // Sin latido propio: se refresca en cada sondeo para que STALE_MS no la esconda.
+  upsertTrack(TEXT_SOURCE_KEY, {
+    kind: 'radio',
+    label: cleanString(config.textSource.label, 100) || 'Radio',
+    title: textSource.track.title,
+    artist: textSource.track.artist,
+    album: '',
+    artworkId: '',
+    isPlaying: true,
+    isCurrent: false,
+    progressMs: 0,
+    durationMs: 0,
+  });
+}
+
+function startTextSource() {
+  const file = textSourcePath();
+  if (!file) return;
+  if (file === textFilePath()) {
+    textSource.status = 'error';
+    textSource.error = 'es el mismo archivo que escribe la app (textFile): elige otro.';
+    console.error(`[radio] ${file} ${textSource.error}`);
+    return;
+  }
+  if (textSourceParser.error) console.warn(`[radio] ${textSourceParser.error}; se usa el separador.`);
+  console.log(`   Radio (archivo):         ${file}`);
+  textSource.status = 'missing';
+  pollTextSource();
+  setInterval(pollTextSource, 1000);
+}
+
+// ---------------------------------------------------------------------------
 // Lector del sistema: un proceso hijo que escribe una línea JSON por segundo.
 //   Windows: PowerShell + SMTC (viene con Windows 10/11).
 //   macOS:   osascript + MediaRemote (viene con macOS).
@@ -391,6 +508,7 @@ function runReaderCommand(action) {
 async function sendControl(action) {
   const t = currentTrack({ includePaused: true });
   if (!t) return { ok: false, error: 'No hay nada sonando.' };
+  if (t.key === TEXT_SOURCE_KEY) return { ok: false, error: 'La radio se controla desde su propio programa.' };
   if (!t.app) {
     browserCommands.set(t.key, action);
     return { ok: true };
@@ -579,6 +697,7 @@ ${pluginStatusHtml()}
   <p><b>Estado:</b> ${browserSeen ? '<span class="ok">recibiendo</span>' : '<span class="muted">sin señal</span>'}</p>
 </details>
 
+${textSourceStatusHtml()}
 <div class="box">
   <h2>Texto para OBS (opcional)</h2>
   <p>Si prefieres una <b>Fuente de texto</b> con "Leer desde archivo", usa:<br><code>${escapeHtml(textFilePath())}</code></p>
@@ -598,6 +717,25 @@ ${pluginStatusHtml()}
   document.querySelectorAll('details').forEach((d) => d.addEventListener('toggle', () => d.setAttribute('data-touched', '')));
 </script>`
   );
+}
+
+function textSourceStatusHtml() {
+  const file = textSourcePath();
+  if (!file) return '';
+  const idle = textSource.track && !tracks.has(TEXT_SOURCE_KEY);
+  const state =
+    textSource.status === 'error'
+      ? `<span class="err">no se pudo leer: ${escapeHtml(textSource.error)}</span>`
+      : textSource.status === 'missing'
+        ? '<span class="warn">el archivo no existe todavía</span>'
+        : textSource.track && !idle
+          ? `<span class="ok">sonando</span>: ${escapeHtml(textSource.track.artist)}${textSource.track.artist ? ' — ' : ''}${escapeHtml(textSource.track.title)}`
+          : idle
+            ? '<span class="muted">sin cambios hace rato (idleMinutes)</span>'
+            : '<span class="muted">archivo vacío</span>';
+  const warning = textSourceParser.error ? `<p class="warn">${escapeHtml(textSourceParser.error)}; se usa el separador.</p>` : '';
+  return `<div class="box"><h2>Radio (archivo de texto)</h2>
+  <p>Leyendo <code>${escapeHtml(file)}</code><br>${state}</p>${warning}</div>`;
 }
 
 // Los formularios del panel deben venir del propio panel: mismo origen y el secreto de esta ejecución.
@@ -838,6 +976,7 @@ server.listen(PORT, '127.0.0.1', () => {
     }
   }, 1000);
   installMacPlugin();
+  startTextSource();
   if (ARGS.has('--open')) openExternal(`${ORIGIN}/`);
   startHelper();
 });

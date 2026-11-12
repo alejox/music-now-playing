@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/smoke.js && node test/linux-reader.js",
+    "test": "node test/smoke.js && node test/linux-reader.js && node test/text-source.js && node test/text-source-server.js",
     "build": "./build/build.sh"
   },
   "engines": { "node": ">=18" },
