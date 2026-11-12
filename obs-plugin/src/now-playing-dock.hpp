@@ -64,6 +64,8 @@ private:
 	void updateArtSize();
 	void setArtSize(int size);
 	void updateArtPixmap();
+	// El ícono de la plataforma que suena, junto a la lista (kind vacío: nada sonando).
+	void setPlatformIcon(const QString &kind, const QString &tooltip);
 
 	QScrollArea *scroll_ = nullptr;
 	QVBoxLayout *layout_ = nullptr;
@@ -89,7 +91,8 @@ private:
 	qreal artDpr_ = 0;
 
 	QComboBox *player_ = nullptr;
-	QLabel *playerLabel_ = nullptr;
+	QLabel *platformIcon_ = nullptr; // la plataforma de lo que suena, junto a la lista
+	QString platformKind_ = "-";     // el kind dibujado en platformIcon_ ("-": ninguno aún)
 	QLabel *art_ = nullptr;
 	QLabel *title_ = nullptr;
 	QLabel *artist_ = nullptr;

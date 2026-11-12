@@ -20,6 +20,7 @@
 #include <QIcon>
 #include <QImage>
 #include <QLabel>
+#include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPalette>
@@ -66,6 +67,8 @@ constexpr int kMediumLeave = 310;
 // Ancho por debajo del cual el dock es "angosto".
 constexpr int kNarrowEnter = 290;
 constexpr int kNarrowLeave = 305;
+// El ícono de la plataforma que suena, junto a la lista de reproductor.
+constexpr int kPlatformIconSize = 22;
 // Tras mover el volumen, la barra no salta a lo que diga el reproductor durante este tiempo
 // (algunos tardan en aplicarlo y en contestar).
 constexpr qint64 kVolumeHoldMs = 4000;
@@ -100,18 +103,117 @@ const QHash<QString, PlayerInfo> &playerInfo()
 	return info;
 }
 
-QIcon dotIcon(const QColor &color, qreal dpr)
+// El ícono de cada plataforma (kind de Track o clave de la lista), dibujado aquí para que se
+// vea nítido a cualquier escala sin depender de imágenes: Spotify, YouTube Music, YouTube,
+// Apple Music, el Reproductor multimedia de Windows y, para el resto, una nota musical.
+QPixmap platformPixmap(QString kind, int size, qreal dpr, const QColor &neutral)
 {
-	const int size = 10;
+#ifdef __APPLE__
+	if (kind == "system")
+		kind = "applemusic";
+#endif
 	QPixmap pixmap(QSize(size, size) * dpr);
 	pixmap.setDevicePixelRatio(dpr);
 	pixmap.fill(Qt::transparent);
 	QPainter p(&pixmap);
 	p.setRenderHint(QPainter::Antialiasing);
-	p.setPen(Qt::NoPen);
-	p.setBrush(color);
-	p.drawEllipse(QRectF(1, 1, size - 2, size - 2));
-	return QIcon(pixmap);
+	const qreal s = size;
+	const QRectF box(0.5, 0.5, s - 1, s - 1);
+	auto play = [&](qreal cx, qreal cy, qreal h, const QColor &color) {
+		QPainterPath path;
+		path.moveTo(cx - h * 0.4, cy - h * 0.5);
+		path.lineTo(cx + h * 0.5, cy);
+		path.lineTo(cx - h * 0.4, cy + h * 0.5);
+		path.closeSubpath();
+		p.setPen(QPen(color, s * 0.04, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+		p.setBrush(color);
+		p.drawPath(path);
+	};
+	auto note = [&](const QColor &color, qreal scale) {
+		// Corchea: cabeza ovalada, plica y banderín.
+		const qreal c = s / 2;
+		const qreal u = s * scale;
+		p.setPen(Qt::NoPen);
+		p.setBrush(color);
+		p.save();
+		p.translate(c - u * 0.18, c + u * 0.26);
+		p.rotate(-20);
+		p.drawEllipse(QRectF(-u * 0.17, -u * 0.12, u * 0.34, u * 0.24));
+		p.restore();
+		p.setPen(QPen(color, u * 0.08, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+		p.setBrush(Qt::NoBrush);
+		const qreal stemX = c - u * 0.02;
+		p.drawLine(QPointF(stemX, c + u * 0.24), QPointF(stemX, c - u * 0.36));
+		QPainterPath flag;
+		flag.moveTo(stemX, c - u * 0.36);
+		flag.cubicTo(stemX + u * 0.05, c - u * 0.18, stemX + u * 0.32, c - u * 0.16, stemX + u * 0.22, c + u * 0.02);
+		p.drawPath(flag);
+	};
+
+	if (kind == "spotify") {
+		p.setPen(Qt::NoPen);
+		p.setBrush(QColor("#1db954"));
+		p.drawEllipse(box);
+		// Tres ondas, de la más ancha (arriba) a la más corta.
+		const qreal widths[] = {0.58, 0.48, 0.38};
+		const qreal ys[] = {0.36, 0.52, 0.66};
+		const qreal pens[] = {0.095, 0.08, 0.065};
+		for (int i = 0; i < 3; i++) {
+			const qreal w = s * widths[i];
+			const qreal y = s * ys[i];
+			QPainterPath wave;
+			wave.moveTo(s / 2 - w / 2, y);
+			wave.quadTo(s / 2, y - s * 0.12, s / 2 + w / 2, y + s * 0.03);
+			p.setPen(QPen(QColor("#121212"), s * pens[i], Qt::SolidLine, Qt::RoundCap));
+			p.setBrush(Qt::NoBrush);
+			p.drawPath(wave);
+		}
+	} else if (kind == "ytmusic") {
+		p.setPen(Qt::NoPen);
+		p.setBrush(QColor("#ff0000"));
+		p.drawEllipse(box);
+		p.setPen(QPen(Qt::white, s * 0.06));
+		p.setBrush(Qt::NoBrush);
+		p.drawEllipse(QPointF(s / 2, s / 2), s * 0.28, s * 0.28);
+		play(s * 0.52, s / 2, s * 0.26, Qt::white);
+	} else if (kind == "youtube") {
+		const QRectF body(0.5, s * 0.18, s - 1, s * 0.64);
+		p.setPen(Qt::NoPen);
+		p.setBrush(QColor("#ff0033"));
+		p.drawRoundedRect(body, s * 0.18, s * 0.18);
+		play(s * 0.52, s / 2, s * 0.3, Qt::white);
+	} else if (kind == "applemusic") {
+		QLinearGradient gradient(0, 0, 0, s);
+		gradient.setColorAt(0, QColor("#fb5c74"));
+		gradient.setColorAt(1, QColor("#fa233b"));
+		p.setPen(Qt::NoPen);
+		p.setBrush(gradient);
+		p.drawRoundedRect(box, s * 0.24, s * 0.24);
+		note(Qt::white, 0.8);
+	} else if (kind == "system") {
+		// El Reproductor multimedia de Windows: un play con el degradado de su ícono.
+		QLinearGradient gradient(0, 0, s, s);
+		gradient.setColorAt(0, QColor("#ff9a3c"));
+		gradient.setColorAt(1, QColor("#ff3d77"));
+		p.setPen(Qt::NoPen);
+		p.setBrush(gradient);
+		p.drawRoundedRect(box, s * 0.24, s * 0.24);
+		play(s * 0.53, s / 2, s * 0.42, Qt::white);
+	} else {
+		// Navegador, otra app o nada sonando: neutro, del color del texto.
+		QColor ring = neutral;
+		ring.setAlphaF(0.18f);
+		p.setPen(Qt::NoPen);
+		p.setBrush(ring);
+		p.drawEllipse(box);
+		note(neutral, 0.78);
+	}
+	return pixmap;
+}
+
+QIcon platformIcon(const QString &kind, int size, qreal dpr, const QColor &neutral)
+{
+	return QIcon(platformPixmap(kind, size, dpr, neutral));
 }
 
 QString text(const char *key)
@@ -489,30 +591,30 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 		return gap;
 	};
 
-	// "Reproductor [Automático ▾]", pequeño y arriba a la derecha.
+	// [ícono de lo que suena] [Automático ▾ a todo el ancho], arriba.
 	auto *playerRow = new QHBoxLayout();
 	playerRow->setSpacing(8);
-	playerRow->addStretch(1);
-	playerLabel_ = new QLabel(text("NowPlaying.Player"), this);
-	QPalette labelPalette = playerLabel_->palette();
-	QColor labelColor = labelPalette.color(QPalette::WindowText);
-	labelColor.setAlphaF(0.65f);
-	labelPalette.setColor(QPalette::WindowText, labelColor);
-	playerLabel_->setPalette(labelPalette);
+	platformIcon_ = new QLabel(this);
+	platformIcon_->setFixedSize(kPlatformIconSize, kPlatformIconSize);
+	platformIcon_->setAlignment(Qt::AlignCenter);
 	player_ = new QComboBox(this);
 	player_->setFocusPolicy(Qt::NoFocus);
 	player_->setCursor(Qt::PointingHandCursor);
-	// Que la opción más larga ("Solo el reproductor del sistema") no fije el ancho mínimo del
-	// dock: la lista se acorta y el texto se recorta.
+	player_->setAccessibleName(text("NowPlaying.Player"));
+	// A todo el ancho, pero sin que la opción más larga ("Solo el reproductor del sistema")
+	// fije el ancho mínimo del dock: la lista se acorta y el texto se recorta.
 	player_->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-	player_->setMinimumContentsLength(10);
+	player_->setMinimumContentsLength(6);
+	player_->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+	player_->setIconSize(QSize(16, 16));
 	player_->setToolTip(text("NowPlaying.Player.DockHelp"));
-	player_->addItem(text("NowPlaying.Player.Auto"), QString());
-	player_->insertSeparator(1);
 	const qreal dpr = devicePixelRatioF();
+	const QColor neutral = palette().color(QPalette::WindowText);
+	player_->addItem(platformIcon(QString(), 16, dpr, neutral), text("NowPlaying.Player.Auto"), QString());
+	player_->insertSeparator(1);
 	for (const QString &key : MediaWatcher::players()) {
 		const PlayerInfo &info = playerInfo()[key];
-		player_->addItem(dotIcon(QColor(info.color), dpr), text(info.key), key);
+		player_->addItem(platformIcon(key, 16, dpr, neutral), text(info.key), key);
 	}
 	player_->setCurrentIndex(std::max(0, player_->findData(MediaWatcher::instance().player())));
 	connect(player_, &QComboBox::currentIndexChanged, this, [this] {
@@ -521,9 +623,8 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 		seekTarget_ = -1;
 		refresh();
 	});
-	playerLabel_->setBuddy(player_);
-	playerRow->addWidget(playerLabel_);
-	playerRow->addWidget(player_);
+	playerRow->addWidget(platformIcon_);
+	playerRow->addWidget(player_, 1);
 	layout->addLayout(playerRow);
 	gapAfterPlayer_ = addGap(layout, 8);
 
@@ -960,7 +1061,7 @@ void NowPlayingDock::updateLayoutForSize()
 
 // Grande: como siempre, con la carátula a la medida. Mediano: todo más junto y el aleatorio
 // y el fondo al final de la fila del volumen. Compacto: miniatura al lado del título, sin
-// "Escuchando en", sin la lista de reproductor ni la fila del volumen, y solo
+// "Escuchando en" ni la fila del volumen (la lista de reproductor sí queda), y solo
 // anterior / pausa / siguiente. Angosto: botones más chicos, sin ±10 s ni el porcentaje.
 void NowPlayingDock::applyTier()
 {
@@ -980,9 +1081,6 @@ void NowPlayingDock::applyTier()
 	setGap(gapBeforeOptions_, large ? 6 : 0);
 	setGap(gapBeforeStatus_, large ? 10 : compact ? 0 : 6);
 
-	player_->setVisible(!compact);
-	playerLabel_->setVisible(!compact && !narrow_);
-	player_->setMinimumContentsLength(narrow_ ? 6 : 10);
 
 	header_->setDirection(compact ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom);
 	header_->setSpacing(large ? 16 : compact ? 10 : 8);
@@ -1074,6 +1172,18 @@ void NowPlayingDock::setArtSize(int size)
 
 // Escala la carátula ya decodificada al tamaño actual (y a la densidad de la pantalla); solo
 // cuando cambia la canción o el tamaño.
+void NowPlayingDock::setPlatformIcon(const QString &kind, const QString &tooltip)
+{
+	platformIcon_->setToolTip(tooltip);
+	if (kind == platformKind_)
+		return;
+	platformKind_ = kind;
+	QColor neutral = palette().color(QPalette::WindowText);
+	if (kind.isEmpty())
+		neutral.setAlphaF(0.55f); // nada sonando: más apagado
+	platformIcon_->setPixmap(platformPixmap(kind, kPlatformIconSize, devicePixelRatioF(), neutral));
+}
+
 void NowPlayingDock::updateArtPixmap()
 {
 	artDpr_ = devicePixelRatioF();
@@ -1247,6 +1357,7 @@ void NowPlayingDock::refresh()
 			artist_->setText(text("NowPlaying.PlaySomething"));
 		}
 		source_->clear();
+		setPlatformIcon(QString(), title_->text());
 		artSource_ = QPixmap();
 		updateArtPixmap();
 		artKey_.clear();
@@ -1269,6 +1380,8 @@ void NowPlayingDock::refresh()
 	artist_->setText(artist_->fontMetrics().elidedText(track.artist, Qt::ElideRight, width));
 	source_->setText(track.kind == "browser" ? text("NowPlaying.ListeningNow")
 						 : text("NowPlaying.ListeningOn").arg(track.label));
+	// Junto a la lista: de qué plataforma es lo que suena (también en compacto, sin "Escuchando en").
+	setPlatformIcon(track.kind, text("NowPlaying.ListeningOn").arg(track.label));
 	if (track.isPlaying != playing_) {
 		playing_ = track.isPlaying;
 		updateIcons();
