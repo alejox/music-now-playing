@@ -398,6 +398,7 @@ obs_properties_t *np_properties(void *data)
 	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.YTMusic"), "ytmusic");
 	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.YouTube"), "youtube");
 	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.System"), "system");
+	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.Radio"), "radio");
 	obs_property_set_long_description(player, obs_module_text("NowPlaying.Player.Help"));
 
 	obs_properties_add_int(props, "width", obs_module_text("NowPlaying.Width"), 100, 4096, 1);
@@ -549,7 +550,9 @@ void syncVideoWanted()
 	bool wanted = false;
 	bool fixedPlayer = false;
 	for (NowPlayingSource *s : sources) {
-		const bool fixed = !s->player.isEmpty() && s->player != "dock" && s->player != "auto";
+		// La radio desde un archivo no viene del lector: no le hace falta leer pestañas.
+		const bool fixed = !s->player.isEmpty() && s->player != "dock" && s->player != "auto" &&
+				   s->player != "radio";
 		fixedPlayer = fixedPlayer || fixed;
 		wanted = wanted || fixed || s->config.value("media").toString() == "video";
 	}

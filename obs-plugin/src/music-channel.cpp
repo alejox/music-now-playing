@@ -314,7 +314,9 @@ obs_source_t *createChannel()
 
 	MediaWatcher &watcher = MediaWatcher::instance();
 	const Track track = watcher.current(true, watcher.player());
-	obs_data_t *settings = captureSettings(track.valid() ? audioTarget(track) : QString());
+	// La radio desde un archivo no es una app con sonido que capturar.
+	const bool capturable = track.valid() && track.kind != "radio";
+	obs_data_t *settings = captureSettings(capturable ? audioTarget(track) : QString());
 	obs_source_t *source = obs_source_create(typeId, name.constData(), settings, nullptr);
 	obs_data_release(settings);
 	if (source) {
@@ -508,7 +510,8 @@ void follow_music_channel()
 	// lleva el canal.
 	MediaWatcher &watcher = MediaWatcher::instance();
 	Track track = watcher.current(false, watcher.player());
-	if (!track.valid())
+	// La radio desde un archivo no es una app: el canal se queda donde está.
+	if (!track.valid() || track.kind == "radio")
 		return;
 	QString target = audioTarget(track);
 	// El video de la tarjeta suena dentro de OBS (sin sonido): nunca es la música.

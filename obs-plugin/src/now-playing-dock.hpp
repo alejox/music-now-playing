@@ -66,6 +66,9 @@ private:
 	void updateArtPixmap();
 	// El ícono de la plataforma que suena, junto a la lista (kind vacío: nada sonando).
 	void setPlatformIcon(const QString &kind, const QString &tooltip);
+	// Radio desde un archivo: su opción en la lista (solo si está activada) y su ventana.
+	void syncRadioItem();
+	void openRadioSettings();
 
 	QScrollArea *scroll_ = nullptr;
 	QVBoxLayout *layout_ = nullptr;
@@ -109,6 +112,7 @@ private:
 	QToolButton *shuffle_ = nullptr;
 	QToolButton *backdropButton_ = nullptr;
 	QToolButton *refreshButton_ = nullptr;
+	QToolButton *radioButton_ = nullptr;
 	QToolButton *mute_ = nullptr;
 	QSlider *volume_ = nullptr;
 	QLabel *volumeLabel_ = nullptr;

@@ -4,7 +4,15 @@
 
 #include <obs-module.h>
 
+#include <QCheckBox>
 #include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QFileDialog>
+#include <QFormLayout>
+#include <QLineEdit>
+#include <QPushButton>
+#include <QSpinBox>
 #include <QContextMenuEvent>
 #include <QMenu>
 #include <QPaintEvent>
@@ -99,13 +107,15 @@ const QHash<QString, PlayerInfo> &playerInfo()
 		{"ytmusic", {"NowPlaying.Player.YTMusic", "YouTube Music", "#ff4e45"}},
 		{"youtube", {"NowPlaying.Player.YouTube", "YouTube", "#ff0033"}},
 		{"system", {"NowPlaying.Player.System", kSystemName, kSystemColor}},
+		{"radio", {"NowPlaying.Player.Radio", "Radio", "#f97316"}},
 	};
 	return info;
 }
 
 // El ícono de cada plataforma (kind de Track o clave de la lista), dibujado aquí para que se
 // vea nítido a cualquier escala sin depender de imágenes: Spotify, YouTube Music, YouTube,
-// Apple Music, el Reproductor multimedia de Windows y, para el resto, una nota musical.
+// Apple Music, el Reproductor multimedia de Windows, la radio desde un archivo y, para el resto,
+// una nota musical.
 QPixmap platformPixmap(QString kind, int size, qreal dpr, const QColor &neutral)
 {
 #ifdef __APPLE__
@@ -199,6 +209,21 @@ QPixmap platformPixmap(QString kind, int size, qreal dpr, const QColor &neutral)
 		p.setBrush(gradient);
 		p.drawRoundedRect(box, s * 0.24, s * 0.24);
 		play(s * 0.53, s / 2, s * 0.42, Qt::white);
+	} else if (kind == "radio") {
+		// Radio (genérica, de cualquier programa): un aparato con antena, parlante y dial.
+		p.setPen(Qt::NoPen);
+		p.setBrush(QColor("#f97316"));
+		p.drawRoundedRect(box, s * 0.24, s * 0.24);
+		p.setPen(QPen(Qt::white, s * 0.06, Qt::SolidLine, Qt::RoundCap));
+		p.drawLine(QPointF(s * 0.3, s * 0.36), QPointF(s * 0.68, s * 0.2));
+		p.setPen(Qt::NoPen);
+		p.setBrush(Qt::white);
+		const QRectF body(s * 0.2, s * 0.36, s * 0.6, s * 0.42);
+		p.drawRoundedRect(body, s * 0.07, s * 0.07);
+		p.setBrush(QColor("#f97316"));
+		p.drawEllipse(QPointF(s * 0.38, s * 0.57), s * 0.1, s * 0.1);
+		p.drawRoundedRect(QRectF(s * 0.55, s * 0.47, s * 0.16, s * 0.05), s * 0.02, s * 0.02);
+		p.drawRoundedRect(QRectF(s * 0.55, s * 0.6, s * 0.16, s * 0.05), s * 0.02, s * 0.02);
 	} else {
 		// Navegador, otra app o nada sonando: neutro, del color del texto.
 		QColor ring = neutral;
@@ -277,7 +302,20 @@ QColor accentFrom(const QImage &source)
 	return QColor::fromHslF(h, std::clamp(s, 0.55f, 1.0f), std::clamp(l, 0.55f, 0.7f));
 }
 
-enum class Glyph { Previous, Play, Pause, Next, Back10, Forward10, Shuffle, Speaker, SpeakerMuted, Backdrop, Refresh };
+enum class Glyph {
+	Previous,
+	Play,
+	Pause,
+	Next,
+	Back10,
+	Forward10,
+	Shuffle,
+	Speaker,
+	SpeakerMuted,
+	Backdrop,
+	Refresh,
+	Radio
+};
 
 // Iconos dibujados aquí (y no los del sistema, que en el tema de OBS se ven grises y
 // borrosos, como deshabilitados): triángulos y barras redondeados del color pedido.
@@ -402,7 +440,20 @@ QPixmap glyphPixmap(Glyph glyph, const QColor &color, int size, qreal dpr)
 		p.setBrush(color);
 		p.drawPath(head);
 	};
+	// Una radio con antena (la radio desde un archivo).
+	auto radio = [&]() {
+		p.setBrush(Qt::NoBrush);
+		p.setPen(QPen(color, s * 0.08, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+		p.drawLine(QPointF(s * 0.26, s * 0.36), QPointF(s * 0.7, s * 0.14));
+		p.drawRoundedRect(QRectF(s * 0.12, s * 0.36, s * 0.76, s * 0.48), s * 0.08, s * 0.08);
+		p.drawEllipse(QPointF(s * 0.36, s * 0.6), s * 0.1, s * 0.1);
+		p.drawLine(QPointF(s * 0.58, s * 0.54), QPointF(s * 0.74, s * 0.54));
+		p.drawLine(QPointF(s * 0.58, s * 0.67), QPointF(s * 0.74, s * 0.67));
+	};
 	switch (glyph) {
+	case Glyph::Radio:
+		radio();
+		break;
 	case Glyph::Refresh:
 		refresh();
 		break;
@@ -613,9 +664,13 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	player_->addItem(platformIcon(QString(), 16, dpr, neutral), text("NowPlaying.Player.Auto"), QString());
 	player_->insertSeparator(1);
 	for (const QString &key : MediaWatcher::players()) {
+		// La radio, solo si está activada (ver syncRadioItem).
+		if (key == "radio")
+			continue;
 		const PlayerInfo &info = playerInfo()[key];
 		player_->addItem(platformIcon(key, 16, dpr, neutral), text(info.key), key);
 	}
+	syncRadioItem();
 	player_->setCurrentIndex(std::max(0, player_->findData(MediaWatcher::instance().player())));
 	connect(player_, &QComboBox::currentIndexChanged, this, [this] {
 		MediaWatcher::instance().setPlayer(player_->currentData().toString());
@@ -762,6 +817,9 @@ NowPlayingDock::NowPlayingDock(QWidget *parent) : QWidget(parent)
 	refreshButton_ = makeSmall("NowPlaying.Dock.Refresh");
 	optionsRow->addWidget(refreshButton_, 0, Qt::AlignVCenter);
 	connect(refreshButton_, &QToolButton::clicked, this, &NowPlayingDock::manualRefresh);
+	radioButton_ = makeSmall("NowPlaying.Radio.Settings");
+	optionsRow->addWidget(radioButton_, 0, Qt::AlignVCenter);
+	connect(radioButton_, &QToolButton::clicked, this, &NowPlayingDock::openRadioSettings);
 	optionsRow->addStretch(1);
 	// Marcable: el estado encendido también llega a la accesibilidad. El clic lo maneja
 	// toggleShuffle (que fija el marcado sin volver a emitir clicked).
@@ -911,6 +969,7 @@ void NowPlayingDock::styleVolumeRow()
 		shuffle_->setStyleSheet(toggle(false));
 	backdropButton_->setStyleSheet(toggle(blurBackground_));
 	refreshButton_->setStyleSheet(toggle(false));
+	radioButton_->setStyleSheet(toggle(MediaWatcher::instance().radio().enabled));
 	mute_->setStyleSheet(QString("QToolButton { border-radius: %1px; border: 0; background: transparent; }"
 				     "QToolButton:hover { background: rgba(127,127,127,0.18); }")
 				     .arg(kSmallButton / 2));
@@ -1104,7 +1163,7 @@ void NowPlayingDock::applyTier()
 
 	// Mediano: el aleatorio, el fondo y refrescar pasan al final de la fila del volumen.
 	const bool merged = tier_ == Tier::Medium;
-	const QList<QToolButton *> options{shuffle_, backdropButton_, refreshButton_};
+	const QList<QToolButton *> options{shuffle_, backdropButton_, refreshButton_, radioButton_};
 	if (merged && volumeRow_->indexOf(shuffle_) < 0) {
 		for (QToolButton *button : options) {
 			optionsRow_->removeWidget(button);
@@ -1117,10 +1176,10 @@ void NowPlayingDock::applyTier()
 		}
 	}
 	volumeRow_->setSpacing(narrow_ ? 6 : 10);
-	// Compacto: sin estos botones; el fondo y refrescar quedan en el menú del clic derecho.
+	// Compacto: sin estos botones; el fondo, refrescar y la radio quedan en el menú del clic derecho.
 	for (QWidget *widget : {static_cast<QWidget *>(mute_), static_cast<QWidget *>(volume_),
 				static_cast<QWidget *>(shuffle_), static_cast<QWidget *>(backdropButton_),
-				static_cast<QWidget *>(refreshButton_)})
+				static_cast<QWidget *>(refreshButton_), static_cast<QWidget *>(radioButton_)})
 		widget->setVisible(!compact);
 	volumeLabel_->setVisible(!compact && !narrow_);
 	volume_->setMinimumWidth(narrow_ ? 40 : 60);
@@ -1230,6 +1289,7 @@ void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
 	shuffle->setChecked(shuffle->isCheckable() && shuffleOn_);
 	QAction *reload = menu.addAction(text("NowPlaying.Dock.Refresh"));
 	reload->setEnabled(refreshButton_->isEnabled());
+	QAction *radio = menu.addAction(text("NowPlaying.Radio.Settings"));
 	// El mismo interruptor que el botón de las Propiedades de la fuente.
 	menu.addSeparator();
 	QAction *channel = menu.addAction(text("NowPlaying.Channel.Title"));
@@ -1244,6 +1304,8 @@ void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
 		setBlurBackground(blur->isChecked());
 	else if (chosen == reload)
 		manualRefresh();
+	else if (chosen == radio)
+		openRadioSettings();
 }
 
 // Botón Refrescar: reinicia el lector (la carátula y el video se buscan de nuevo) y recarga
@@ -1306,6 +1368,8 @@ void NowPlayingDock::updateIcons()
 	backdropButton_->setIconSize(QSize(small, small));
 	refreshButton_->setIcon(glyphIcon(Glyph::Refresh, textColor, small, dpr));
 	refreshButton_->setIconSize(QSize(small, small));
+	radioButton_->setIcon(glyphIcon(Glyph::Radio, textColor, small, dpr));
+	radioButton_->setIconSize(QSize(small, small));
 	mute_->setIcon(glyphIcon(muted_ ? Glyph::SpeakerMuted : Glyph::Speaker, textColor, small, dpr));
 	mute_->setIconSize(QSize(small, small));
 }
@@ -1338,8 +1402,9 @@ void NowPlayingDock::refresh()
 	status_->setVisible(!status_->text().isEmpty());
 
 	Track track = shown();
+	// La radio desde un archivo se controla desde su propio programa: sin botones.
 	for (QToolButton *button : {previous_, playPause_, next_})
-		button->setEnabled(track.valid());
+		button->setEnabled(track.valid() && track.kind != "radio");
 
 	if (!track.valid()) {
 		const QString player = watcher.player();
@@ -1349,7 +1414,10 @@ void NowPlayingDock::refresh()
 		} else if (playerInfo().contains(player)) {
 			// Con un reproductor elegido, lo que suene en otro no cuenta.
 			const char *raw = playerInfo()[player].name;
-			const QString name = QString::fromUtf8(raw).startsWith("NowPlaying.") ? text(raw) : QString::fromUtf8(raw);
+			QString name = QString::fromUtf8(raw).startsWith("NowPlaying.") ? text(raw)
+											: QString::fromUtf8(raw);
+			if (player == "radio" && !watcher.radio().label.trimmed().isEmpty())
+				name = watcher.radio().label.trimmed();
 			title_->setText(text("NowPlaying.Player.NotPlaying").arg(name));
 			artist_->setText(text("NowPlaying.Player.Waiting").arg(name));
 		} else {
@@ -1452,4 +1520,130 @@ void NowPlayingDock::seekToMs(qint64 positionMs)
 	seekTarget_ = positionMs;
 	seekAt_ = MediaWatcher::now();
 	tick();
+}
+
+// La radio en la lista de reproductores: solo si está activada, al final.
+void NowPlayingDock::syncRadioItem()
+{
+	const int index = player_->findData(QString("radio"));
+	const bool enabled = MediaWatcher::instance().radio().enabled;
+	if (enabled && index < 0) {
+		player_->addItem(platformIcon("radio", 16, devicePixelRatioF(), palette().color(QPalette::WindowText)),
+				 text("NowPlaying.Player.Radio"), QString("radio"));
+	} else if (!enabled && index >= 0) {
+		// Si estaba elegida, MediaWatcher::setRadio ya volvió a Automático.
+		QSignalBlocker blocker(player_);
+		player_->removeItem(index);
+		player_->setCurrentIndex(std::max(0, player_->findData(MediaWatcher::instance().player())));
+	}
+}
+
+// Radio desde un archivo: el archivo que escribe el programa de radio y cómo leerlo.
+void NowPlayingDock::openRadioSettings()
+{
+	MediaWatcher &watcher = MediaWatcher::instance();
+	const RadioSettings current = watcher.radio();
+
+	QDialog dialog(this);
+	dialog.setWindowTitle(text("NowPlaying.Radio.Title"));
+	auto *layout = new QVBoxLayout(&dialog);
+	auto *intro = new QLabel(text("NowPlaying.Radio.Intro"), &dialog);
+	intro->setWordWrap(true);
+	layout->addWidget(intro);
+
+	auto *enabled = new QCheckBox(text("NowPlaying.Radio.Enabled"), &dialog);
+	enabled->setChecked(current.enabled);
+	layout->addWidget(enabled);
+
+	auto *form = new QFormLayout();
+	auto *pathRow = new QHBoxLayout();
+	auto *path = new QLineEdit(current.path, &dialog);
+	path->setPlaceholderText(text("NowPlaying.Radio.PathPlaceholder"));
+	path->setMinimumWidth(280);
+	auto *browse = new QPushButton(text("NowPlaying.Radio.Browse"), &dialog);
+	connect(browse, &QPushButton::clicked, &dialog, [&dialog, path] {
+		const QString start = path->text().trimmed().isEmpty()
+					      ? QDir::homePath()
+					      : QFileInfo(path->text().trimmed()).absolutePath();
+		const QString chosen = QFileDialog::getOpenFileName(&dialog, text("NowPlaying.Radio.Path"), start,
+								    text("NowPlaying.Radio.FileFilter"));
+		if (!chosen.isEmpty())
+			path->setText(QDir::toNativeSeparators(chosen));
+	});
+	pathRow->addWidget(path, 1);
+	pathRow->addWidget(browse);
+	form->addRow(text("NowPlaying.Radio.Path"), pathRow);
+
+	auto *separator = new QLineEdit(current.separator, &dialog);
+	separator->setPlaceholderText(" - ");
+	separator->setToolTip(text("NowPlaying.Radio.SeparatorHelp"));
+	form->addRow(text("NowPlaying.Radio.Separator"), separator);
+
+	auto *order = new QComboBox(&dialog);
+	order->addItem(text("NowPlaying.Radio.Order.ArtistTitle"), false);
+	order->addItem(text("NowPlaying.Radio.Order.TitleArtist"), true);
+	order->setCurrentIndex(current.titleFirst ? 1 : 0);
+	form->addRow(text("NowPlaying.Radio.Order"), order);
+
+	auto *label = new QLineEdit(current.label, &dialog);
+	label->setPlaceholderText("Radio");
+	label->setToolTip(text("NowPlaying.Radio.LabelHelp"));
+	form->addRow(text("NowPlaying.Radio.Label"), label);
+
+	// Avanzado: casi nadie lo necesita.
+	auto *pattern = new QLineEdit(current.pattern, &dialog);
+	pattern->setPlaceholderText("^(?<artist>.+?) - (?<title>.+)$");
+	pattern->setToolTip(text("NowPlaying.Radio.PatternHelp"));
+	form->addRow(text("NowPlaying.Radio.Pattern"), pattern);
+
+	auto *idle = new QSpinBox(&dialog);
+	idle->setRange(0, 1440);
+	idle->setSuffix(" min");
+	idle->setSpecialValueText(text("NowPlaying.Radio.IdleNever"));
+	idle->setValue(current.idleMinutes);
+	idle->setToolTip(text("NowPlaying.Radio.IdleHelp"));
+	form->addRow(text("NowPlaying.Radio.Idle"), idle);
+	layout->addLayout(form);
+
+	auto *problem = new QLabel(&dialog);
+	problem->setWordWrap(true);
+	problem->setStyleSheet("color: #f87171;");
+	problem->hide();
+	layout->addWidget(problem);
+	auto checkPattern = [pattern, problem] {
+		const QString error = MediaWatcher::radioPatternError(pattern->text());
+		problem->setText(error.isEmpty() ? QString() : text("NowPlaying.Radio.PatternError").arg(error));
+		problem->setVisible(!error.isEmpty());
+	};
+	connect(pattern, &QLineEdit::textChanged, &dialog, checkPattern);
+	checkPattern();
+
+	// Sin activar, el resto no se puede tocar (pero se guarda).
+	auto syncEnabled = [&] {
+		for (QWidget *widget :
+		     std::initializer_list<QWidget *>{path, browse, separator, order, label, pattern, idle})
+			widget->setEnabled(enabled->isChecked());
+	};
+	connect(enabled, &QCheckBox::toggled, &dialog, syncEnabled);
+	syncEnabled();
+
+	auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+	connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+	connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+	layout->addWidget(buttons);
+
+	if (dialog.exec() != QDialog::Accepted)
+		return;
+	RadioSettings settings;
+	settings.enabled = enabled->isChecked();
+	settings.path = path->text().trimmed();
+	settings.separator = separator->text().isEmpty() ? QString(" - ") : separator->text();
+	settings.titleFirst = order->currentData().toBool();
+	settings.label = label->text().trimmed();
+	settings.pattern = pattern->text().trimmed();
+	settings.idleMinutes = idle->value();
+	watcher.setRadio(settings);
+	syncRadioItem();
+	styleVolumeRow();
+	refresh();
 }

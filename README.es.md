@@ -160,6 +160,38 @@ Opciones para la URL (se combinan con `&`):
 
 **Plan B:** si el lector del sistema no funciona, instala [Tampermonkey](https://www.tampermonkey.net/) y pulsa **Instalar script** en el panel.
 
+### Radio: canción al aire desde un archivo
+
+Los programas de automatización de radio (Dinesat, RadioBoss, ZaraRadio, SAM Broadcaster, mAirList…) suelen poder exportar la canción al aire a un archivo de texto (para RDS o la web). Configura tu programa para que escriba la canción actual en un archivo y apunta la app a ese archivo en `config.json`:
+
+```json
+"textSource": {
+  "path": "C:\\Radio\\al-aire.txt",
+  "separator": " - ",
+  "order": "artist-title",
+  "pattern": "",
+  "idleMinutes": 0,
+  "label": "Radio"
+}
+```
+
+| Clave | Efecto |
+|---|---|
+| `path` | Archivo a leer (vacío = desactivado). Una ruta relativa es relativa a la carpeta de datos |
+| `separator` | Lo que separa artista y título (por defecto `" - "`) |
+| `order` | `artist-title` (por defecto) o `title-artist` |
+| `pattern` | Expresión regular opcional con grupos `(?<artist>…)` y `(?<title>…)`; si está, manda sobre el separador. Ej.: `"^(?<title>.+?) / (?<artist>.+)$"` |
+| `idleMinutes` | Oculta la canción si el texto no cambia en esos minutos (`0` = se muestra mientras el archivo tenga texto) |
+| `label` | Texto de "Escuchando en …" (por ejemplo el nombre de la emisora) |
+
+- Se usa la primera línea con texto. Sin separador, la línea entera es el título.
+- Si el archivo es XML, se toman el primer `<Title>` y `<Artist>` (sin importar mayúsculas).
+- Acepta UTF-8, UTF-16 y Windows-1252 (lo habitual en programas de Windows).
+- Archivo vacío o inexistente = no suena nada. El archivo se revisa cada segundo, también en carpetas de red.
+- Reinicia la app después de cambiar `config.json`. El panel muestra el estado en **Radio (archivo de texto)**.
+- Limitaciones: sin carátula ni barra de progreso, y los botones no controlan el programa de radio.
+- **Plugin de OBS:** las mismas reglas, configuradas en el dock **Música** en vez de `config.json`: botón de la radio (o clic derecho → **Radio desde un archivo…**), marca **Leer la canción de un archivo**, elige el archivo y, si hace falta, separador, orden, nombre, expresión regular y tiempo sin cambios. Se guarda en la configuración del plugin (`radio.json`) y la lista **Reproductor** suma **Solo la radio (archivo)**.
+
 ### Problemas frecuentes
 
 - **No aparece nada en OBS:** abre el panel; si no carga, la app está cerrada. Prueba con `?preview=1`.

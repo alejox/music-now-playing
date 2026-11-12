@@ -4,14 +4,19 @@
 #include <QJsonObject>
 #include <QObject>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QSet>
 #include <QString>
 #include <QStringList>
 
+#include <string>
+
+class QTimer;
+
 // Una sesión multimedia del sistema (una por app que reproduce algo).
 struct Track {
 	QString app;   // id de la app: "Spotify.exe", "com.spotify.client"…
-	QString kind;  // spotify | ytmusic | youtube | applemusic | system | browser | other (decide el color)
+	QString kind;  // spotify | ytmusic | youtube | applemusic | system | radio | browser | other (decide el color)
 	QString label; // "Spotify", "Chrome"…
 	QString title;
 	QString artist;
@@ -36,6 +41,18 @@ struct Track {
 struct PlayerState {
 	int volume = -1; // 0–100; -1: no se puede leer ni cambiar
 	QString shuffle; // on | off | action (un botón sin estado, como en YouTube Music) | "" (no se puede)
+};
+
+// Radio desde un archivo: lo que escribe un programa de automatización (Dinesat, RadioBoss,
+// ZaraRadio…). Se guarda en radio.json, en la configuración del plugin. Apagado por defecto.
+struct RadioSettings {
+	bool enabled = false;
+	QString path;
+	QString separator = " - ";
+	bool titleFirst = false; // "Título - Artista"
+	QString pattern;         // expresión regular con (?<artist>…) y (?<title>…); manda sobre el separador
+	int idleMinutes = 0;     // sin cambios en tanto tiempo, se deja de mostrar (0: nunca)
+	QString label;           // "Escuchando en …" (vacío: Radio)
 };
 
 // Lee "lo que está sonando" con el lector del sistema (media/windows.ps1,
@@ -80,6 +97,13 @@ public:
 
 	static qint64 now();
 
+	// Radio desde un archivo (ver RadioSettings). La canción llega como una sesión más, de
+	// kind "radio", sin carátula, sin duración y sin botones.
+	RadioSettings radio() const { return radio_; }
+	void setRadio(const RadioSettings &settings);
+	// Si la expresión regular de la radio no es válida, por qué (se usa el separador).
+	static QString radioPatternError(const QString &pattern);
+
 	// Modo video: el lector solo lee las pestañas del navegador si alguna fuente lo pidió
 	// (leerlas hace que macOS pida permiso para controlar el navegador). También hacen falta
 	// para elegir reproductor: sin ellas, una pestaña de YouTube o YouTube Music es solo
@@ -108,6 +132,10 @@ private:
 	void handleLine(const QByteArray &line);
 	void setStatus(Status status, const QString &error = QString());
 	void writeVideoFlag();
+	void startRadio();
+	void pollRadio();
+	void refreshRadioTrack();
+	QString radioPath() const;
 
 	QProcess *process_ = nullptr;
 	QHash<QString, Track> tracks_;
@@ -138,4 +166,20 @@ private:
 	qint64 startedAt_ = 0;
 	int failures_ = 0;
 	bool stopping_ = false;
+
+	// Radio desde un archivo: un sondeo por segundo (también en carpetas de red). Un cambio se
+	// acepta cuando el archivo dejó de cambiar entre dos sondeos o cuando dos lecturas seguidas
+	// dan lo mismo, para no tomar un archivo a medio escribir.
+	RadioSettings radio_;
+	QRegularExpression radioPattern_;
+	QTimer *radioTimer_ = nullptr;
+	QString radioStat_;     // fecha, tamaño y creación del archivo en el último sondeo
+	QString radioReadStat_; // lo mismo, de la última lectura aceptada
+	std::string radioPending_;
+	bool radioHasPending_ = false;
+	bool radioSeen_ = false;
+	QString radioTitle_;
+	QString radioArtist_;
+	qint64 radioChangedWall_ = 0; // ms desde 1970: para el tiempo sin cambios
+	qint64 radioChangedAt_ = 0;   // lo mismo en el reloj de now(): "la última que empezó"
 };
