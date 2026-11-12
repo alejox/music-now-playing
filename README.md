@@ -186,6 +186,7 @@ Radio automation software (Dinesat, RadioBoss, ZaraRadio, SAM Broadcaster, mAirL
 - Empty or missing file = nothing playing. The file is checked every second, network folders included.
 - Restart the app after editing `config.json`. The panel shows the state under **Radio (archivo de texto)**.
 - Limitations: no artwork or progress bar, and the buttons do not control the radio software.
+- If the file lives in a network folder (another computer), song changes can take a few extra seconds to show; in a local folder it is almost immediate.
 - **OBS plugin:** same rules, configured in the **Music** dock instead of `config.json`: radio button (or right-click → **Radio from a file…**), tick **Read the song from a file**, choose the file and, if needed, separator, order, name, regex and idle time. It is saved in the plugin settings (`radio.json`) and the **Player** list gains **Radio only (file)**.
 
 ### Troubleshooting

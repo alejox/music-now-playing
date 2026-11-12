@@ -190,6 +190,7 @@ Los programas de automatización de radio (Dinesat, RadioBoss, ZaraRadio, SAM Br
 - Archivo vacío o inexistente = no suena nada. El archivo se revisa cada segundo, también en carpetas de red.
 - Reinicia la app después de cambiar `config.json`. El panel muestra el estado en **Radio (archivo de texto)**.
 - Limitaciones: sin carátula ni barra de progreso, y los botones no controlan el programa de radio.
+- Si el archivo está en una carpeta de red (otro equipo), el cambio de canción puede tardar unos segundos más en verse; en una carpeta local es casi inmediato.
 - **Plugin de OBS:** las mismas reglas, configuradas en el dock **Música** en vez de `config.json`: botón de la radio (o clic derecho → **Radio desde un archivo…**), marca **Leer la canción de un archivo**, elige el archivo y, si hace falta, separador, orden, nombre, expresión regular y tiempo sin cambios. Se guarda en la configuración del plugin (`radio.json`) y la lista **Reproductor** suma **Solo la radio (archivo)**.
 
 ### Problemas frecuentes

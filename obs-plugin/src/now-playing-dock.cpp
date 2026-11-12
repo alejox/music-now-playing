@@ -1548,6 +1548,8 @@ void NowPlayingDock::openRadioSettings()
 	dialog.setWindowTitle(text("NowPlaying.Radio.Title"));
 	auto *layout = new QVBoxLayout(&dialog);
 	auto *intro = new QLabel(text("NowPlaying.Radio.Intro"), &dialog);
+	// Texto plano: "<Title>" se tomaría como HTML y cortaría el texto.
+	intro->setTextFormat(Qt::PlainText);
 	intro->setWordWrap(true);
 	layout->addWidget(intro);
 

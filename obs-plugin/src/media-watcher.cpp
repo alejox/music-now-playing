@@ -832,7 +832,10 @@ void MediaWatcher::pollRadio()
 			refreshRadioTrack();
 			return;
 		}
-		const std::string text = text_source::decode(f.read(kRadioMaxBytes).toStdString());
+		const QByteArray raw = f.read(kRadioMaxBytes);
+		// Se cierra enseguida para no estorbar al programa de radio si reemplaza el archivo (Windows).
+		f.close();
+		const std::string text = text_source::decode(raw.toStdString());
 		if (!settled && (!radioHasPending_ || text != radioPending_)) {
 			// Puede estar a medio escribir: se confirma en el próximo sondeo.
 			radioPending_ = text;
