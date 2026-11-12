@@ -960,7 +960,7 @@ void NowPlayingDock::updateLayoutForSize()
 
 // Grande: como siempre, con la carátula a la medida. Mediano: todo más junto y el aleatorio
 // y el fondo al final de la fila del volumen. Compacto: miniatura al lado del título, sin
-// "Escuchando en", sin la lista de reproductor ni la fila del volumen, y solo
+// "Escuchando en" ni la fila del volumen (la lista de reproductor sí queda), y solo
 // anterior / pausa / siguiente. Angosto: botones más chicos, sin ±10 s ni el porcentaje.
 void NowPlayingDock::applyTier()
 {
@@ -980,9 +980,10 @@ void NowPlayingDock::applyTier()
 	setGap(gapBeforeOptions_, large ? 6 : 0);
 	setGap(gapBeforeStatus_, large ? 10 : compact ? 0 : 6);
 
-	player_->setVisible(!compact);
+	// La lista de reproductor queda siempre: sin ella, en compacto no se ve de dónde lee.
+	player_->setVisible(true);
 	playerLabel_->setVisible(!compact && !narrow_);
-	player_->setMinimumContentsLength(narrow_ ? 6 : 10);
+	player_->setMinimumContentsLength((narrow_ || compact) ? 6 : 10);
 
 	header_->setDirection(compact ? QBoxLayout::LeftToRight : QBoxLayout::TopToBottom);
 	header_->setSpacing(large ? 16 : compact ? 10 : 8);
