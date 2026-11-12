@@ -13,7 +13,7 @@ const readline = require('node:readline');
 const { spawn, execFileSync } = require('node:child_process');
 const { decodeBuffer, createParser } = require('./text-source');
 
-const VERSION = '2.4.33';
+const VERSION = '2.4.34';
 const ARGS = new Set(process.argv.slice(2));
 
 // Archivos de la app (overlay, lectores del sistema, userscript): junto a este
