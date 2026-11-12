@@ -299,6 +299,18 @@ function New-ArtFromUrl($url) {
 # sus ventanas (la de la pestaña visible). Una ventana sirve si su título (el de la pestaña)
 # dice YouTube o trae el nombre de la canción.
 $browserApps = 'chrome|msedge|brave|vivaldi|opera|firefox'
+# Firefox no dice "firefox" en su id de app: es un hash de su carpeta (308046B0AF4A39CB en
+# la instalación normal). Firefox anota los suyos en el registro (TaskBarIDs).
+$firefoxIds = @{ '308046B0AF4A39CB' = $true }
+foreach ($path in 'HKCU:\Software\Mozilla\Firefox\TaskBarIDs', 'HKLM:\Software\Mozilla\Firefox\TaskBarIDs', 'HKLM:\Software\WOW6432Node\Mozilla\Firefox\TaskBarIDs') {
+  try {
+    foreach ($prop in (Get-ItemProperty -Path $path -ErrorAction Stop).PSObject.Properties) {
+      if ($prop.Name -notlike 'PS*' -and "$($prop.Value)" -match '^[0-9A-Fa-f]{16}$') { $firefoxIds["$($prop.Value)"] = $true }
+    }
+  } catch {}
+}
+function Test-Firefox($app) { [bool]$firefoxIds["$app"] }
+function Test-BrowserApp($app) { ($app -match $browserApps) -or (Test-Firefox $app) }
 $youtubeWatch = '^(?:https?://)?(music\.|www\.|m\.)?youtube\.com/watch\?(?:[^#]*&)?v=([A-Za-z0-9_-]{11})'
 $videoIds = @{}   # "app`ncanción" → @{ id; site }
 $videoTries = @{}
@@ -482,7 +494,7 @@ function Get-Video($app, $title, $artist, $album, $site = '') {
   $videoTries[$key] = 1 + [int]$videoTries[$key]
   $searchSite = $null
   try {
-    if ($app -match $browserApps) {
+    if (Test-BrowserApp $app) {
       $found = Find-YouTubeVideo $title $site
       if ($found -and $found.id) {
         $videoIds[$key] = $found
@@ -507,7 +519,7 @@ function Get-NetworkArtwork($app, $title, $artist, $album) {
   $catalog = Get-Lookup "art`n$artist`n$title" $catalogCall @($title, $artist)
   if (-not $catalog.done) { return @{ waiting = $true } }
   if ($catalog.value) { return @{ art = (New-ArtFromUrl $catalog.value) } }
-  if ($app -notmatch $browserApps) { return @{} }
+  if (-not (Test-BrowserApp $app)) { return @{} }
   $site = Get-BrowserSite $app $title $album
   $video = Get-Video $app $title $artist $album $site
   if (-not $video) { return @{} }
@@ -656,6 +668,8 @@ for ($i = 0; $i -lt 1800; $i++) {
         progressMs = [int64][Math]::Max(0, $position)
         durationMs = [int64][Math]::Max(0, $duration)
       }
+      # Así el plugin lo reconoce como navegador (y no como "308046B0AF4A39CB").
+      if (Test-Firefox $app) { $entry.name = 'Firefox' }
       # Aleatorio: solo si el reproductor deja cambiarlo (si no, el dock apaga el botón).
       if ($playback.Controls -and $playback.Controls.IsShuffleEnabled -and $null -ne $playback.IsShuffleActive) {
         $entry.shuffle = [bool]$playback.IsShuffleActive
@@ -688,7 +702,7 @@ for ($i = 0; $i -lt 1800; $i++) {
       if (Test-VideoWanted) {
         # En un navegador: ¿YouTube Music o YouTube? (de los nombres de sus pestañas)
         $site = ''
-        if ($app -match $browserApps) {
+        if (Test-BrowserApp $app) {
           $site = Get-BrowserSite $app $props.Title $props.AlbumTitle
           if ($site) { $entry.site = $site }
         }
