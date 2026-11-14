@@ -455,9 +455,13 @@
   [data-style^="gta6"] .bar { height: 5px; border-radius: 3px; }
   [data-style^="gta6"] .bar div { background: var(--vice); border-radius: 3px; }
 
-  /* Con vinilo: el disco asoma a la derecha de la carátula y gira mientras suena. */
+  /* Con vinilo: el disco asoma a la derecha de la carátula (o del video, que va pequeño en
+     su lugar) y gira mientras suena. --media-w: el ancho de lo que tapa el disco (el video
+     ajustado a 16:9 es más ancho que la carátula). */
+  [data-style="gta6disc"] .card { --media-w: var(--art); }
+  [data-style="gta6disc"][data-video-fit="wide"] .card.has-video { --media-w: calc(var(--art) * 16 / 9); }
   [data-style="gta6disc"] .deco .vinyl {
-    display: block; z-index: 0; left: calc(16px + var(--art) * 0.42);
+    display: block; z-index: 0; left: calc(16px + var(--media-w) - var(--art) * 0.58);
     /* Centrado sin transform: el giro (animation disc) ya usa transform. */
     width: calc(var(--art) * 0.94); height: calc(var(--art) * 0.94); top: calc(50% - var(--art) * 0.47); border-radius: 50%;
     background:
@@ -468,9 +472,9 @@
   }
   [data-style="gta6disc"] .paused .deco .vinyl { animation-play-state: paused; }
   [data-style="gta6disc"]:not([data-layout="vertical"]) .meta { margin-left: calc(var(--art) * 0.42); }
-  [data-style="gta6disc"] .card.has-video .deco .vinyl,
   [data-style="gta6disc"][data-layout="vertical"] .deco .vinyl { display: none; }
-  [data-style="gta6disc"] .card.has-video .meta { margin-left: 0; }
+  /* El recuadro del video, opaco: el disco va detrás y no debe verse a través. */
+  [data-style="gta6disc"] .art.video { background: #000; }
 
   /* Vertical: la carátula arriba y la etiqueta inclinada, rosa → naranja, sobre su borde
      de abajo (como el póster del juego). */
