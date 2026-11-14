@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <title>Now Playing</title>
-<!-- Letras de algunos estilos (Synthwave, Cyberpunk, Glitch). Sin internet se usan las del sistema. -->
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Mr+Dafoe&family=Orbitron:wght@500;700&family=VT323&display=swap">
+<!-- Letras de algunos estilos (Synthwave, Cyberpunk, Glitch, GTA 6). Sin internet se usan las del sistema. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Anton&family=Mr+Dafoe&family=Orbitron:wght@500;700&family=VT323&display=swap">
 <!--
   Tarjeta de la fuente "Now Playing" del plugin. La carga una fuente de navegador
   privada y el plugin le manda, una vez por segundo, el evento "obs-now-playing" con
@@ -418,6 +418,83 @@
   [data-style="pill"][data-layout="vertical"] .corner .pp { width: 36px; height: 36px; padding: 10px; }
   [data-glass][data-round] .art:not(.video) { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.55), 0 6px 18px rgba(0, 0, 0, 0.25); }
 
+
+  /* ---- GTA 6 (Vice City): tarjeta oscura con borde y brillo rosa de neón, "NOW PLAYING" /
+     "PAUSED" con nota y ecualizador, título en letra condensada, barra rosa → naranja.
+     En vertical, la etiqueta va inclinada sobre la carátula. "GTA 6 con vinilo": un disco
+     asoma detrás de la carátula y gira mientras suena. */
+  :root[data-style^="gta6"] {
+    --bg: rgba(34, 12, 30, var(--alpha, 0.85)); --fg: #fff; --muted: rgba(255, 255, 255, 0.62); --accent: #ff4fa3;
+    --track: rgba(255, 255, 255, 0.13); --vice: linear-gradient(90deg, #ff3d9a, #ff8a3d);
+    --shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+  }
+  [data-style^="gta6"] .card {
+    border: 1.5px solid rgba(255, 92, 170, 0.75); border-radius: 18px; padding: 14px 16px; gap: 18px;
+    box-shadow: var(--shadow), 0 0 14px rgba(255, 60, 160, 0.45), inset 0 0 18px rgba(255, 60, 160, 0.12);
+    background: linear-gradient(120deg, rgba(48, 14, 40, var(--alpha, 0.85)), rgba(26, 10, 26, var(--alpha, 0.85)));
+  }
+  [data-style^="gta6"] .art:not(.video) { border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); }
+  [data-style^="gta6"] .label { gap: 7px; font-size: 12px; letter-spacing: 0.22em; color: #ff4fa3; }
+  [data-style^="gta6"] .label .note { display: inline-block; }
+  [data-style^="gta6"] .label .eq { order: 2; height: 12px; margin-left: 4px; }
+  [data-style^="gta6"] .label .eq i { width: 3px; background: linear-gradient(to top, #ff3d9a, #ff8a3d); }
+  /* En pausa: "PAUSED" más tenue y el ecualizador quieto, en escalera. */
+  [data-style^="gta6"] .paused .label { color: rgba(255, 255, 255, 0.7); }
+  [data-style^="gta6"] .paused .label .eq i { animation: none; }
+  [data-style^="gta6"] .paused .label .eq i:nth-child(1) { height: 4px; }
+  [data-style^="gta6"] .paused .label .eq i:nth-child(2) { height: 7px; }
+  [data-style^="gta6"] .paused .label .eq i:nth-child(3) { height: 11px; }
+  [data-style^="gta6"] .title {
+    font-family: "Anton", "Bebas Neue", "Impact", "Arial Narrow", sans-serif; font-weight: 400;
+    font-size: 30px; line-height: 1.05; letter-spacing: 0.01em; text-transform: uppercase; margin-top: 4px;
+  }
+  [data-style^="gta6"] .artist { font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; margin-top: 2px; }
+  /* Solo la barra, sin los tiempos (como en el juego). */
+  [data-style^="gta6"] .progress { margin-top: 12px; }
+  [data-style^="gta6"] #elapsed, [data-style^="gta6"] #duration { display: none; }
+  [data-style^="gta6"] .bar { height: 5px; border-radius: 3px; }
+  [data-style^="gta6"] .bar div { background: var(--vice); border-radius: 3px; }
+
+  /* Con vinilo: el disco asoma a la derecha de la carátula (o del video, que va pequeño en
+     su lugar) y gira mientras suena. --media-w: el ancho de lo que tapa el disco (el video
+     ajustado a 16:9 es más ancho que la carátula). */
+  [data-style="gta6disc"] .card { --media-w: var(--art); }
+  [data-style="gta6disc"][data-video-fit="wide"] .card.has-video { --media-w: calc(var(--art) * 16 / 9); }
+  [data-style="gta6disc"] .deco .vinyl {
+    display: block; z-index: 0; left: calc(16px + var(--media-w) - var(--art) * 0.58);
+    /* Centrado sin transform: el giro (animation disc) ya usa transform. */
+    width: calc(var(--art) * 0.94); height: calc(var(--art) * 0.94); top: calc(50% - var(--art) * 0.47); border-radius: 50%;
+    background:
+      radial-gradient(circle, #ff4fa3 0 14%, #2a0a22 14% 16%, transparent 16%),
+      repeating-radial-gradient(circle, #151015 0 2px, #222 2px 3px);
+    box-shadow: 0 0 0 1px rgba(255, 92, 170, 0.35), 0 4px 14px rgba(0, 0, 0, 0.5);
+    animation: disc 4s linear infinite;
+  }
+  [data-style="gta6disc"] .paused .deco .vinyl { animation-play-state: paused; }
+  [data-style="gta6disc"]:not([data-layout="vertical"]) .meta { margin-left: calc(var(--art) * 0.42); }
+  [data-style="gta6disc"][data-layout="vertical"] .deco .vinyl { display: none; }
+  /* El recuadro del video, opaco: el disco va detrás y no debe verse a través. */
+  [data-style="gta6disc"] .art.video { background: #000; }
+
+  /* Vertical: la carátula arriba y la etiqueta inclinada, rosa → naranja, sobre su borde
+     de abajo (como el póster del juego). */
+  [data-style^="gta6"][data-layout="vertical"] .card { padding: 12px 12px 16px; gap: 12px; text-align: left; border-radius: 20px; }
+  [data-style^="gta6"][data-layout="vertical"] .meta { padding: 0 4px; }
+  [data-style^="gta6"][data-layout="vertical"] .label {
+    position: absolute; left: 0; top: -40px; justify-content: flex-start;
+    padding: 5px 12px 5px 10px; font-size: 11px; color: #fff; background: var(--vice);
+    transform: skewX(-12deg) rotate(-3deg); transform-origin: left bottom;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  }
+  [data-style^="gta6"][data-layout="vertical"] .label > * { transform: skewX(12deg); }
+  [data-style^="gta6"][data-layout="vertical"] .label .eq i { background: #fff; }
+  [data-style^="gta6"][data-layout="vertical"] .label .note { fill: #fff; }
+  [data-style^="gta6"][data-layout="vertical"] .paused .label { color: #fff; filter: saturate(0.75); }
+  [data-style^="gta6"][data-layout="vertical"] .title { font-size: 28px; margin-top: 0; }
+  [data-style^="gta6"][data-layout="vertical"] .artist { font-size: 13px; }
+  [data-style^="gta6"][data-layout="vertical"] .progress { margin-top: 10px; }
+  /* Sin la etiqueta encima ("Mostrar Escuchando en…" apagado o sin carátula), nada cambia. */
+
   /* ---- Skins de Winamp (clásico 2.x y Winamp 5) -------------------------------------
      Barra de título arriba, la canción en la pantalla del reproductor (.meta), la barra
      de progreso como la barra para adelantar (con su perilla) y abajo los botones y el
@@ -556,6 +633,7 @@
     color: var(--accent);
     transition: color 0.8s ease;
   }
+  .label .note { display: none; flex: none; width: 14px; height: 14px; fill: #d36bff; }
   .eq { display: inline-flex; gap: 2px; align-items: flex-end; height: 10px; }
   .eq i { width: 3px; background: var(--accent); border-radius: 1px; animation: eq 0.9s ease-in-out infinite; transition: background 0.8s ease; }
   .eq i:nth-child(2) { animation-delay: -0.3s; }
@@ -580,7 +658,7 @@
 <body>
 <div class="card" id="card">
   <div class="backdrop" id="backdrop"></div>
-  <div class="deco"><i class="sun"></i><i class="grid"></i><i class="city"></i><i class="stripes"></i></div>
+  <div class="deco"><i class="sun"></i><i class="grid"></i><i class="city"></i><i class="stripes"></i><i class="vinyl"></i></div>
   <div class="dots"><i></i><i></i><i></i></div>
   <div class="titlebar"><span>WINAMP</span><b></b><b></b><b></b></div>
   <div class="transport">
@@ -596,7 +674,7 @@
   <img class="art" id="art" alt="">
   <div class="art video" id="videoBox" hidden><div id="player"></div></div>
   <div class="meta">
-    <div class="label" id="label"><span class="eq"><i></i><i></i><i></i></span><span id="labelText">Escuchando</span></div>
+    <div class="label" id="label"><svg class="note" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3v11.6A3.5 3.5 0 1 0 11 17.5V8h8V3z"/></svg><span class="eq"><i></i><i></i><i></i></span><span id="labelText">Escuchando</span></div>
     <div class="line title" id="title"><span></span></div>
     <div class="line artist" id="artist"><span></span></div>
     <div class="progress" id="progress">
@@ -626,6 +704,8 @@
     cyber: { themed: true, round: true },
     retro: { themed: true, round: true },
     glitch: { themed: true, round: true, corner: 'ff' },
+    gta6: { themed: true, nowPlaying: true },
+    gta6disc: { themed: true, nowPlaying: true },
     winamp: { themed: true, skin: true },
     winamp5: { themed: true, skin: true },
   };
@@ -916,6 +996,8 @@
       }
     }
     $('card').classList.toggle('paused', !t.isPlaying);
+    // GTA 6: la etiqueta dice si suena o está en pausa (como en el juego).
+    if (styleOf().nowPlaying) $('labelText').textContent = t.isPlaying ? 'Now playing' : 'Paused';
     $('pp').innerHTML = ICONS[t.isPlaying ? 'pause' : 'play'];
     $('card').classList.add('visible');
     tick();
