@@ -435,6 +435,8 @@ obs_properties_t *np_properties(void *data)
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Cyber"), "cyber");
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Retro"), "retro");
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Glitch"), "glitch");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Gta6"), "gta6");
+	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Gta6Disc"), "gta6disc");
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Winamp"), "winamp");
 	obs_property_list_add_string(style, obs_module_text("NowPlaying.Style.Winamp5"), "winamp5");
 	obs_property_set_modified_callback(style, np_size_modified);
