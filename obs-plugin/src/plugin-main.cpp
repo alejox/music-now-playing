@@ -29,6 +29,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include "music-channel.hpp"
 #include "now-playing-dock.hpp"
 #include "now-playing-source.hpp"
+#include "palette-provider.hpp"
 #include "updater.hpp"
 
 OBS_DECLARE_MODULE()
@@ -85,6 +86,8 @@ bool obs_module_load(void)
 	register_app_audio_capture();
 #endif
 	MediaWatcher::instance().start();
+	// La paleta de la canción para otros plugins (procedimiento music_now_playing_get_palette).
+	palette_provider_start();
 
 	auto *main_window = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 	auto *dock = new NowPlayingDock(main_window);
@@ -103,6 +106,7 @@ bool obs_module_load(void)
 void obs_module_unload(void)
 {
 	// El callback de eventos ya se quitó al recibir OBS_FRONTEND_EVENT_EXIT.
+	palette_provider_stop();
 	MediaWatcher::instance().stop();
 	app_volume_shutdown();
 	obs_log(LOG_INFO, "plugin unloaded");

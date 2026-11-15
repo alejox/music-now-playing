@@ -58,6 +58,57 @@ Si no está donde dicen las instrucciones, el aviso ofrece abrir la página de d
 
 Si en el dock aparece "El lector del sistema no funciona", el mensaje dice por qué. El registro de OBS (**Ayuda → Archivos de registro**) tiene las líneas `[obs-now-playing]`.
 
+## Integraciones
+
+### Paleta de colores de la canción (`music_now_playing_get_palette`)
+
+Otros plugins de OBS pueden leer los colores de la canción que suena (los mismos que usa la
+tarjeta en tema oscuro) con este procedimiento global, registrado en `obs_get_proc_handler()`
+al cargar el plugin:
+
+```
+void music_now_playing_get_palette(out bool playing, out int accent, out int tint, out int background)
+```
+
+- `playing`: `true` solo si hay una canción **sonando** (no en pausa) del reproductor elegido
+  en el dock "Música" y su paleta ya está calculada. Si no, `false` y los tres colores en `0`.
+- `accent`: el color más vivo de la carátula, ajustado para leerse sobre un fondo oscuro.
+- `tint`: el color dominante con más color y luz (el del estilo cristal).
+- `background`: el color dominante, muy oscuro (el fondo de la tarjeta).
+
+Los tres son enteros `0xRRGGBB`, sin alfa. Sin carátula, `accent` es el color del reproductor
+(Spotify `0x1ED760`, YouTube / YouTube Music `0xFF0033`, Apple Music `0xFA2D48`, Reproductor
+multimedia `0x0078D4`, radio `0xF97316`, otros `0x8B8CFF`), `tint` es `0x2C2E3A` y
+`background` es `0x101116`, como la tarjeta.
+
+```c
+proc_handler_t *ph = obs_get_proc_handler();
+calldata_t cd;
+calldata_init(&cd);
+if (proc_handler_call(ph, "music_now_playing_get_palette", &cd) && calldata_bool(&cd, "playing")) {
+	uint32_t accent = (uint32_t)calldata_int(&cd, "accent");
+	uint32_t tint = (uint32_t)calldata_int(&cd, "tint");
+	uint32_t background = (uint32_t)calldata_int(&cd, "background");
+	/* … */
+}
+calldata_free(&cd);
+```
+
+`proc_handler_call` devuelve `false` si el plugin no está instalado.
+
+- **Se puede llamar desde cualquier hilo**, también desde el gráfico de OBS y varias veces por
+  segundo: responde al instante con una copia guardada. La paleta se calcula en el hilo de la
+  interfaz, solo cuando cambia la carátula, con el mismo algoritmo que la tarjeta
+  (`data/overlay/ui.js`, portado a C++ en `src/palette.cpp`, probado en
+  `tests/run-palette-test.sh`).
+- La carátula se reduce a 48 × 48 como lo hace el canvas de Chromium, así que los colores
+  coinciden con los de la tarjeta. Con algunos tamaños de carátula poco comunes, o si OBS
+  dibuja la tarjeta con aceleración por hardware, pueden diferir en 1 o 2 puntos de un canal.
+- Si el lector deja de responder, a los 10 s `playing` pasa a `false`. Al descargar el plugin
+  (al cerrar OBS) el procedimiento queda registrado, porque OBS no deja quitarlo, y responde
+  `playing = false`.
+- Es solo lectura: no cambia el lector, la fuente, el dock ni la tarjeta.
+
 ## Compilar en Xcode (macOS)
 
 Requisitos: Xcode 16+, CMake 3.28+.
