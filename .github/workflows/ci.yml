@@ -47,6 +47,9 @@ jobs:
         run: OPENSSL=openssl obs-plugin/tests/run-signature-test.sh
       - name: Lector de radio desde archivo del plugin
         run: obs-plugin/tests/run-text-source-test.sh
+      # La paleta que el plugin publica para otros plugins: los mismos colores que la tarjeta.
+      - name: Paleta de colores del plugin
+        run: obs-plugin/tests/run-palette-test.sh
       # Incluye el lector de Linux del plugin con un playerctl falso (test/linux-reader.js).
       - name: Prueba de humo
         run: npm test

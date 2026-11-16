@@ -44,6 +44,10 @@ target_sources(
     src/music-channel.hpp
     src/now-playing-source.cpp
     src/now-playing-source.hpp
+    src/palette.cpp
+    src/palette.hpp
+    src/palette-provider.cpp
+    src/palette-provider.hpp
     src/now-playing-dock.cpp
     src/now-playing-dock.hpp
     src/updater.cpp
