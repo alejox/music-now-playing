@@ -494,8 +494,8 @@ obs_properties_t *np_properties(void *data)
 	const QString addLabel = QString::fromUtf8(obs_module_text("NowPlaying.Channel.Add"));
 	obs_properties_add_button2(props, "channel_add", addLabel.toUtf8().constData(), np_add_channel, nullptr);
 	QTimer::singleShot(0, [addLabel] { highlightAddChannelButton(addLabel); });
-	const QByteArray supportLabel = (QStringLiteral("☕ ") + QString::fromUtf8(obs_module_text("NowPlaying.Support.Link"))).toUtf8();
-	obs_properties_add_button2(props, "support", supportLabel.constData(), np_open_support, nullptr);
+	const QString supportLabel = QStringLiteral("☕ ") + QString::fromUtf8(obs_module_text("NowPlaying.Support.Link"));
+	obs_properties_add_button2(props, "support", supportLabel.toUtf8().constData(), np_open_support, nullptr);
 	return props;
 }
 
