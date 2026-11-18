@@ -512,14 +512,15 @@
   /* Sin el recorte de la tarjeta, la carátula difuminada (más grande que la tarjeta) se
      recorta aquí a su forma. */
   [data-style="gta6disc"][data-layout="vertical"][data-media="video"] .backdrop { clip-path: inset(30px round 20px); }
+  /* La ventana deja 10 px alrededor del disco para que su sombra no quede cortada. */
   [data-style="gta6disc"][data-layout="vertical"][data-media="video"] .deco {
-    inset: 0 auto 0 calc(100% + 1.5px); width: calc(var(--disc) / 2 + 2px); border-radius: 0;
+    inset: -10px auto -10px calc(100% + 1.5px); width: calc(var(--disc) / 2 + 10px); border-radius: 0;
   }
   [data-style="gta6disc"][data-layout="vertical"][data-media="video"] .deco .vinyl {
     width: var(--disc); height: var(--disc);
     left: calc(var(--disc) / -2);
     /* A la altura de la carátula; con el video 16:9 (más bajo que el disco), pegado arriba. */
-    top: max(0px, calc(12px + var(--media-h) / 2 - var(--disc) / 2));
+    top: max(10px, calc(22px + var(--media-h) / 2 - var(--disc) / 2));
   }
 
   /* "GTA 6 con vinilo" en vertical, solo con carátula: la carátula es el centro de un vinilo
@@ -537,6 +538,8 @@
     animation: disc 4s linear infinite;
   }
   [data-style="gta6disc"][data-layout="vertical"][data-media="art"] .paused .art { animation-play-state: paused; }
+  /* En vertical, la sombra del disco, mínima: cabe en el margen y no se ve cortada. */
+  [data-style="gta6disc"][data-layout="vertical"] .deco .vinyl { box-shadow: 0 0 0 1px rgba(255, 92, 170, 0.35), 0 1px 4px rgba(0, 0, 0, 0.4); }
 
   /* ---- Skins de Winamp (clásico 2.x y Winamp 5) -------------------------------------
      Barra de título arriba, la canción en la pantalla del reproductor (.meta), la barra
