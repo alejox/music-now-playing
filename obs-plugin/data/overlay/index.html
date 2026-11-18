@@ -422,7 +422,7 @@
   /* ---- GTA 6 (Vice City): tarjeta oscura con borde y brillo rosa de neón, "NOW PLAYING" /
      "PAUSED" con nota y ecualizador, título en letra condensada, barra rosa → naranja.
      En vertical, la etiqueta va inclinada sobre la carátula. "GTA 6 con vinilo": un disco
-     asoma detrás de la carátula y gira mientras suena (en vertical, por la derecha). */
+     asoma detrás de la carátula y gira mientras suena (en vertical, por fuera de la tarjeta). */
   :root[data-style^="gta6"] {
     --bg: rgba(34, 12, 30, var(--alpha, 0.85)); --fg: #fff; --muted: rgba(255, 255, 255, 0.62); --accent: #ff4fa3;
     --track: rgba(255, 255, 255, 0.13); --vice: linear-gradient(90deg, #ff3d9a, #ff8a3d);
@@ -494,21 +494,49 @@
   [data-style^="gta6"][data-layout="vertical"] .progress { margin-top: 10px; }
   /* Sin la etiqueta encima ("Mostrar Escuchando en…" apagado o sin carátula), nada cambia. */
 
-  /* "GTA 6 con vinilo" en vertical: la carátula (o el video) más angosta, a la izquierda, y el
-     disco asoma por la derecha, como si saliera de la funda, girando mientras suena.
-     --inner: el ancho útil de la tarjeta (la fuente menos los márgenes de la sombra y el
-     relleno); --media-w y --media-h: lo que tapa el disco (el video ajustado a 16:9 es más
-     bajo que la carátula). */
-  [data-style="gta6disc"][data-layout="vertical"] .card {
-    --inner: calc(100vw - 2 * var(--gap-x) - 24px);
-    --media-w: calc(var(--inner) * 0.74); --media-h: var(--media-w);
+  /* "GTA 6 con vinilo" en vertical, con video: la tarjeta es la funda y el disco sale por su
+     borde derecho, por fuera, girando mientras suena (si la canción no tiene video, el disco
+     sale igual, a la altura de la carátula). La tarjeta se angosta para dejarle lugar
+     dentro de la fuente. --avail: el ancho de la fuente menos los márgenes de la sombra;
+     --media-h: el alto de la carátula o del video (el ajustado a 16:9 es más bajo), para
+     centrar el disco a su altura. .deco pasa a ser la ventana por fuera de la tarjeta donde
+     se ve el disco (la mitad que asoma). */
+  [data-style="gta6disc"][data-layout="vertical"][data-media="video"] .card {
+    --avail: calc(100vw - 2 * var(--gap-x));
+    --disc: calc(var(--avail) * 0.48);
+    --media-h: calc(var(--avail) * 0.76 - 24px);
+    width: calc(var(--avail) * 0.76);
+    overflow: visible;
   }
-  [data-style="gta6disc"][data-layout="vertical"][data-video-fit="wide"] .card.has-video { --media-h: calc(var(--media-w) * 9 / 16); }
-  [data-style="gta6disc"][data-layout="vertical"] .card .art { width: var(--media-w); align-self: flex-start; }
-  [data-style="gta6disc"][data-layout="vertical"] .deco .vinyl {
-    width: calc(var(--media-h) * 0.94); height: calc(var(--media-h) * 0.94);
-    left: calc(12px + var(--media-w) - var(--media-h) * 0.6); top: calc(12px + var(--media-h) * 0.03);
+  [data-style="gta6disc"][data-layout="vertical"][data-media="video"][data-video-fit="wide"] .card.has-video { --media-h: calc((var(--avail) * 0.76 - 24px) * 9 / 16); }
+  /* Sin el recorte de la tarjeta, la carátula difuminada (más grande que la tarjeta) se
+     recorta aquí a su forma. */
+  [data-style="gta6disc"][data-layout="vertical"][data-media="video"] .backdrop { clip-path: inset(30px round 20px); }
+  [data-style="gta6disc"][data-layout="vertical"][data-media="video"] .deco {
+    inset: 0 auto 0 calc(100% + 1.5px); width: calc(var(--disc) / 2 + 2px); border-radius: 0;
   }
+  [data-style="gta6disc"][data-layout="vertical"][data-media="video"] .deco .vinyl {
+    width: var(--disc); height: var(--disc);
+    left: calc(var(--disc) / -2);
+    /* A la altura de la carátula; con el video 16:9 (más bajo que el disco), pegado arriba. */
+    top: max(0px, calc(12px + var(--media-h) / 2 - var(--disc) / 2));
+  }
+
+  /* "GTA 6 con vinilo" en vertical, solo con carátula: la carátula es el centro de un vinilo
+     que ocupa el ancho de la tarjeta y gira con él mientras suena (en pausa, quieto). */
+  [data-style="gta6disc"][data-layout="vertical"][data-media="art"] .card { --inner: calc(100vw - 2 * var(--gap-x) - 24px); }
+  [data-style="gta6disc"][data-layout="vertical"][data-media="art"] .deco .vinyl {
+    left: 12px; top: 12px; width: var(--inner); height: var(--inner);
+    background:
+      radial-gradient(circle, transparent 0 31%, #2a0a22 31% 32.5%, transparent 32.5%),
+      repeating-radial-gradient(circle, #151015 0 2px, #222 2px 3px);
+  }
+  [data-style="gta6disc"][data-layout="vertical"][data-media="art"] .art:not(.video) {
+    width: 62%; align-self: center; margin: calc(var(--inner) * 0.19) 0;
+    border-radius: 50%; box-shadow: 0 0 0 2px rgba(255, 92, 170, 0.5);
+    animation: disc 4s linear infinite;
+  }
+  [data-style="gta6disc"][data-layout="vertical"][data-media="art"] .paused .art { animation-play-state: paused; }
 
   /* ---- Skins de Winamp (clásico 2.x y Winamp 5) -------------------------------------
      Barra de título arriba, la canción en la pantalla del reproductor (.meta), la barra
@@ -769,6 +797,7 @@
     else delete root.dataset.corner;
     root.dataset.layout = config.layout === 'vertical' ? 'vertical' : 'horizontal';
     root.dataset.videoFit = config.videoFit === 'wide' ? 'wide' : 'square';
+    root.dataset.media = config.media === 'art' ? 'art' : 'video';
     root.dataset.anchor = config.anchor === 'bottom' ? 'bottom' : 'top';
     $('progress').hidden = !config.progress;
     $('label').hidden = !config.label;

@@ -41,7 +41,16 @@ bool isSkin(const char *style)
 	return strncmp(style, "winamp", 6) == 0;
 }
 
-Size suggestedSize(const char *layout, const char *art, const char *style)
+// "GTA 6 con vinilo" en vertical con video: el disco sale por fuera de la tarjeta, así que la
+// fuente es más ancha (la tarjeta queda del ancho de las demás verticales). Solo con carátula,
+// la carátula es el disco y la tarjeta mide lo de siempre.
+bool isVerticalDisc(const char *layout, const char *art, const char *style, const char *media)
+{
+	return strcmp(layout, "vertical") == 0 && strcmp(art, "hidden") != 0 && strcmp(style, "gta6disc") == 0 &&
+	       strcmp(media, "video") == 0;
+}
+
+Size suggestedSize(const char *layout, const char *art, const char *style, const char *media)
 {
 	bool vertical = strcmp(layout, "vertical") == 0;
 	bool hidden = strcmp(art, "hidden") == 0;
@@ -51,6 +60,8 @@ Size suggestedSize(const char *layout, const char *art, const char *style)
 			return hidden ? Size{280, 230} : Size{280, 450};
 		return big ? Size{520, 230} : Size{480, 200};
 	}
+	if (isVerticalDisc(layout, art, style, media))
+		return Size{340, 360};
 	if (vertical)
 		return hidden ? Size{280, 140} : Size{280, 360};
 	return big ? Size{520, 180} : Size{480, 150};
@@ -286,7 +297,7 @@ void np_update(void *data, obs_data_t *settings)
 
 void np_defaults(obs_data_t *settings)
 {
-	Size size = suggestedSize("horizontal", "normal", "solid");
+	Size size = suggestedSize("horizontal", "normal", "solid", "video");
 	obs_data_set_default_int(settings, "width", size.width);
 	obs_data_set_default_int(settings, "height", size.height);
 	obs_data_set_default_string(settings, "sized_for", "horizontal/normal");
@@ -315,16 +326,19 @@ bool np_size_modified(obs_properties_t *, obs_property_t *, obs_data_t *settings
 	const char *layout = obs_data_get_string(settings, "layout");
 	const char *art = obs_data_get_string(settings, "art");
 	const char *style = obs_data_get_string(settings, "style");
-	// Los demás estilos miden lo mismo: solo los skins cambian la clave (así una fuente
-	// existente no cambia de tamaño al abrir sus Propiedades).
+	const char *media = obs_data_get_string(settings, "media");
+	// Los demás estilos miden lo mismo: solo los skins y el vinilo en vertical cambian la
+	// clave (así una fuente existente no cambia de tamaño al abrir sus Propiedades).
 	QString current = QString("%1/%2").arg(layout, art);
 	if (isSkin(style))
 		current += "/winamp";
+	else if (isVerticalDisc(layout, art, style, media))
+		current += "/disc";
 	QString sizedFor = QString::fromUtf8(obs_data_get_string(settings, "sized_for"));
 	if (sizedFor == current)
 		return false;
 	if (!sizedFor.isEmpty()) {
-		Size size = suggestedSize(layout, art, style);
+		Size size = suggestedSize(layout, art, style, media);
 		obs_data_set_int(settings, "width", size.width);
 		obs_data_set_int(settings, "height", size.height);
 	}
@@ -466,6 +480,7 @@ obs_properties_t *np_properties(void *data)
 	obs_property_list_add_string(media, obs_module_text("NowPlaying.Media.Video"), "video");
 	obs_property_list_add_string(media, obs_module_text("NowPlaying.Media.Art"), "art");
 	obs_property_set_long_description(media, obs_module_text("NowPlaying.Media.Help"));
+	obs_property_set_modified_callback(media, np_size_modified);
 
 	obs_property_t *videoFit = obs_properties_add_list(props, "video_fit", obs_module_text("NowPlaying.VideoFit"),
 							   OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
