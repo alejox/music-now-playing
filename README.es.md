@@ -223,7 +223,7 @@ Los programas de automatización de radio (Dinesat, RadioBoss, ZaraRadio, SAM Br
 
 ## ☕ Apoyar
 
-Music Now Playing es gratis y lo va a seguir siendo. Si te ahorra tiempo en tus directos, puedes [invitarme un café en Ko-fi](https://ko-fi.com/alejoxcode): paga horas de desarrollo y las próximas funciones. El plugin nunca lo pide solo; el enlace está al final de las Propiedades de la fuente y en el menú del clic derecho del dock.
+Music Now Playing es gratis y lo va a seguir siendo. Si te ahorra tiempo en tus directos, puedes [invitarme un café en Ko-fi](https://ko-fi.com/alejoxcode): paga horas de desarrollo y las próximas funciones. El plugin nunca lo pide solo; el enlace está al final de las Propiedades de la fuente.
 
 ## 📄 Licencia
 

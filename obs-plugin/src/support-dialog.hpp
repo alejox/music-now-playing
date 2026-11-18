@@ -1,8 +1,7 @@
 #pragma once
 
 // "Invítame un café": un mensaje breve con el enlace a Ko-fi. Solo se abre cuando el usuario lo
-// pide (el botón al final de las Propiedades de la fuente o el menú del clic derecho del dock);
-// nunca aparece solo y no guarda nada.
+// pide (el botón al final de las Propiedades de la fuente); nunca aparece solo y no guarda nada.
 
 class QWidget;
 
