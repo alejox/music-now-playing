@@ -513,20 +513,14 @@ void MediaWatcher::setVideoWanted(bool wanted)
 	writeVideoFlag();
 }
 
-void MediaWatcher::setOthersWanted(bool wanted)
-{
-	othersWanted_ = wanted;
-	writeVideoFlag();
-}
-
 void MediaWatcher::writeVideoFlag()
 {
 	if (videoFlagFile_.isEmpty())
 		return;
-	// Con un reproductor elegido (dock o fuente), en macOS hay que buscar lo que suena por
-	// detrás: si suenan dos a la vez, macOS anuncia solo uno. La radio no viene del lector.
+	// Con un reproductor elegido en el dock, en macOS hay que buscar lo que suena por detrás:
+	// si suenan dos a la vez, macOS anuncia solo uno. La radio no viene del lector.
 	const bool playerChosen = !player_.isEmpty() && player_ != "radio";
-	if (othersWanted_ || playerChosen) {
+	if (playerChosen) {
 		QFile others(othersFlagFile_);
 		if (!others.exists() && others.open(QIODevice::WriteOnly))
 			others.close();

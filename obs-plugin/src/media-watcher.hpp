@@ -109,9 +109,6 @@ public:
 	// para elegir reproductor: sin ellas, una pestaña de YouTube o YouTube Music es solo
 	// "el navegador".
 	void setVideoWanted(bool wanted);
-	// Alguna fuente tiene un reproductor fijo: en macOS (que anuncia un solo reproductor) el
-	// lector busca también lo que suena por detrás, aunque lo anunciado esté sonando.
-	void setOthersWanted(bool wanted);
 
 signals:
 	// Cada vez que el lector escribe (una vez por segundo) o cambia el estado.
@@ -161,7 +158,6 @@ private:
 	QString videoFlagFile_;
 	QString othersFlagFile_;
 	bool videoWanted_ = false;
-	bool othersWanted_ = false;
 	QString player_;
 	qint64 startedAt_ = 0;
 	int failures_ = 0;

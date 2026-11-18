@@ -1,6 +1,7 @@
 #include "now-playing-source.hpp"
 #include "media-watcher.hpp"
 #include "music-channel.hpp"
+#include "support-dialog.hpp"
 
 #include <obs-frontend-api.h>
 #include <obs-module.h>
@@ -40,7 +41,16 @@ bool isSkin(const char *style)
 	return strncmp(style, "winamp", 6) == 0;
 }
 
-Size suggestedSize(const char *layout, const char *art, const char *style)
+// "GTA 6 con vinilo" en vertical con video: el disco sale por fuera de la tarjeta, así que la
+// fuente es más ancha (la tarjeta queda del ancho de las demás verticales). Solo con carátula,
+// la carátula es el disco y la tarjeta mide lo de siempre.
+bool isVerticalDisc(const char *layout, const char *art, const char *style, const char *media)
+{
+	return strcmp(layout, "vertical") == 0 && strcmp(art, "hidden") != 0 && strcmp(style, "gta6disc") == 0 &&
+	       strcmp(media, "video") == 0;
+}
+
+Size suggestedSize(const char *layout, const char *art, const char *style, const char *media)
 {
 	bool vertical = strcmp(layout, "vertical") == 0;
 	bool hidden = strcmp(art, "hidden") == 0;
@@ -50,6 +60,8 @@ Size suggestedSize(const char *layout, const char *art, const char *style)
 			return hidden ? Size{280, 230} : Size{280, 450};
 		return big ? Size{520, 230} : Size{480, 200};
 	}
+	if (isVerticalDisc(layout, art, style, media))
+		return Size{340, 360};
 	if (vertical)
 		return hidden ? Size{280, 140} : Size{280, 360};
 	return big ? Size{520, 180} : Size{480, 150};
@@ -66,15 +78,14 @@ struct NowPlayingSource {
 	QString fallbackPath;       // imagen del usuario (su logo) para cuando no hay carátula
 	QString fallbackArt;        // esa imagen como data:image/…;base64,…
 	QString fallbackLoadedPath; // de qué archivo es fallbackArt (se carga en el hilo de la interfaz)
-	QString player;       // dock (igual que el dock) | auto | spotify | ytmusic | youtube | system
 };
 
-// El reproductor que muestra la fuente ("" = cualquiera).
-QString sourcePlayer(const NowPlayingSource *s)
+// El reproductor que muestra la fuente: siempre el elegido en el dock ("" = cualquiera). Las
+// fuentes ya no tienen su propia lista (con uno distinto elegido sin querer, la música no
+// aparecía y no se entendía por qué); el ajuste "player" que guardaron antes se ignora.
+QString sourcePlayer()
 {
-	if (s->player == "dock" || s->player.isEmpty())
-		return MediaWatcher::instance().player();
-	return s->player == "auto" ? QString() : s->player;
+	return MediaWatcher::instance().player();
 }
 
 QJsonObject trackJson(const Track &track, bool withArtwork)
@@ -108,7 +119,7 @@ void push(NowPlayingSource *s)
 {
 	if (!s->browser)
 		return;
-	Track track = MediaWatcher::instance().current(false, sourcePlayer(s));
+	Track track = MediaWatcher::instance().current(false, sourcePlayer());
 	// Sin carátula, va el logo del usuario (si eligió uno).
 	if (track.valid() && track.artwork.isEmpty())
 		track.artwork = s->fallbackArt;
@@ -154,7 +165,6 @@ void readSettings(NowPlayingSource *s, obs_data_t *settings)
 {
 	// Solo la ruta: la imagen (hasta 8 MB) se lee después en el hilo de la interfaz.
 	s->fallbackPath = QString::fromUtf8(obs_data_get_string(settings, "fallback_image"));
-	s->player = QString::fromUtf8(obs_data_get_string(settings, "player"));
 	s->width = (uint32_t)std::max<long long>(100, obs_data_get_int(settings, "width"));
 	s->height = (uint32_t)std::max<long long>(60, obs_data_get_int(settings, "height"));
 	s->config = QJsonObject{
@@ -285,11 +295,10 @@ void np_update(void *data, obs_data_t *settings)
 
 void np_defaults(obs_data_t *settings)
 {
-	Size size = suggestedSize("horizontal", "normal", "solid");
+	Size size = suggestedSize("horizontal", "normal", "solid", "video");
 	obs_data_set_default_int(settings, "width", size.width);
 	obs_data_set_default_int(settings, "height", size.height);
 	obs_data_set_default_string(settings, "sized_for", "horizontal/normal");
-	obs_data_set_default_string(settings, "player", "dock");
 	obs_data_set_default_string(settings, "theme", "dark");
 	obs_data_set_default_string(settings, "layout", "horizontal");
 	obs_data_set_default_string(settings, "anchor", "top");
@@ -314,16 +323,19 @@ bool np_size_modified(obs_properties_t *, obs_property_t *, obs_data_t *settings
 	const char *layout = obs_data_get_string(settings, "layout");
 	const char *art = obs_data_get_string(settings, "art");
 	const char *style = obs_data_get_string(settings, "style");
-	// Los demás estilos miden lo mismo: solo los skins cambian la clave (así una fuente
-	// existente no cambia de tamaño al abrir sus Propiedades).
+	const char *media = obs_data_get_string(settings, "media");
+	// Los demás estilos miden lo mismo: solo los skins y el vinilo en vertical cambian la
+	// clave (así una fuente existente no cambia de tamaño al abrir sus Propiedades).
 	QString current = QString("%1/%2").arg(layout, art);
 	if (isSkin(style))
 		current += "/winamp";
+	else if (isVerticalDisc(layout, art, style, media))
+		current += "/disc";
 	QString sizedFor = QString::fromUtf8(obs_data_get_string(settings, "sized_for"));
 	if (sizedFor == current)
 		return false;
 	if (!sizedFor.isEmpty()) {
-		Size size = suggestedSize(layout, art, style);
+		Size size = suggestedSize(layout, art, style, media);
 		obs_data_set_int(settings, "width", size.width);
 		obs_data_set_int(settings, "height", size.height);
 	}
@@ -386,21 +398,17 @@ void highlightAddChannelButton(const QString &label, int attempt = 0)
 		QTimer::singleShot(100, [label, attempt] { highlightAddChannelButton(label, attempt + 1); });
 }
 
+// Al final de las propiedades, discreto: abre el mensaje de apoyo con el enlace a Ko-fi.
+bool np_open_support(obs_properties_t *, obs_property_t *, void *)
+{
+	open_support_dialog(static_cast<QWidget *>(obs_frontend_get_main_window()));
+	return false;
+}
+
 obs_properties_t *np_properties(void *data)
 {
 	auto *source = static_cast<NowPlayingSource *>(data);
 	obs_properties_t *props = obs_properties_create();
-	obs_property_t *player = obs_properties_add_list(props, "player", obs_module_text("NowPlaying.Player"),
-							 OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.Dock"), "dock");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.Auto"), "auto");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.Spotify"), "spotify");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.YTMusic"), "ytmusic");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.YouTube"), "youtube");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.System"), "system");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.Radio"), "radio");
-	obs_property_set_long_description(player, obs_module_text("NowPlaying.Player.Help"));
-
 	obs_properties_add_int(props, "width", obs_module_text("NowPlaying.Width"), 100, 4096, 1);
 	obs_properties_add_int(props, "height", obs_module_text("NowPlaying.Height"), 60, 4096, 1);
 
@@ -458,6 +466,7 @@ obs_properties_t *np_properties(void *data)
 	obs_property_list_add_string(media, obs_module_text("NowPlaying.Media.Video"), "video");
 	obs_property_list_add_string(media, obs_module_text("NowPlaying.Media.Art"), "art");
 	obs_property_set_long_description(media, obs_module_text("NowPlaying.Media.Help"));
+	obs_property_set_modified_callback(media, np_size_modified);
 
 	obs_property_t *videoFit = obs_properties_add_list(props, "video_fit", obs_module_text("NowPlaying.VideoFit"),
 							   OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
@@ -486,6 +495,9 @@ obs_properties_t *np_properties(void *data)
 	const QString addLabel = QString::fromUtf8(obs_module_text("NowPlaying.Channel.Add"));
 	obs_properties_add_button2(props, "channel_add", addLabel.toUtf8().constData(), np_add_channel, nullptr);
 	QTimer::singleShot(0, [addLabel] { highlightAddChannelButton(addLabel); });
+	const QString supportLabel =
+		QStringLiteral("☕ ") + QString::fromUtf8(obs_module_text("NowPlaying.Support.Link"));
+	obs_properties_add_button2(props, "support", supportLabel.toUtf8().constData(), np_open_support, nullptr);
 	return props;
 }
 
@@ -544,24 +556,15 @@ void np_enum_sources(void *data, obs_source_enum_proc_t enum_callback, void *par
 
 } // namespace
 
-// El lector lee pestañas del navegador solo si alguna fuente tiene "Video si es posible" o
-// un reproductor fijo (para distinguir YouTube, YouTube Music y Spotify en el navegador; el
-// del dock lo pide el propio lector).
+// El lector lee pestañas del navegador solo si alguna fuente tiene "Video si es posible" (el
+// reproductor elegido en el dock lo pide el propio lector).
 void syncVideoWanted()
 {
 	bool wanted = false;
-	bool fixedPlayer = false;
-	for (NowPlayingSource *s : sources) {
-		// La radio desde un archivo no viene del lector: no le hace falta leer pestañas.
-		const bool fixed = !s->player.isEmpty() && s->player != "dock" && s->player != "auto" &&
-				   s->player != "radio";
-		fixedPlayer = fixedPlayer || fixed;
-		wanted = wanted || fixed || s->config.value("media").toString() == "video";
-	}
-	QMetaObject::invokeMethod(&MediaWatcher::instance(), [wanted, fixedPlayer] {
-		MediaWatcher::instance().setVideoWanted(wanted);
-		MediaWatcher::instance().setOthersWanted(fixedPlayer);
-	});
+	for (NowPlayingSource *s : sources)
+		wanted = wanted || s->config.value("media").toString() == "video";
+	QMetaObject::invokeMethod(&MediaWatcher::instance(),
+				  [wanted] { MediaWatcher::instance().setVideoWanted(wanted); });
 }
 
 void push_now_playing_sources()
