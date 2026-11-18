@@ -9,6 +9,7 @@
 ![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078D4?logo=windows&logoColor=white)
 ![Linux](https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black)
 ![OBS](https://img.shields.io/badge/OBS-31%2B-302E31?logo=obsstudio&logoColor=white)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-inv%C3%ADtame%20un%20caf%C3%A9-FF5E5B?logo=kofi&logoColor=white)](https://ko-fi.com/alejoxcode)
 
 [English](README.md) · **Español**
 
@@ -219,6 +220,10 @@ Los programas de automatización de radio (Dinesat, RadioBoss, ZaraRadio, SAM Br
 - **Lectores del plugin:** el plugin lleva copias de los lectores de la app en `obs-plugin/data/media/`, más su lector de Linux `obs-plugin/data/media/linux.sh` (bash + `playerctl`, probado con un `playerctl` falso en `npm test`).
 - **Releases:** el flujo **Release** de GitHub Actions compila el plugin para los tres sistemas y publica solo sus tres zips.
 </details>
+
+## ☕ Apoyar
+
+Music Now Playing es gratis y lo va a seguir siendo. Si te ahorra tiempo en tus directos, puedes [invitarme un café en Ko-fi](https://ko-fi.com/alejoxcode): paga horas de desarrollo y las próximas funciones. El plugin nunca lo pide solo; el enlace está al final de las Propiedades de la fuente y en el menú del clic derecho del dock.
 
 ## 📄 Licencia
 

@@ -1,6 +1,7 @@
 #include "now-playing-source.hpp"
 #include "media-watcher.hpp"
 #include "music-channel.hpp"
+#include "support-dialog.hpp"
 
 #include <obs-frontend-api.h>
 #include <obs-module.h>
@@ -386,6 +387,13 @@ void highlightAddChannelButton(const QString &label, int attempt = 0)
 		QTimer::singleShot(100, [label, attempt] { highlightAddChannelButton(label, attempt + 1); });
 }
 
+// Al final de las propiedades, discreto: abre el mensaje de apoyo con el enlace a Ko-fi.
+bool np_open_support(obs_properties_t *, obs_property_t *, void *)
+{
+	open_support_dialog(static_cast<QWidget *>(obs_frontend_get_main_window()));
+	return false;
+}
+
 obs_properties_t *np_properties(void *data)
 {
 	auto *source = static_cast<NowPlayingSource *>(data);
@@ -486,6 +494,8 @@ obs_properties_t *np_properties(void *data)
 	const QString addLabel = QString::fromUtf8(obs_module_text("NowPlaying.Channel.Add"));
 	obs_properties_add_button2(props, "channel_add", addLabel.toUtf8().constData(), np_add_channel, nullptr);
 	QTimer::singleShot(0, [addLabel] { highlightAddChannelButton(addLabel); });
+	const QByteArray supportLabel = (QStringLiteral("☕ ") + QString::fromUtf8(obs_module_text("NowPlaying.Support.Link"))).toUtf8();
+	obs_properties_add_button2(props, "support", supportLabel.constData(), np_open_support, nullptr);
 	return props;
 }
 

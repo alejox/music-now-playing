@@ -1,6 +1,7 @@
 #include "now-playing-dock.hpp"
 #include "music-channel.hpp"
 #include "now-playing-source.hpp"
+#include "support-dialog.hpp"
 
 #include <obs-module.h>
 
@@ -1295,6 +1296,8 @@ void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
 	QAction *channel = menu.addAction(text("NowPlaying.Channel.Title"));
 	channel->setCheckable(true);
 	channel->setChecked(music_channel_enabled());
+	menu.addSeparator();
+	QAction *support = menu.addAction(QStringLiteral("☕ ") + text("NowPlaying.Support.Link"));
 	QAction *chosen = menu.exec(event->globalPos());
 	if (chosen == channel)
 		set_music_channel_enabled(channel->isChecked(), this);
@@ -1306,6 +1309,8 @@ void NowPlayingDock::contextMenuEvent(QContextMenuEvent *event)
 		manualRefresh();
 	else if (chosen == radio)
 		openRadioSettings();
+	else if (chosen == support)
+		open_support_dialog(this);
 }
 
 // Botón Refrescar: reinicia el lector (la carátula y el video se buscan de nuevo) y recarga

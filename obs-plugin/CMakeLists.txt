@@ -50,6 +50,8 @@ target_sources(
     src/palette-provider.hpp
     src/now-playing-dock.cpp
     src/now-playing-dock.hpp
+    src/support-dialog.cpp
+    src/support-dialog.hpp
     src/updater.cpp
     src/updater.hpp
     src/release-signature.cpp
