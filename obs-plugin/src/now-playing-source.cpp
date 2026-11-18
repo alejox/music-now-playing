@@ -78,15 +78,14 @@ struct NowPlayingSource {
 	QString fallbackPath;       // imagen del usuario (su logo) para cuando no hay carátula
 	QString fallbackArt;        // esa imagen como data:image/…;base64,…
 	QString fallbackLoadedPath; // de qué archivo es fallbackArt (se carga en el hilo de la interfaz)
-	QString player;       // dock (igual que el dock) | auto | spotify | ytmusic | youtube | system
 };
 
-// El reproductor que muestra la fuente ("" = cualquiera).
-QString sourcePlayer(const NowPlayingSource *s)
+// El reproductor que muestra la fuente: siempre el elegido en el dock ("" = cualquiera). Las
+// fuentes ya no tienen su propia lista (con uno distinto elegido sin querer, la música no
+// aparecía y no se entendía por qué); el ajuste "player" que guardaron antes se ignora.
+QString sourcePlayer()
 {
-	if (s->player == "dock" || s->player.isEmpty())
-		return MediaWatcher::instance().player();
-	return s->player == "auto" ? QString() : s->player;
+	return MediaWatcher::instance().player();
 }
 
 QJsonObject trackJson(const Track &track, bool withArtwork)
@@ -120,7 +119,7 @@ void push(NowPlayingSource *s)
 {
 	if (!s->browser)
 		return;
-	Track track = MediaWatcher::instance().current(false, sourcePlayer(s));
+	Track track = MediaWatcher::instance().current(false, sourcePlayer());
 	// Sin carátula, va el logo del usuario (si eligió uno).
 	if (track.valid() && track.artwork.isEmpty())
 		track.artwork = s->fallbackArt;
@@ -166,7 +165,6 @@ void readSettings(NowPlayingSource *s, obs_data_t *settings)
 {
 	// Solo la ruta: la imagen (hasta 8 MB) se lee después en el hilo de la interfaz.
 	s->fallbackPath = QString::fromUtf8(obs_data_get_string(settings, "fallback_image"));
-	s->player = QString::fromUtf8(obs_data_get_string(settings, "player"));
 	s->width = (uint32_t)std::max<long long>(100, obs_data_get_int(settings, "width"));
 	s->height = (uint32_t)std::max<long long>(60, obs_data_get_int(settings, "height"));
 	s->config = QJsonObject{
@@ -301,7 +299,6 @@ void np_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, "width", size.width);
 	obs_data_set_default_int(settings, "height", size.height);
 	obs_data_set_default_string(settings, "sized_for", "horizontal/normal");
-	obs_data_set_default_string(settings, "player", "dock");
 	obs_data_set_default_string(settings, "theme", "dark");
 	obs_data_set_default_string(settings, "layout", "horizontal");
 	obs_data_set_default_string(settings, "anchor", "top");
@@ -412,17 +409,6 @@ obs_properties_t *np_properties(void *data)
 {
 	auto *source = static_cast<NowPlayingSource *>(data);
 	obs_properties_t *props = obs_properties_create();
-	obs_property_t *player = obs_properties_add_list(props, "player", obs_module_text("NowPlaying.Player"),
-							 OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.Dock"), "dock");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.Auto"), "auto");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.Spotify"), "spotify");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.YTMusic"), "ytmusic");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.YouTube"), "youtube");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.System"), "system");
-	obs_property_list_add_string(player, obs_module_text("NowPlaying.Player.Radio"), "radio");
-	obs_property_set_long_description(player, obs_module_text("NowPlaying.Player.Help"));
-
 	obs_properties_add_int(props, "width", obs_module_text("NowPlaying.Width"), 100, 4096, 1);
 	obs_properties_add_int(props, "height", obs_module_text("NowPlaying.Height"), 60, 4096, 1);
 
@@ -570,24 +556,15 @@ void np_enum_sources(void *data, obs_source_enum_proc_t enum_callback, void *par
 
 } // namespace
 
-// El lector lee pestañas del navegador solo si alguna fuente tiene "Video si es posible" o
-// un reproductor fijo (para distinguir YouTube, YouTube Music y Spotify en el navegador; el
-// del dock lo pide el propio lector).
+// El lector lee pestañas del navegador solo si alguna fuente tiene "Video si es posible" (el
+// reproductor elegido en el dock lo pide el propio lector).
 void syncVideoWanted()
 {
 	bool wanted = false;
-	bool fixedPlayer = false;
-	for (NowPlayingSource *s : sources) {
-		// La radio desde un archivo no viene del lector: no le hace falta leer pestañas.
-		const bool fixed = !s->player.isEmpty() && s->player != "dock" && s->player != "auto" &&
-				   s->player != "radio";
-		fixedPlayer = fixedPlayer || fixed;
-		wanted = wanted || fixed || s->config.value("media").toString() == "video";
-	}
-	QMetaObject::invokeMethod(&MediaWatcher::instance(), [wanted, fixedPlayer] {
-		MediaWatcher::instance().setVideoWanted(wanted);
-		MediaWatcher::instance().setOthersWanted(fixedPlayer);
-	});
+	for (NowPlayingSource *s : sources)
+		wanted = wanted || s->config.value("media").toString() == "video";
+	QMetaObject::invokeMethod(&MediaWatcher::instance(),
+				  [wanted] { MediaWatcher::instance().setVideoWanted(wanted); });
 }
 
 void push_now_playing_sources()
