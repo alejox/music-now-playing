@@ -422,7 +422,7 @@
   /* ---- GTA 6 (Vice City): tarjeta oscura con borde y brillo rosa de neón, "NOW PLAYING" /
      "PAUSED" con nota y ecualizador, título en letra condensada, barra rosa → naranja.
      En vertical, la etiqueta va inclinada sobre la carátula. "GTA 6 con vinilo": un disco
-     asoma detrás de la carátula y gira mientras suena. */
+     asoma detrás de la carátula y gira mientras suena (en vertical, por la derecha). */
   :root[data-style^="gta6"] {
     --bg: rgba(34, 12, 30, var(--alpha, 0.85)); --fg: #fff; --muted: rgba(255, 255, 255, 0.62); --accent: #ff4fa3;
     --track: rgba(255, 255, 255, 0.13); --vice: linear-gradient(90deg, #ff3d9a, #ff8a3d);
@@ -472,7 +472,6 @@
   }
   [data-style="gta6disc"] .paused .deco .vinyl { animation-play-state: paused; }
   [data-style="gta6disc"]:not([data-layout="vertical"]) .meta { margin-left: calc(var(--art) * 0.42); }
-  [data-style="gta6disc"][data-layout="vertical"] .deco .vinyl { display: none; }
   /* El recuadro del video, opaco: el disco va detrás y no debe verse a través. */
   [data-style="gta6disc"] .art.video { background: #000; }
 
@@ -494,6 +493,22 @@
   [data-style^="gta6"][data-layout="vertical"] .artist { font-size: 13px; }
   [data-style^="gta6"][data-layout="vertical"] .progress { margin-top: 10px; }
   /* Sin la etiqueta encima ("Mostrar Escuchando en…" apagado o sin carátula), nada cambia. */
+
+  /* "GTA 6 con vinilo" en vertical: la carátula (o el video) más angosta, a la izquierda, y el
+     disco asoma por la derecha, como si saliera de la funda, girando mientras suena.
+     --inner: el ancho útil de la tarjeta (la fuente menos los márgenes de la sombra y el
+     relleno); --media-w y --media-h: lo que tapa el disco (el video ajustado a 16:9 es más
+     bajo que la carátula). */
+  [data-style="gta6disc"][data-layout="vertical"] .card {
+    --inner: calc(100vw - 2 * var(--gap-x) - 24px);
+    --media-w: calc(var(--inner) * 0.74); --media-h: var(--media-w);
+  }
+  [data-style="gta6disc"][data-layout="vertical"][data-video-fit="wide"] .card.has-video { --media-h: calc(var(--media-w) * 9 / 16); }
+  [data-style="gta6disc"][data-layout="vertical"] .card .art { width: var(--media-w); align-self: flex-start; }
+  [data-style="gta6disc"][data-layout="vertical"] .deco .vinyl {
+    width: calc(var(--media-h) * 0.94); height: calc(var(--media-h) * 0.94);
+    left: calc(12px + var(--media-w) - var(--media-h) * 0.6); top: calc(12px + var(--media-h) * 0.03);
+  }
 
   /* ---- Skins de Winamp (clásico 2.x y Winamp 5) -------------------------------------
      Barra de título arriba, la canción en la pantalla del reproductor (.meta), la barra
