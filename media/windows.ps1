@@ -36,6 +36,9 @@
 #                 "artwork":"data:image/png;base64,…"}]}      ← artwork solo cuando cambia
 #   {"error":"…"}
 #
+# iTunes no se anuncia en los SMTC: mientras está abierto, se lee por su interfaz COM
+# (iTunes.Application) y sale como una sesión más, "iTunes.exe" (ver $itunesCode).
+#
 # Usa solo lo que trae Windows PowerShell 5.1 (Windows 10/11): sin módulos extra.
 
 param([string]$CommandFile = '', [string]$CommandDir = '', [string]$VideoFlag = '', [switch]$SelfTest)
@@ -76,6 +79,12 @@ function Send-MediaCommand($line) {
   $target = $null
   foreach ($s in $manager.GetSessions()) {
     if ($s.SourceAppUserModelId -eq $msg.app) { $target = $s }
+  }
+  # iTunes (leído por COM): el comando va en la próxima lectura de su runspace.
+  if (-not $target -and "$($msg.app)" -eq $itunesApp) {
+    [void]$itunes.commands.Add($msg)
+    Update-ITunes
+    return
   }
   if (-not $target) { $target = $manager.GetCurrentSession() }
   if (-not $target) { return }
@@ -541,6 +550,158 @@ function Wait-Lookup($key, [string]$call, [object[]]$arguments) {
   $lookup.value
 }
 
+# iTunes: no se anuncia en los SMTC, así que se lee por su interfaz COM (iTunes.Application).
+# Solo si ya está abierto: crear el objeto COM abriría iTunes. Las llamadas COM se quedan
+# esperando mientras iTunes muestra un diálogo; por eso corren en un runspace aparte, con
+# tiempo límite, y la lectura principal nunca las espera (Update-ITunes). El objeto se suelta
+# tras cada lectura: si quedara tomado, al cerrar iTunes avisaría de que otro programa usa su
+# interfaz de scripts.
+$itunesApp = 'iTunes.exe'
+$itunesCode = {
+  # Lee iTunes (o un objeto con la misma forma, en la prueba) tras atender los comandos.
+  # $lastKey: la canción cuya carátula ya se devolvió; si cambió, se devuelve la nueva
+  # (artKey y art: data: o '' si no tiene).
+  function Read-ITunesState($it, $commands, $lastKey, $artDir) {
+    foreach ($cmd in @($commands)) {
+      try {
+        switch ("$($cmd.cmd)") {
+          'previous' { $it.PreviousTrack() }
+          'playpause' { $it.PlayPause() }
+          'next' { $it.NextTrack() }
+          # PlayerPosition va en segundos.
+          'seek' { $it.PlayerPosition = [int][Math]::Floor([int64]$cmd.positionMs / 1000) }
+          'shuffle' {
+            $playlist = $it.CurrentPlaylist
+            if ($playlist) { $playlist.Shuffle = -not [bool]$playlist.Shuffle }
+          }
+        }
+      } catch {}
+    }
+    $state = [ordered]@{ ok = $true; title = ''; artist = ''; album = ''; isPlaying = $false; positionMs = 0; durationMs = 0; key = '' }
+    $track = $it.CurrentTrack
+    if ($track) {
+      $state.title = "$($track.Name)"
+      $state.artist = "$($track.Artist)"
+      $state.album = "$($track.Album)"
+      $state.durationMs = [int64]$track.Duration * 1000
+    } elseif ($it.CurrentStreamTitle) {
+      # Una radio por internet: solo trae el título de lo que suena.
+      $state.title = "$($it.CurrentStreamTitle)"
+    }
+    # PlayerState: 0 detenido, 1 sonando, 2 y 3 adelantando o retrocediendo.
+    $state.isPlaying = [int]$it.PlayerState -eq 1
+    $ms = $null
+    try { $ms = $it.PlayerPositionMS } catch {}
+    if ($null -eq $ms) { $ms = [int64]$it.PlayerPosition * 1000 }
+    $state.positionMs = [int64]$ms
+    try {
+      $playlist = $it.CurrentPlaylist
+      if ($playlist) { $state.shuffle = [bool]$playlist.Shuffle }
+    } catch {}
+    $state.key = "$($state.title)`n$($state.artist)"
+    if ($state.title -and $state.key -ne $lastKey) {
+      $state.artKey = $state.key
+      $state.art = ''
+      try {
+        $artwork = if ($track) { $track.Artwork } else { $null }
+        if ($artwork -and $artwork.Count -gt 0) {
+          $item = $artwork.Item(1)
+          # Format: 1 JPEG, 2 PNG, 3 BMP.
+          $type = switch ([int]$item.Format) { 2 { 'png' } 3 { 'bmp' } default { 'jpeg' } }
+          $file = Join-Path $artDir "obs-now-playing-itunes.$type"
+          $item.SaveToFile($file)
+          $bytes = [System.IO.File]::ReadAllBytes($file)
+          [System.IO.File]::Delete($file)
+          if ($bytes.Length -gt 0) { $state.art = "data:image/$type;base64," + [Convert]::ToBase64String($bytes) }
+        }
+      } catch {}
+    }
+    $state
+  }
+}
+. $itunesCode
+$itunesCall = @'
+$it = $null
+try {
+  if ([System.Diagnostics.Process]::GetProcessesByName('iTunes').Count -eq 0) { return @{ ok = $false } }
+  $it = New-Object -ComObject iTunes.Application
+  Read-ITunesState $it $args[0] $args[1] $args[2]
+} catch {
+  @{ ok = $false }
+} finally {
+  if ($it) { try { [void][System.Runtime.InteropServices.Marshal]::ReleaseComObject($it) } catch {} }
+  [GC]::Collect()
+  [GC]::WaitForPendingFinalizers()
+}
+'@
+$itunes = @{
+  job = $null; runspace = $null; state = $null; readAt = [DateTime]::UtcNow
+  lastStart = [DateTime]::MinValue; retryAt = [DateTime]::MinValue
+  commands = (New-Object System.Collections.ArrayList); artKey = ''; art = $null
+}
+
+# Recoge la lectura de iTunes que terminó y lanza la siguiente (una por segundo, o enseguida
+# si hay comandos). No espera nunca. Si iTunes no responde en 5 s (un diálogo abierto), se
+# deja esa lectura y se vuelve a probar a los 5 s con otro runspace.
+function Update-ITunes {
+  $now = [DateTime]::UtcNow
+  $job = $itunes.job
+  if ($job) {
+    if ($job.handle.IsCompleted) {
+      $result = $null
+      try {
+        $out = $job.ps.EndInvoke($job.handle)
+        if ($out.Count -gt 0) { $result = $out[0] }
+      } catch {}
+      $job.ps.Dispose()
+      $itunes.job = $null
+      if ($result -and $result['ok']) {
+        $itunes.state = $result
+        $itunes.readAt = $job.started
+        if ($null -ne $result['artKey']) {
+          $itunes.artKey = $result['artKey']
+          $itunes.art = if ($result['art']) { New-ArtFromUrl $result['art'] } else { $null }
+        }
+      } else {
+        $itunes.state = $null
+      }
+    } elseif (($now - $job.started).TotalSeconds -gt 5) {
+      try { [void]$job.ps.BeginStop($null, $null) } catch {}
+      $itunes.job = $null
+      $itunes.runspace = $null
+      $itunes.state = $null
+      $itunes.retryAt = $now.AddSeconds(5)
+      return
+    } else {
+      return
+    }
+  }
+  if ($now -lt $itunes.retryAt) { return }
+  if ($itunes.commands.Count -eq 0 -and ($now - $itunes.lastStart).TotalMilliseconds -lt 900) { return }
+  # Se mira si iTunes está abierto una vez por segundo como mucho (recorre los procesos).
+  $itunes.lastStart = $now
+  if ([System.Diagnostics.Process]::GetProcessesByName('iTunes').Count -eq 0) {
+    $itunes.state = $null
+    $itunes.commands.Clear()
+    return
+  }
+  if (-not $itunes.runspace) {
+    $runspace = [runspacefactory]::CreateRunspace()
+    $runspace.ApartmentState = 'STA'
+    $runspace.Open()
+    $itunes.runspace = $runspace
+  }
+  $commands = @($itunes.commands.ToArray())
+  $itunes.commands.Clear()
+  $ps = [PowerShell]::Create()
+  $ps.Runspace = $itunes.runspace
+  [void]$ps.AddScript($itunesCode.ToString() + "`n" + $itunesCall)
+  [void]$ps.AddArgument($commands)
+  [void]$ps.AddArgument($itunes.artKey)
+  [void]$ps.AddArgument([System.IO.Path]::GetTempPath())
+  $itunes.job = @{ ps = $ps; handle = $ps.BeginInvoke(); started = $now }
+}
+
 function Test-VideoWanted {
   $VideoFlag -and [System.IO.File]::Exists($VideoFlag)
 }
@@ -580,12 +741,44 @@ if ($SelfTest) {
   })
   $tabs = @()
   try { $tabs = @(Read-BrowserTabs) } catch { $tabs = @("error: $($_.Exception.Message)") }
+  # iTunes: la lectura y los comandos con un objeto de la misma forma que iTunes.Application
+  # (en el runner no hay iTunes).
+  $itunesLog = New-Object System.Collections.ArrayList
+  $artItem = [pscustomobject]@{ Format = 2 }
+  $artItem | Add-Member ScriptMethod SaveToFile { param($path) [System.IO.File]::WriteAllBytes($path, [byte[]](137, 80, 78, 71, 13, 10, 26, 10)) }
+  $artwork = [pscustomobject]@{ Count = 1; First = $artItem }
+  $artwork | Add-Member ScriptMethod Item { param($index) $this.First }
+  $playlist = [pscustomobject]@{ Shuffle = $false }
+  $fake = [pscustomobject]@{
+    CurrentTrack = [pscustomobject]@{ Name = 'Vice Lights'; Artist = 'The Leonida Keys'; Album = 'Leonida'; Duration = 200; Artwork = $artwork }
+    CurrentStreamTitle = ''; PlayerState = 1; PlayerPositionMS = 61500; PlayerPosition = 61; CurrentPlaylist = $playlist; Log = $itunesLog
+  }
+  foreach ($method in 'PlayPause', 'NextTrack', 'PreviousTrack') {
+    $fake | Add-Member ScriptMethod $method ([scriptblock]::Create("[void]`$this.Log.Add('$method')"))
+  }
+  $commands = @(('{"cmd":"next","app":"iTunes.exe"}' | ConvertFrom-Json), ('{"cmd":"shuffle","app":"iTunes.exe"}' | ConvertFrom-Json),
+    ('{"cmd":"seek","app":"iTunes.exe","positionMs":30500}' | ConvertFrom-Json), ('{"cmd":"playpause","app":"iTunes.exe"}' | ConvertFrom-Json))
+  $first = Read-ITunesState $fake $commands '' ([System.IO.Path]::GetTempPath())
+  $again = Read-ITunesState $fake @() $first.key ([System.IO.Path]::GetTempPath())
+  $fake.CurrentTrack = $null
+  $fake.CurrentStreamTitle = 'Radio X - Live'
+  $fake.PlayerState = 0
+  $stream = Read-ITunesState $fake @() $first.key ([System.IO.Path]::GetTempPath())
+  $itunesChecks = @(
+    @{ what = 'título'; ok = ($first.title -eq 'Vice Lights' -and $first.artist -eq 'The Leonida Keys' -and $first.album -eq 'Leonida') },
+    @{ what = 'sonando y tiempos'; ok = ($first.isPlaying -and $first.positionMs -eq 61500 -and $first.durationMs -eq 200000) },
+    @{ what = 'comandos'; ok = (($itunesLog -join ',') -eq 'NextTrack,PlayPause' -and $fake.PlayerPosition -eq 30 -and $playlist.Shuffle -eq $true -and $first.shuffle -eq $true) },
+    @{ what = 'carátula'; ok = ("$($first.art)" -like 'data:image/png;base64,*' -and $first.artKey -eq $first.key) },
+    @{ what = 'carátula solo al cambiar'; ok = ($null -eq $again.artKey) },
+    @{ what = 'radio por internet'; ok = ($stream.title -eq 'Radio X - Live' -and -not $stream.isPlaying -and $stream.art -eq '') }
+  ) | ForEach-Object { [ordered]@{ what = $_.what; ok = [bool]$_.ok } }
   Emit ([ordered]@{
     catalogArtwork = [bool]$art
     searchVideoId  = $id
     thumbnail      = [bool]$thumb
     youtubeWindows = @($windows | ForEach-Object { [ordered]@{ name = $_.name; id = $_.id; site = $_.site } })
     siteChecks     = $siteChecks
+    itunesChecks   = @($itunesChecks)
     browserTabs    = $tabs
   })
   exit 0
@@ -623,6 +816,49 @@ function Read-Commands {
     } catch {}
   }
   , $lines
+}
+
+# Carátula (solo cuando cambia la canción) y, en modo video, el video de YouTube de una
+# sesión. $getArt da la carátula del propio reproductor (o nada).
+function Complete-Entry($entry, [scriptblock]$getArt) {
+  $app = $entry.app
+  $key = "$($entry.title)`n$($entry.artist)"
+  if ($sentKey[$app] -ne $key) {
+    $tries[$app] = 1 + [int]$tries[$app]
+    $art = $null
+    $waiting = $false
+    try { $art = & $getArt } catch { $art = $null }
+    # Sin carátula del reproductor (tras unos segundos, por si llega tarde): la del
+    # catálogo de Apple o, en el navegador, la miniatura del video de YouTube. Mientras
+    # se busca, la línea sale sin carátula y no se da por perdida.
+    if (-not $art -and $tries[$app] -ge 3) {
+      $found = Get-NetworkArtwork $app $entry.title $entry.artist $entry.album
+      $art = $found.art
+      $waiting = [bool]$found.waiting
+    }
+    $fresh = $art -and $art.hash -ne $sentHash[$app]
+    if ($fresh -or ($tries[$app] -ge 5 -and -not $waiting)) {
+      $entry.artwork = if ($art) { $art.url } else { '' }
+      $sentKey[$app] = $key
+      $sentHash[$app] = if ($art) { $art.hash } else { '' }
+      $tries[$app] = 0
+    }
+  }
+  if (Test-VideoWanted) {
+    # En un navegador: ¿YouTube Music o YouTube? (de los nombres de sus pestañas)
+    $site = ''
+    if (Test-BrowserApp $app) {
+      $site = Get-BrowserSite $app $entry.title $entry.album
+      if ($site) { $entry.site = $site }
+    }
+    $video = Get-Video $app $entry.title $entry.artist $entry.album $site
+    if ($video -and $video.id) {
+      $entry.videoId = $video.id
+      # Si las pestañas no lo dijeron, el sitio que vio la búsqueda del video (la ventana
+      # visible puede ser otra pestaña de YouTube, por eso no manda sobre las pestañas).
+      if (-not $entry.site -and $video.site) { $entry.site = $video.site }
+    }
+  }
 }
 
 # Por app: qué canción ya tiene carátula enviada, el hash de esa carátula y cuántos
@@ -675,45 +911,33 @@ for ($i = 0; $i -lt 1800; $i++) {
         $entry.shuffle = [bool]$playback.IsShuffleActive
       }
 
-      $key = "$($props.Title)`n$($props.Artist)"
-      if ($sentKey[$app] -ne $key) {
-        $tries[$app] = 1 + [int]$tries[$app]
-        $art = $null
-        $waiting = $false
-        if ($props.Thumbnail) {
-          try { $art = Read-Thumbnail $props.Thumbnail } catch { $art = $null }
-        }
-        # Sin carátula del reproductor (tras unos segundos, por si llega tarde): la del
-        # catálogo de Apple o, en el navegador, la miniatura del video de YouTube. Mientras
-        # se busca, la línea sale sin carátula y no se da por perdida.
-        if (-not $art -and $tries[$app] -ge 3) {
-          $found = Get-NetworkArtwork $app $props.Title $props.Artist $props.AlbumTitle
-          $art = $found.art
-          $waiting = [bool]$found.waiting
-        }
-        $fresh = $art -and $art.hash -ne $sentHash[$app]
-        if ($fresh -or ($tries[$app] -ge 5 -and -not $waiting)) {
-          $entry.artwork = if ($art) { $art.url } else { '' }
-          $sentKey[$app] = $key
-          $sentHash[$app] = if ($art) { $art.hash } else { '' }
-          $tries[$app] = 0
-        }
+      $thumbnail = $props.Thumbnail
+      Complete-Entry $entry { if ($thumbnail) { Read-Thumbnail $thumbnail } }
+      [void]$sessions.Add($entry)
+    }
+
+    # iTunes (por COM), si no vino ya en los SMTC (con cualquier id de app). La posición es la de la última lectura,
+    # llevada a "ahora" si está sonando.
+    Update-ITunes
+    $st = $itunes.state
+    if ($st -and $st['title'] -and -not @($sessions | Where-Object { "$($_.app)" -match '(?i)itunes' })) {
+      $position = [double]$st['positionMs']
+      if ($st['isPlaying']) { $position += ([DateTime]::UtcNow - $itunes.readAt).TotalMilliseconds }
+      $duration = [double]$st['durationMs']
+      if ($duration -gt 0) { $position = [Math]::Min($position, $duration) }
+      $entry = [ordered]@{
+        app        = $itunesApp
+        title      = $st['title']
+        artist     = $st['artist']
+        album      = $st['album']
+        isPlaying  = [bool]$st['isPlaying']
+        current    = $false
+        progressMs = [int64][Math]::Max(0, $position)
+        durationMs = [int64][Math]::Max(0, $duration)
       }
-      if (Test-VideoWanted) {
-        # En un navegador: ¿YouTube Music o YouTube? (de los nombres de sus pestañas)
-        $site = ''
-        if (Test-BrowserApp $app) {
-          $site = Get-BrowserSite $app $props.Title $props.AlbumTitle
-          if ($site) { $entry.site = $site }
-        }
-        $video = Get-Video $app $props.Title $props.Artist $props.AlbumTitle $site
-        if ($video -and $video.id) {
-          $entry.videoId = $video.id
-          # Si las pestañas no lo dijeron, el sitio que vio la búsqueda del video (la ventana
-          # visible puede ser otra pestaña de YouTube, por eso no manda sobre las pestañas).
-          if (-not $entry.site -and $video.site) { $entry.site = $video.site }
-        }
-      }
+      if ($null -ne $st['shuffle']) { $entry.shuffle = [bool]$st['shuffle'] }
+      $stKey = $st['key']
+      Complete-Entry $entry { if ($itunes.artKey -eq $stKey) { $itunes.art } }
       [void]$sessions.Add($entry)
     }
 
@@ -727,6 +951,7 @@ for ($i = 0; $i -lt 1800; $i++) {
   # Espera ~1 s, pero atiende al instante los comandos que lleguen.
   for ($wait = 0; $wait -lt 10; $wait++) {
     Update-Lookups
+    Update-ITunes
     $commands = Read-Commands
     if ($commands.Count -gt 0) {
       foreach ($line in $commands) {

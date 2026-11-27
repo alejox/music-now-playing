@@ -13,7 +13,7 @@ const readline = require('node:readline');
 const { spawn, execFileSync } = require('node:child_process');
 const { decodeBuffer, createParser } = require('./text-source');
 
-const VERSION = '2.4.37';
+const VERSION = '2.4.38';
 const ARGS = new Set(process.argv.slice(2));
 
 // Archivos de la app (overlay, lectores del sistema, userscript): junto a este
@@ -159,6 +159,7 @@ function classifyApp(app, name = '') {
     return { kind: 'ytmusic', label: 'YouTube Music' };
   }
   if (id.includes('applemusic') || id.includes('com.apple.music')) return { kind: 'applemusic', label: 'Apple Music' };
+  if (id.includes('itunes')) return { kind: 'applemusic', label: 'iTunes' };
   if (id.includes('tidal')) return { kind: 'other', label: 'TIDAL' };
   if (id.includes('deezer')) return { kind: 'other', label: 'Deezer' };
   for (const [needle, label] of BROWSERS) {

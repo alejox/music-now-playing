@@ -118,6 +118,9 @@ jobs:
           # YouTube Music o YouTube según los nombres de las pestañas (casos fijos).
           $bad = @($result.siteChecks | Where-Object { -not $_.ok })
           if ($bad.Count -gt 0) { throw "El sitio de las pestañas falló: $($bad | ConvertTo-Json -Compress)" }
+          # iTunes por COM (con un objeto simulado): lectura, comandos y carátula.
+          $badItunes = @($result.itunesChecks | Where-Object { -not $_.ok })
+          if (@($result.itunesChecks).Count -eq 0 -or $badItunes.Count -gt 0) { throw "La lectura de iTunes falló: $($result.itunesChecks | ConvertTo-Json -Compress)" }
           "Pestañas que ve el lector: $($result.browserTabs | ConvertTo-Json -Compress)"
           # Las pestañas de verdad dependen de que Chrome muestre la ventana en el runner: se informa.
           if ($chrome -and -not ($result.browserTabs | Where-Object { $_ -match 'youtube music' })) { Write-Warning 'No se leyó la pestaña de YouTube Music de Chrome' }
