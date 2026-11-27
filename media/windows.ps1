@@ -37,7 +37,9 @@
 #   {"error":"…"}
 #
 # iTunes no se anuncia en los SMTC: mientras está abierto, se lee por su interfaz COM
-# (iTunes.Application) y sale como una sesión más, "iTunes.exe" (ver $itunesCode).
+# (iTunes.Application) y sale como una sesión más, "iTunes.exe" (ver $itunesCode). AIMP
+# tampoco (sin un complemento): se lee por su interfaz remota y sale como "AIMP.exe" (ver
+# Read-Aimp).
 #
 # Usa solo lo que trae Windows PowerShell 5.1 (Windows 10/11): sin módulos extra.
 
@@ -79,6 +81,11 @@ function Send-MediaCommand($line) {
   $target = $null
   foreach ($s in $manager.GetSessions()) {
     if ($s.SourceAppUserModelId -eq $msg.app) { $target = $s }
+  }
+  # AIMP (por su interfaz remota): se le manda directo.
+  if (-not $target -and "$($msg.app)" -eq $aimpApp) {
+    Send-AimpCommand $msg
+    return
   }
   # iTunes (leído por COM): el comando va en la próxima lectura de su runspace.
   if (-not $target -and "$($msg.app)" -eq $itunesApp) {
@@ -702,6 +709,207 @@ function Update-ITunes {
   $itunes.job = @{ ps = $ps; handle = $ps.BeginInvoke(); started = $now }
 }
 
+# AIMP: no se anuncia en los SMTC (solo con un complemento). Se lee por su interfaz remota
+# (apiRemote.h del SDK de AIMP): la canción, en el archivo compartido "AIMP2_RemoteInfo"; el
+# estado, la posición y el aleatorio, y los comandos, con mensajes a su ventana
+# "AIMP2_RemoteInfo" (SendMessageTimeout: si AIMP no responde, no se espera más de 1 s); la
+# carátula, que AIMP manda con WM_COPYDATA a una ventana nuestra. Solo si AIMP está abierto;
+# la parte en C# se compila la primera vez que se lo ve.
+$aimpApp = 'AIMP.exe'
+$aimpSource = @'
+using System;
+using System.Runtime.InteropServices;
+using System.Windows.Forms;
+
+public class ObsNowPlayingAimp : NativeWindow {
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  static extern IntPtr FindWindow(string className, string windowName);
+  [DllImport("user32.dll")]
+  static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam, uint flags, uint timeout, out IntPtr result);
+
+  [StructLayout(LayoutKind.Sequential)]
+  struct CopyData { public IntPtr dwData; public int cbData; public IntPtr lpData; }
+
+  const uint WM_AIMP_COMMAND = 0x400 + 0x75;
+  const uint WM_AIMP_PROPERTY = 0x400 + 0x77;
+  const int WM_COPYDATA = 0x4A;
+  const long ALBUMART_ID = 0x41495043;
+  byte[] art;
+
+  // Una ventana solo para mensajes (HWND_MESSAGE): ahí llega la carátula.
+  public ObsNowPlayingAimp() {
+    CreateParams cp = new CreateParams();
+    cp.Parent = new IntPtr(-3);
+    CreateHandle(cp);
+  }
+
+  public static IntPtr Window() { return FindWindow("AIMP2_RemoteInfo", null); }
+
+  // -1 si AIMP no respondió (SMTO_ABORTIFHUNG, como mucho 1 s).
+  static long Send(IntPtr hWnd, uint msg, long wParam, long lParam) {
+    IntPtr result;
+    if (SendMessageTimeout(hWnd, msg, new IntPtr(wParam), new IntPtr(lParam), 2, 1000, out result) == IntPtr.Zero) return -1;
+    return result.ToInt64();
+  }
+  public static long Get(IntPtr hWnd, int property) { return Send(hWnd, WM_AIMP_PROPERTY, property, 0); }
+  public static long Set(IntPtr hWnd, int property, long value) { return Send(hWnd, WM_AIMP_PROPERTY, property | 1, value); }
+  public static long Command(IntPtr hWnd, int command) { return Send(hWnd, WM_AIMP_COMMAND, command, 0); }
+
+  // AIMP_RA_CMD_GET_ALBUMART: AIMP manda la imagen a nuestra ventana mientras esperamos.
+  public byte[] AlbumArt(IntPtr hWnd) {
+    art = null;
+    Send(hWnd, WM_AIMP_COMMAND, 29, Handle.ToInt64());
+    return art;
+  }
+
+  protected override void WndProc(ref Message m) {
+    if (m.Msg == WM_COPYDATA) {
+      CopyData data = (CopyData)Marshal.PtrToStructure(m.LParam, typeof(CopyData));
+      if (data.dwData.ToInt64() == ALBUMART_ID && data.cbData > 0 && data.lpData != IntPtr.Zero) {
+        art = new byte[data.cbData];
+        Marshal.Copy(data.lpData, art, 0, data.cbData);
+      }
+      m.Result = new IntPtr(1);
+      return;
+    }
+    base.WndProc(ref m);
+  }
+}
+'@
+$aimp = @{ ready = $false; failed = $false; remote = $null; checkedAt = [DateTime]::MinValue; running = $false; artKey = ''; art = $null }
+
+# La canción del archivo compartido de AIMP (TAIMPRemoteFileInfo, empaquetado): DWORD
+# Deprecated1, BOOL Active, DWORD BitRate, Channels, Duration, INT64 FileSize, DWORD FileMark,
+# SampleRate, TrackNumber, AlbumLength, ArtistLength, DateLength, FileNameLength, GenreLength,
+# TitleLength, DWORD Deprecated2[6] (88 bytes); detrás, los textos en UTF-16 en ese orden.
+function Read-AimpFileInfo([byte[]]$bytes) {
+  if (-not $bytes -or $bytes.Length -lt 88) { return $null }
+  $lengths = @(40, 44, 48, 52, 56, 60 | ForEach-Object { [int64][BitConverter]::ToUInt32($bytes, $_) })
+  # Deprecated1 es, en la práctica, dónde empiezan los textos (el tamaño de la cabecera).
+  $start = [int64][BitConverter]::ToUInt32($bytes, 0)
+  if ($start -lt 88 -or $start -gt 256) { $start = 88 }
+  $total = 0
+  foreach ($length in $lengths) {
+    if ($length -lt 0 -or $length -gt 1024) { return $null }
+    $total += $length
+  }
+  if ($start + 2 * $total -gt $bytes.Length) { return $null }
+  $texts = @()
+  $offset = $start
+  foreach ($length in $lengths) {
+    $texts += [Text.Encoding]::Unicode.GetString($bytes, [int]$offset, [int](2 * $length)).TrimEnd([char]0)
+    $offset += 2 * $length
+  }
+  $title = $texts[5]
+  # Sin etiquetas, el nombre del archivo (o de la radio) hace de título.
+  if (-not $title -and $texts[3]) { $title = [IO.Path]::GetFileNameWithoutExtension(($texts[3] -split '[?#]')[0]) }
+  [ordered]@{
+    active     = [BitConverter]::ToInt32($bytes, 4) -ne 0
+    durationMs = [int64][BitConverter]::ToUInt32($bytes, 16)
+    album      = $texts[0]
+    artist     = $texts[1]
+    fileName   = $texts[3]
+    title      = $title
+  }
+}
+
+# Un archivo de imagen (bytes) como data: (su tipo, por la firma).
+function New-ArtFromBytes([byte[]]$bytes) {
+  if (-not $bytes -or $bytes.Length -lt 8) { return $null }
+  $mime = if ($bytes[0] -eq 0x89 -and $bytes[1] -eq 0x50) { 'image/png' }
+    elseif ($bytes[0] -eq 0x47 -and $bytes[1] -eq 0x49) { 'image/gif' }
+    elseif ($bytes[0] -eq 0x42 -and $bytes[1] -eq 0x4D) { 'image/bmp' }
+    elseif ($bytes[0] -eq 0x52 -and $bytes[1] -eq 0x49) { 'image/webp' }
+    else { 'image/jpeg' }
+  @{ url = "data:$mime;base64," + [Convert]::ToBase64String($bytes); hash = [BitConverter]::ToString($md5.ComputeHash($bytes)) }
+}
+
+# ¿Está abierto AIMP? (se mira una vez por segundo como mucho: recorre los procesos). La
+# primera vez, compila la parte en C#; si no se puede, AIMP se deja de lado.
+function Test-Aimp {
+  $now = [DateTime]::UtcNow
+  if (($now - $aimp.checkedAt).TotalMilliseconds -ge 900) {
+    $aimp.checkedAt = $now
+    $aimp.running = [System.Diagnostics.Process]::GetProcessesByName('AIMP').Count -gt 0
+  }
+  if (-not $aimp.running -or $aimp.failed) { return $false }
+  if (-not $aimp.ready) {
+    try {
+      Add-Type -TypeDefinition $aimpSource -ReferencedAssemblies System.Windows.Forms
+      $aimp.remote = New-Object ObsNowPlayingAimp
+      $aimp.ready = $true
+    } catch {
+      $aimp.failed = $true
+      Emit @{ error = "No se pudo preparar la lectura de AIMP: $($_.Exception.Message)" }
+      return $false
+    }
+  }
+  $true
+}
+
+# La sesión de AIMP (o nada si no está abierto o no tiene canción).
+function Read-Aimp {
+  if (-not (Test-Aimp)) { return $null }
+  $window = [ObsNowPlayingAimp]::Window()
+  if ($window -eq [IntPtr]::Zero) { return $null }
+  $bytes = $null
+  try {
+    $map = [System.IO.MemoryMappedFiles.MemoryMappedFile]::OpenExisting('AIMP2_RemoteInfo', [System.IO.MemoryMappedFiles.MemoryMappedFileRights]::Read)
+    try {
+      $view = $map.CreateViewStream(0, 0, [System.IO.MemoryMappedFiles.MemoryMappedFileAccess]::Read)
+      try {
+        $bytes = New-Object byte[] ([Math]::Min(2048, [int]$view.Length))
+        [void]$view.Read($bytes, 0, $bytes.Length)
+      } finally { $view.Dispose() }
+    } finally { $map.Dispose() }
+  } catch { return $null }
+  $info = Read-AimpFileInfo $bytes
+  if (-not $info -or -not $info.title) { return $null }
+  # PLAYER_STATE (0x40): 0 detenido, 1 en pausa, 2 sonando.
+  $state = [ObsNowPlayingAimp]::Get($window, 0x40)
+  if ($state -lt 0) { return $null }
+  $position = [ObsNowPlayingAimp]::Get($window, 0x20)
+  $duration = [ObsNowPlayingAimp]::Get($window, 0x30)
+  if ($duration -le 0) { $duration = $info.durationMs }
+  $shuffle = [ObsNowPlayingAimp]::Get($window, 0x80)
+  $entry = [ordered]@{
+    app        = $aimpApp
+    title      = $info.title
+    artist     = $info.artist
+    album      = $info.album
+    isPlaying  = ($state -eq 2)
+    current    = $false
+    progressMs = [int64][Math]::Max(0, $position)
+    durationMs = [int64][Math]::Max(0, $duration)
+  }
+  if ($shuffle -ge 0) { $entry.shuffle = $shuffle -ne 0 }
+  # La carátula, una vez por canción (la pide Complete-Entry por $getArt).
+  $key = "$($info.title)`n$($info.artist)`n$($info.fileName)"
+  if ($aimp.artKey -ne $key) {
+    $aimp.artKey = $key
+    $aimp.art = $null
+    try { $aimp.art = New-ArtFromBytes ($aimp.remote.AlbumArt($window)) } catch {}
+  }
+  $entry
+}
+
+# Los comandos del dock para AIMP (AIMP_RA_CMD_* y las propiedades que se pueden cambiar).
+function Send-AimpCommand($msg) {
+  if (-not (Test-Aimp)) { return }
+  $window = [ObsNowPlayingAimp]::Window()
+  if ($window -eq [IntPtr]::Zero) { return }
+  switch ("$($msg.cmd)") {
+    'previous' { [void][ObsNowPlayingAimp]::Command($window, 18) }
+    'playpause' { [void][ObsNowPlayingAimp]::Command($window, 14) }
+    'next' { [void][ObsNowPlayingAimp]::Command($window, 17) }
+    'seek' { [void][ObsNowPlayingAimp]::Set($window, 0x20, [int64]$msg.positionMs) }
+    'shuffle' {
+      $now = [ObsNowPlayingAimp]::Get($window, 0x80)
+      if ($now -ge 0) { [void][ObsNowPlayingAimp]::Set($window, 0x80, [int64]($now -eq 0)) }
+    }
+  }
+}
+
 function Test-VideoWanted {
   $VideoFlag -and [System.IO.File]::Exists($VideoFlag)
 }
@@ -764,6 +972,38 @@ if ($SelfTest) {
   $fake.CurrentStreamTitle = 'Radio X - Live'
   $fake.PlayerState = 0
   $stream = Read-ITunesState $fake @() $first.key ([System.IO.Path]::GetTempPath())
+  # AIMP: el archivo compartido (armado como lo escribe AIMP), la carátula y la parte en C#
+  # (compila y crea su ventana; sin AIMP abierto no encuentra la suya).
+  $aimpBytes = New-Object byte[] 2048
+  $put = { param($offset, $value) [Array]::Copy([BitConverter]::GetBytes([uint32]$value), 0, $aimpBytes, $offset, 4) }
+  & $put 0 88; & $put 4 1; & $put 16 215000
+  $aimpTexts = @('Leonida', 'The Leonida Keys', '2026', 'C:\Music\vice.mp3', 'Synthwave', 'Vice Lights')
+  $offset = 88
+  for ($k = 0; $k -lt 6; $k++) {
+    & $put (40 + 4 * $k) $aimpTexts[$k].Length
+    $raw = [Text.Encoding]::Unicode.GetBytes($aimpTexts[$k])
+    [Array]::Copy($raw, 0, $aimpBytes, $offset, $raw.Length)
+    $offset += $raw.Length
+  }
+  $aimpInfo = Read-AimpFileInfo $aimpBytes
+  & $put 60 0
+  $aimpNoTags = Read-AimpFileInfo $aimpBytes
+  & $put 40 5000
+  $aimpBroken = Read-AimpFileInfo $aimpBytes
+  $aimpCompiled = $false
+  try {
+    Add-Type -TypeDefinition $aimpSource -ReferencedAssemblies System.Windows.Forms
+    $remote = New-Object ObsNowPlayingAimp
+    $aimpCompiled = ($remote.Handle -ne [IntPtr]::Zero) -and ([ObsNowPlayingAimp]::Window() -eq [IntPtr]::Zero)
+  } catch { $aimpCompiled = "error: $($_.Exception.Message)" }
+  $aimpChecks = @(
+    @{ what = 'textos'; ok = ($aimpInfo.title -eq 'Vice Lights' -and $aimpInfo.artist -eq 'The Leonida Keys' -and $aimpInfo.album -eq 'Leonida' -and $aimpInfo.fileName -eq 'C:\Music\vice.mp3') },
+    @{ what = 'activo y duración'; ok = ($aimpInfo.active -and $aimpInfo.durationMs -eq 215000) },
+    @{ what = 'sin etiquetas, el nombre del archivo'; ok = ($aimpNoTags.title -eq 'vice') },
+    @{ what = 'datos rotos'; ok = ($null -eq $aimpBroken) },
+    @{ what = 'carátula'; ok = ((New-ArtFromBytes ([byte[]](0x89, 0x50, 0x4E, 0x47, 13, 10, 26, 10, 0))).url -like 'data:image/png;base64,*') },
+    @{ what = 'parte en C#'; ok = ($aimpCompiled -eq $true) }
+  ) | ForEach-Object { [ordered]@{ what = $_.what; ok = [bool]$_.ok } }
   $itunesChecks = @(
     @{ what = 'título'; ok = ($first.title -eq 'Vice Lights' -and $first.artist -eq 'The Leonida Keys' -and $first.album -eq 'Leonida') },
     @{ what = 'sonando y tiempos'; ok = ($first.isPlaying -and $first.positionMs -eq 61500 -and $first.durationMs -eq 200000) },
@@ -779,6 +1019,8 @@ if ($SelfTest) {
     youtubeWindows = @($windows | ForEach-Object { [ordered]@{ name = $_.name; id = $_.id; site = $_.site } })
     siteChecks     = $siteChecks
     itunesChecks   = @($itunesChecks)
+    aimpChecks     = @($aimpChecks)
+    aimpCompiled   = "$aimpCompiled"
     browserTabs    = $tabs
   })
   exit 0
@@ -939,6 +1181,16 @@ for ($i = 0; $i -lt 1800; $i++) {
       $stKey = $st['key']
       Complete-Entry $entry { if ($itunes.artKey -eq $stKey) { $itunes.art } }
       [void]$sessions.Add($entry)
+    }
+
+    # AIMP (por su interfaz remota), si no vino ya en los SMTC (con un complemento).
+    if (-not @($sessions | Where-Object { "$($_.app)" -match '(?i)aimp' })) {
+      $aimpEntry = $null
+      try { $aimpEntry = Read-Aimp } catch { $aimpEntry = $null }
+      if ($aimpEntry -and $aimpEntry.title) {
+        Complete-Entry $aimpEntry { $aimp.art }
+        [void]$sessions.Add($aimpEntry)
+      }
     }
 
     Emit ([ordered]@{ sessions = $sessions })

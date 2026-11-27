@@ -58,6 +58,9 @@ AppInfo classifyApp(const QString &app, const QString &name, const QString &site
 	// El Reproductor multimedia de Windows (el nuevo, Microsoft.ZuneMusic, y el clásico).
 	if (id.contains("zunemusic") || id.contains("wmplayer"))
 		return {"system", "Reproductor multimedia"};
+	// AIMP (Windows): cuenta como reproductor del sistema para "Solo el reproductor del sistema".
+	if (id.contains("aimp"))
+		return {"system", "AIMP"};
 	if (id.contains("tidal"))
 		return {"other", "TIDAL"};
 	if (id.contains("deezer"))
@@ -484,7 +487,7 @@ Track MediaWatcher::current(bool includePaused, const QString &player) const
 const QStringList &MediaWatcher::players()
 {
 	// system: el reproductor del sistema (Apple Music en Mac; en Windows, el Reproductor
-	// multimedia y también Apple Music o iTunes). radio: la radio desde un archivo (el dock la
+	// multimedia y también Apple Music, iTunes o AIMP). radio: la radio desde un archivo (el dock la
 	// muestra solo si está activada).
 	static const QStringList list = {"spotify", "ytmusic", "youtube", "system", "radio"};
 	return list;

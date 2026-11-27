@@ -89,7 +89,7 @@ struct PlayerInfo {
 };
 
 // El reproductor del sistema: Apple Music en Mac; en Windows, el Reproductor multimedia, Apple
-// Music o iTunes (los tres cuentan para "Solo el reproductor del sistema").
+// Music, iTunes o AIMP (todos cuentan para "Solo el reproductor del sistema").
 #ifdef __APPLE__
 constexpr const char *kSystemName = "Apple Music";
 constexpr const char *kSystemColor = "#fa2d48";
