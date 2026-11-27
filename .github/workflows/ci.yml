@@ -121,6 +121,9 @@ jobs:
           # iTunes por COM (con un objeto simulado): lectura, comandos y carátula.
           $badItunes = @($result.itunesChecks | Where-Object { -not $_.ok })
           if (@($result.itunesChecks).Count -eq 0 -or $badItunes.Count -gt 0) { throw "La lectura de iTunes falló: $($result.itunesChecks | ConvertTo-Json -Compress)" }
+          # AIMP por su interfaz remota (archivo compartido armado a mano y la parte en C#).
+          $badAimp = @($result.aimpChecks | Where-Object { -not $_.ok })
+          if (@($result.aimpChecks).Count -eq 0 -or $badAimp.Count -gt 0) { throw "La lectura de AIMP falló: $($result.aimpChecks | ConvertTo-Json -Compress) $($result.aimpCompiled)" }
           "Pestañas que ve el lector: $($result.browserTabs | ConvertTo-Json -Compress)"
           # Las pestañas de verdad dependen de que Chrome muestre la ventana en el runner: se informa.
           if ($chrome -and -not ($result.browserTabs | Where-Object { $_ -match 'youtube music' })) { Write-Warning 'No se leyó la pestaña de YouTube Music de Chrome' }

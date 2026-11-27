@@ -160,6 +160,7 @@ function classifyApp(app, name = '') {
   }
   if (id.includes('applemusic') || id.includes('com.apple.music')) return { kind: 'applemusic', label: 'Apple Music' };
   if (id.includes('itunes')) return { kind: 'applemusic', label: 'iTunes' };
+  if (id.includes('aimp')) return { kind: 'other', label: 'AIMP' };
   if (id.includes('tidal')) return { kind: 'other', label: 'TIDAL' };
   if (id.includes('deezer')) return { kind: 'other', label: 'Deezer' };
   for (const [needle, label] of BROWSERS) {
